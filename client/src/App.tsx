@@ -1,37 +1,59 @@
-import './index.css'
+import './index.css';
+import { NavigationProvider, useNavigation } from '@/context/NavigationContext';
+import Sidebar from '@/components/layout/Sidebar';
+import ContentPanel from '@/components/layout/ContentPanel';
+import HomePage from '@/pages/HomePage';
+import PlayerPage from '@/pages/PlayerPage';
+import CountryList from '@/components/navigation/CountryList';
+
+function AppContent() {
+  const { state } = useNavigation();
+  const panel0 = state.panels[0];
+  const panel1 = state.panels[1];
+
+  const renderPanelContent = (panelIndex: number) => {
+    const panel = state.panels[panelIndex];
+    if (!panel) return null;
+
+    switch (panel.view) {
+      case 'player':
+        return panel.playerId ? (
+          <PlayerPage
+            playerId={panel.playerId}
+            playerData={panel.playerData}
+            panelIndex={panelIndex}
+          />
+        ) : null;
+
+      case 'home':
+      case 'leagues':
+      case 'teams':
+      case 'team':
+      default:
+        return <HomePage />;
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen bg-bg">
+      <Sidebar>
+        <CountryList />
+      </Sidebar>
+      <ContentPanel
+        splitContent={panel1 ? renderPanelContent(1) : undefined}
+      >
+        {renderPanelContent(0)}
+      </ContentPanel>
+    </div>
+  );
+}
 
 function App() {
   return (
-    <div className="flex h-screen">
-      <aside className="w-[210px] bg-bg-sidebar border-r border-border flex-shrink-0">
-        <div className="p-4">
-          <h2 className="text-neon font-bold text-lg">Stats Analyzer</h2>
-        </div>
-      </aside>
-      <main className="flex-1 p-6 overflow-y-auto">
-        <h1 className="text-2xl font-bold text-text-primary mb-4">
-          Benvenuto in Stats Analyzer
-        </h1>
-        <p className="text-text-secondary">
-          Analizza i falli commessi e subiti di qualsiasi giocatore di calcio.
-        </p>
-        <div className="mt-6 grid grid-cols-3 gap-4">
-          <div className="bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors">
-            <p className="text-text-muted text-sm">Falli commessi</p>
-            <p className="text-negative text-2xl font-bold">--</p>
-          </div>
-          <div className="bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors">
-            <p className="text-text-muted text-sm">Falli subiti</p>
-            <p className="text-neon text-2xl font-bold">--</p>
-          </div>
-          <div className="bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors">
-            <p className="text-text-muted text-sm">Media / 90 min</p>
-            <p className="text-text-primary text-2xl font-bold">--</p>
-          </div>
-        </div>
-      </main>
-    </div>
-  )
+    <NavigationProvider>
+      <AppContent />
+    </NavigationProvider>
+  );
 }
 
-export default App
+export default App;

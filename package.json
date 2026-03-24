@@ -1,0 +1,14 @@
+{
+  "name": "stats-analyzer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "cd server && node --watch index.js",
+    "dev:client": "cd client && npx vite",
+    "install:all": "cd server && npm install && cd ../client && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

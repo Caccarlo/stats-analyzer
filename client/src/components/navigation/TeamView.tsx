@@ -1,0 +1,241 @@
+import { useState, useEffect } from 'react';
+import { useNavigation } from '@/context/NavigationContext';
+import {
+  getTeamPlayers,
+  getTeamNextEvent,
+  getMatchLineups,
+  getTeamImageUrl,
+  getPlayerImageUrl,
+} from '@/api/sofascore';
+import { getFormationPositions } from '@/utils/positionMapping';
+import type { Player, MatchEvent, LineupPlayer } from '@/types';
+
+interface TeamViewProps {
+  teamId: number;
+}
+
+export default function TeamView({ teamId }: TeamViewProps) {
+  const { selectPlayer, openSplitPlayer } = useNavigation();
+  const [roster, setRoster] = useState<Player[]>([]);
+  const [nextEvent, setNextEvent] = useState<MatchEvent | null>(null);
+  const [lineupPlayers, setLineupPlayers] = useState<LineupPlayer[]>([]);
+  const [formation, setFormation] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [teamName, setTeamName] = useState('');
+  const [isHome, setIsHome] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    (async () => {
+      try {
+        // Carica rosa e prossima partita in parallelo
+        const [playersData, event] = await Promise.all([
+          getTeamPlayers(teamId),
+          getTeamNextEvent(teamId),
+        ]);
+
+        if (cancelled) return;
+
+        const players = playersData.map((p) => p.player);
+        setRoster(players);
+
+        if (players.length > 0 && players[0].team) {
+          setTeamName(players[0].team.name ?? '');
+        }
+
+        if (event) {
+          setNextEvent(event);
+          setIsHome(event.homeTeam.id === teamId);
+
+          // Carica formazione probabile
+          const lineups = await getMatchLineups(event.id);
+          if (!cancelled && lineups) {
+            const teamLineup = event.homeTeam.id === teamId ? lineups.home : lineups.away;
+            setFormation(teamLineup.formation);
+            setLineupPlayers(teamLineup.players);
+          }
+        }
+      } catch (e) {
+        console.error('TeamView error:', e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [teamId]);
+
+  const starters = lineupPlayers.filter((p) => !p.substitute);
+  const starterIds = new Set(starters.map((p) => p.player.id));
+  const bench = roster.filter((p) => !starterIds.has(p.id));
+  const formationPositions = formation ? getFormationPositions(formation) : [];
+
+  const opponent = nextEvent
+    ? (isHome ? nextEvent.awayTeam : nextEvent.homeTeam)
+    : null;
+
+  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+
+  const handlePlayerClick = (player: Player) => {
+    selectPlayer(0, player.id, player);
+  };
+
+  const handleOpponentClick = () => {
+    if (!opponent) return;
+    // Su desktop apri split view navigando alla squadra avversaria
+    // Per ora naviga alla squadra
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-text-muted">
+        <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+        Caricamento squadra...
+      </div>
+    );
+  }
+
+  const positionLabels: Record<string, string> = {
+    G: 'Portieri',
+    D: 'Difensori',
+    M: 'Centrocampisti',
+    F: 'Attaccanti',
+  };
+
+  // Raggruppa panchina per ruolo
+  const benchByPosition = bench.reduce<Record<string, Player[]>>((acc, p) => {
+    const pos = p.position || 'F';
+    if (!acc[pos]) acc[pos] = [];
+    acc[pos].push(p);
+    return acc;
+  }, {});
+
+  return (
+    <div>
+      {/* Header squadra */}
+      <div className="flex items-center gap-3 mb-4">
+        <img
+          src={getTeamImageUrl(teamId)}
+          alt=""
+          className="w-10 h-10 object-contain"
+        />
+        <h2 className="text-xl font-bold text-text-primary">{teamName || 'Squadra'}</h2>
+      </div>
+
+      {/* Prossima partita */}
+      {nextEvent && opponent && (
+        <div className="mb-6 text-text-secondary text-sm">
+          <span>Prossima partita: </span>
+          {isHome ? teamName : (
+            <button onClick={handleOpponentClick} className="text-neon hover:underline">
+              {opponent.name}
+            </button>
+          )}
+          <span> vs </span>
+          {isHome ? (
+            <button onClick={handleOpponentClick} className="text-neon hover:underline">
+              {opponent.name}
+            </button>
+          ) : teamName}
+          {nextEvent.tournament && (
+            <span> · {nextEvent.tournament.name}</span>
+          )}
+          {nextEvent.roundInfo && (
+            <span> G.{nextEvent.roundInfo.round}</span>
+          )}
+          {formation && (
+            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded bg-neon/15 text-neon text-xs font-medium">
+              {formation}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Campo con formazione */}
+      {starters.length > 0 && formationPositions.length > 0 && (
+        <div className="mb-6">
+          <div
+            className="relative bg-field-bg border border-field-lines rounded-lg overflow-hidden mx-auto"
+            style={{ aspectRatio: '68/105', maxWidth: '400px' }}
+          >
+            {/* Linee campo */}
+            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 680 1050" preserveAspectRatio="none">
+              {/* Bordo */}
+              <rect x="10" y="10" width="660" height="1030" fill="none" stroke="#2a5535" strokeWidth="2" />
+              {/* Linea centrocampo */}
+              <line x1="10" y1="525" x2="670" y2="525" stroke="#2a5535" strokeWidth="2" />
+              {/* Cerchio centrocampo */}
+              <circle cx="340" cy="525" r="91.5" fill="none" stroke="#2a5535" strokeWidth="2" />
+              {/* Area rigore top */}
+              <rect x="138" y="10" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
+              <rect x="218" y="10" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
+              {/* Area rigore bottom */}
+              <rect x="138" y="875" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
+              <rect x="218" y="985" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
+            </svg>
+
+            {/* Giocatori */}
+            {starters.map((lp, idx) => {
+              const pos = formationPositions[idx];
+              if (!pos) return null;
+
+              return (
+                <button
+                  key={lp.player.id}
+                  onClick={() => handlePlayerClick(lp.player)}
+                  className="absolute flex flex-col items-center transform -translate-x-1/2 -translate-y-1/2 group"
+                  style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+                >
+                  <div className="w-8 h-8 rounded-full bg-neon/80 flex items-center justify-center text-xs font-bold text-black group-hover:bg-neon transition-colors">
+                    {lp.player.jerseyNumber ?? idx + 1}
+                  </div>
+                  <span className="text-[10px] text-white mt-0.5 font-medium text-center leading-tight max-w-[60px] truncate">
+                    {lp.player.shortName ?? lp.player.name.split(' ').pop()}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Panchina / Rosa */}
+      <div>
+        <h3 className="text-sm font-semibold text-text-secondary mb-3 uppercase tracking-wide">
+          Rosa completa
+        </h3>
+        {['G', 'D', 'M', 'F'].map((pos) => {
+          const players = benchByPosition[pos];
+          if (!players?.length) return null;
+          return (
+            <div key={pos} className="mb-4">
+              <p className="text-xs text-text-muted mb-2">{positionLabels[pos]}</p>
+              <div className="flex flex-wrap gap-2">
+                {players.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handlePlayerClick(p)}
+                    className="flex items-center gap-2 bg-surface border border-border rounded-full px-3 py-1.5 text-sm text-text-primary hover:border-neon transition-colors"
+                  >
+                    <img
+                      src={getPlayerImageUrl(p.id)}
+                      alt=""
+                      className="w-6 h-6 rounded-full object-cover bg-border"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    {p.name}
+                    {p.jerseyNumber && (
+                      <span className="text-text-muted text-xs">#{p.jerseyNumber}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

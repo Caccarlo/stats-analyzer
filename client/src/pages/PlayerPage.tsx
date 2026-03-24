@@ -1,6 +1,9 @@
 import { usePlayerData } from '@/hooks/usePlayerData';
 import type { Player } from '@/types';
 import SearchBar from '@/components/layout/SearchBar';
+import PlayerHeader from '@/components/player/PlayerHeader';
+import PlayerFilters from '@/components/player/PlayerFilters';
+import StatsOverview from '@/components/player/StatsOverview';
 
 interface PlayerPageProps {
   playerId: number;
@@ -10,27 +13,72 @@ interface PlayerPageProps {
 
 export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: PlayerPageProps) {
   const {
+    tournamentSeasons,
+    availableSeasonYears,
+    selectedSeasonYear,
+    setSelectedSeasonYear,
+    selectedTournaments,
+    toggleTournament,
+    showCommitted,
+    setShowCommitted,
+    showSuffered,
+    setShowSuffered,
     stats,
     loading,
     error,
   } = usePlayerData(playerId);
 
+  // Tutti i tornei disponibili per la stagione selezionata (per i filtri)
+  const allTournamentsForSeason = tournamentSeasons
+    .map((ts) => {
+      const season = ts.seasons.find((s) => s.year === selectedSeasonYear);
+      if (!season) return null;
+      return {
+        tournamentId: ts.uniqueTournament.id,
+        tournamentName: ts.uniqueTournament.name,
+        seasonId: season.id,
+        seasonName: season.name,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  // Placeholder player per il header
+  const displayPlayer: Player = playerData ?? {
+    id: playerId,
+    name: `Giocatore #${playerId}`,
+    slug: '',
+    position: '',
+  };
+
   return (
     <div>
       {panelIndex === 0 && <SearchBar />}
 
-      <div className="mt-6">
-        <h2 className="text-xl font-bold text-text-primary">
-          {playerData?.name ?? `Giocatore #${playerId}`}
-        </h2>
-        {playerData?.team && (
-          <p className="text-text-secondary text-sm mt-1">
-            {playerData.team.name}
-            {playerData.position ? ` · ${playerData.position}` : ''}
-          </p>
-        )}
+      {/* Header giocatore */}
+      <div className="mt-6 pb-4 border-b border-border">
+        <PlayerHeader player={displayPlayer} />
       </div>
 
+      {/* Filtri */}
+      {availableSeasonYears.length > 0 && (
+        <div className="mt-4 pb-4 border-b border-border">
+          <PlayerFilters
+            tournamentSeasons={tournamentSeasons}
+            availableSeasonYears={availableSeasonYears}
+            selectedSeasonYear={selectedSeasonYear}
+            onSeasonChange={setSelectedSeasonYear}
+            selectedTournaments={selectedTournaments}
+            onToggleTournament={toggleTournament}
+            showCommitted={showCommitted}
+            onShowCommittedChange={setShowCommitted}
+            showSuffered={showSuffered}
+            onShowSufferedChange={setShowSuffered}
+            allTournamentsForSeason={allTournamentsForSeason}
+          />
+        </div>
+      )}
+
+      {/* Loading */}
       {loading && (
         <div className="mt-6 flex items-center gap-2 text-text-muted">
           <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
@@ -38,31 +86,33 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         </div>
       )}
 
+      {/* Error */}
       {error && (
         <div className="mt-6 text-negative text-sm">
           Errore: {error}
         </div>
       )}
 
+      {/* Stats overview */}
       {stats && (
-        <div className="mt-6 grid grid-cols-3 gap-4">
-          <div className="bg-surface border border-border rounded-lg p-4">
-            <p className="text-text-muted text-xs">Falli commessi</p>
-            <p className="text-negative text-2xl font-bold">{stats.totalFoulsCommitted}</p>
-            <p className="text-text-muted text-xs mt-1">{stats.avgFoulsCommittedPer90} / 90 min</p>
-          </div>
-          <div className="bg-surface border border-border rounded-lg p-4">
-            <p className="text-text-muted text-xs">Falli subiti</p>
-            <p className="text-neon text-2xl font-bold">{stats.totalFoulsSuffered}</p>
-            <p className="text-text-muted text-xs mt-1">{stats.avgFoulsSufferedPer90} / 90 min</p>
-          </div>
-          <div className="bg-surface border border-border rounded-lg p-4">
-            <p className="text-text-muted text-xs">Presenze</p>
-            <p className="text-text-primary text-2xl font-bold">{stats.totalAppearances}</p>
-            <p className="text-text-muted text-xs mt-1">{stats.totalMinutesPlayed} min</p>
-          </div>
+        <div className="mt-6">
+          <StatsOverview
+            stats={stats}
+            showCommitted={showCommitted}
+            showSuffered={showSuffered}
+          />
         </div>
       )}
+
+      {/* Placeholder per le card partite (Fase 8) */}
+      <div className="mt-8">
+        <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-4">
+          Partite
+        </h3>
+        <p className="text-text-muted text-sm">
+          Le card partite verranno mostrate qui...
+        </p>
+      </div>
     </div>
   );
 }

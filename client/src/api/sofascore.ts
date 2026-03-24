@@ -13,14 +13,53 @@ import type {
   SearchResult,
 } from '@/types';
 
-// === Helper ===
+// === Cache ===
 
-async function apiFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`/api/sofascore/${path}`);
-  if (!res.ok) {
-    throw new Error(`API error ${res.status}: ${path}`);
+const cache = new Map<string, { data: unknown; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minuti
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+    return entry.data as T;
   }
-  return res.json();
+  cache.delete(key);
+  return null;
+}
+
+function setCache(key: string, data: unknown) {
+  cache.set(key, { data, timestamp: Date.now() });
+}
+
+// === Helper con retry e cache ===
+
+async function apiFetch<T>(path: string, useCache = true): Promise<T> {
+  if (useCache) {
+    const cached = getCached<T>(path);
+    if (cached) return cached;
+  }
+
+  let lastError: Error | null = null;
+  const delays = [0, 1000, 2000]; // retry con backoff
+
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
+    try {
+      const res = await fetch(`/api/sofascore/${path}`);
+      if (!res.ok) {
+        throw new Error(`API error ${res.status}: ${path}`);
+      }
+      const data: T = await res.json();
+      if (useCache) setCache(path, data);
+      return data;
+    } catch (e: any) {
+      lastError = e;
+    }
+  }
+
+  throw lastError ?? new Error(`Failed after retries: ${path}`);
 }
 
 // === Ricerca ===

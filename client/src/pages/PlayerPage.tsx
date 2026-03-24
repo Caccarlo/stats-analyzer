@@ -4,6 +4,7 @@ import SearchBar from '@/components/layout/SearchBar';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
 import StatsOverview from '@/components/player/StatsOverview';
+import MatchList from '@/components/player/MatchList';
 
 interface PlayerPageProps {
   playerId: number;
@@ -104,15 +105,17 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         </div>
       )}
 
-      {/* Placeholder per le card partite (Fase 8) */}
-      <div className="mt-8">
-        <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-4">
-          Partite
-        </h3>
-        <p className="text-text-muted text-sm">
-          Le card partite verranno mostrate qui...
-        </p>
-      </div>
+      {/* Lista partite */}
+      {!loading && (
+        <div className="mt-8">
+          <MatchList
+            playerId={playerId}
+            selectedTournamentIds={new Set(selectedTournaments.map((t) => t.tournamentId))}
+            showCommitted={showCommitted}
+            showSuffered={showSuffered}
+          />
+        </div>
+      )}
     </div>
   );
 }

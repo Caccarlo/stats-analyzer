@@ -11,6 +11,7 @@ import TeamGrid from '@/components/navigation/TeamGrid';
 import TeamView from '@/components/navigation/TeamView';
 import SidebarTeamList from '@/components/navigation/SidebarTeamList';
 
+
 function AppContent() {
   const { state } = useNavigation();
   const panel0 = state.panels[0];
@@ -37,7 +38,7 @@ function AppContent() {
           <div>
             {!hasSplit && panelIndex === 0 && <SearchBar />}
             <div className={!hasSplit && panelIndex === 0 ? 'mt-8 ml-4' : ''}>
-              <TeamView teamId={panel.teamId} isSplit={hasSplit} />
+              <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
             </div>
           </div>
         ) : null;

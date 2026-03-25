@@ -1,4 +1,5 @@
 import { usePlayerData } from '@/hooks/usePlayerData';
+import { useNavigation } from '@/context/NavigationContext';
 import type { Player } from '@/types';
 import SearchBar from '@/components/layout/SearchBar';
 import PlayerHeader from '@/components/player/PlayerHeader';
@@ -13,6 +14,8 @@ interface PlayerPageProps {
 }
 
 export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: PlayerPageProps) {
+  const { state } = useNavigation();
+  const hasSplit = state.panels.length > 1;
   const {
     tournamentSeasons,
     availableSeasonYears,
@@ -53,7 +56,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
   return (
     <div>
-      {panelIndex === 0 && <SearchBar />}
+      {panelIndex === 0 && !hasSplit && <SearchBar />}
 
       {/* Header giocatore */}
       <div className="mt-6 pb-4 border-b border-border">
@@ -113,6 +116,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             selectedTournamentIds={new Set(selectedTournaments.map((t) => t.tournamentId))}
             showCommitted={showCommitted}
             showSuffered={showSuffered}
+            panelIndex={panelIndex}
           />
         </div>
       )}

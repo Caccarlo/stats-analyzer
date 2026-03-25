@@ -8,6 +8,7 @@ interface MatchListProps {
   selectedTournamentIds: Set<number>;
   showCommitted: boolean;
   showSuffered: boolean;
+  panelIndex?: number;
 }
 
 export default function MatchList({
@@ -15,6 +16,7 @@ export default function MatchList({
   selectedTournamentIds,
   showCommitted,
   showSuffered,
+  panelIndex = 0,
 }: MatchListProps) {
   const [events, setEvents] = useState<MatchEvent[]>([]);
   const [page, setPage] = useState(0);
@@ -87,6 +89,7 @@ export default function MatchList({
                 showCommitted={showCommitted}
                 showSuffered={showSuffered}
                 defaultOpen={isDesktop && i < 5}
+                panelIndex={panelIndex}
               />
             ))}
           </div>

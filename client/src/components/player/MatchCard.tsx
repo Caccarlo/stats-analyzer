@@ -11,6 +11,7 @@ interface MatchCardProps {
   showCommitted: boolean;
   showSuffered: boolean;
   defaultOpen?: boolean;
+  panelIndex?: number;
 }
 
 export default function MatchCard({
@@ -20,6 +21,7 @@ export default function MatchCard({
   showCommitted,
   showSuffered,
   defaultOpen = false,
+  panelIndex = 0,
 }: MatchCardProps) {
   const [open, setOpen] = useState(defaultOpen);
   const { fouls, positions, substituteInMinute, substituteOutMinute, loading } =
@@ -54,7 +56,12 @@ export default function MatchCard({
 
   const handlePlayerClick = (player: Player) => {
     if (isDesktop) {
-      openSplitPlayer(player);
+      if (panelIndex > 0) {
+        // Nel pannello split, naviga dentro lo stesso pannello
+        selectPlayer(panelIndex, player.id, player);
+      } else {
+        openSplitPlayer(player);
+      }
     } else {
       selectPlayer(0, player.id, player);
     }

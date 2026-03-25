@@ -11,6 +11,7 @@ import TeamGrid from '@/components/navigation/TeamGrid';
 import TeamView from '@/components/navigation/TeamView';
 import SidebarTeamList from '@/components/navigation/SidebarTeamList';
 
+
 function AppContent() {
   const { state } = useNavigation();
   const panel0 = state.panels[0];
@@ -35,9 +36,9 @@ function AppContent() {
       case 'team':
         return panel.teamId ? (
           <div>
-            {!hasSplit && panelIndex === 0 && <SearchBar />}
+            {!hasSplit && panelIndex === 0 && <SearchBar panelIndex={panelIndex} />}
             <div className={!hasSplit && panelIndex === 0 ? 'mt-8 ml-4' : ''}>
-              <TeamView teamId={panel.teamId} isSplit={hasSplit} />
+              <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
             </div>
           </div>
         ) : null;
@@ -45,9 +46,9 @@ function AppContent() {
       case 'teams':
         return panel.leagueId ? (
           <div>
-            <SearchBar />
+            <SearchBar panelIndex={panelIndex} />
             <div className="mt-6">
-              <TeamGrid leagueId={panel.leagueId} />
+              <TeamGrid leagueId={panel.leagueId} panelIndex={panelIndex} />
             </div>
           </div>
         ) : null;
@@ -55,16 +56,16 @@ function AppContent() {
       case 'leagues':
         return panel.countryId ? (
           <div>
-            <SearchBar />
+            <SearchBar panelIndex={panelIndex} />
             <div className="mt-6">
-              <LeagueList countryId={panel.countryId} />
+              <LeagueList countryId={panel.countryId} panelIndex={panelIndex} />
             </div>
           </div>
         ) : null;
 
       case 'home':
       default:
-        return <HomePage />;
+        return <HomePage panelIndex={panelIndex} />;
     }
   };
 

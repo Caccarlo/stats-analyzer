@@ -3,7 +3,7 @@ import { searchPlayers, getPlayerImageUrl } from '@/api/sofascore';
 import { useNavigation } from '@/context/NavigationContext';
 import type { SearchResult } from '@/types';
 
-export default function SearchBar() {
+export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -48,7 +48,7 @@ export default function SearchBar() {
   }, []);
 
   const handleSelect = (result: SearchResult) => {
-    selectPlayer(0, result.entity.id, result.entity);
+    selectPlayer(panelIndex, result.entity.id, result.entity);
     setQuery('');
     setOpen(false);
   };

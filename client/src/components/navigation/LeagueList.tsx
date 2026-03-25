@@ -4,9 +4,10 @@ import { getTournamentImageUrl } from '@/api/sofascore';
 
 interface LeagueListProps {
   countryId: string;
+  panelIndex?: number;
 }
 
-export default function LeagueList({ countryId }: LeagueListProps) {
+export default function LeagueList({ countryId, panelIndex = 0 }: LeagueListProps) {
   const { selectLeague } = useNavigation();
   const country = COUNTRIES.find((c) => c.id === countryId);
 
@@ -19,7 +20,7 @@ export default function LeagueList({ countryId }: LeagueListProps) {
         {country.leagues.map((league) => (
           <button
             key={league.id}
-            onClick={() => selectLeague(0, league.id, league.name)}
+            onClick={() => selectLeague(panelIndex, league.id, league.name)}
             className="w-full flex items-center gap-3 bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors text-left"
           >
             <img

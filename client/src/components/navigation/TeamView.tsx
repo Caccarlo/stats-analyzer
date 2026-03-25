@@ -13,9 +13,10 @@ import type { Player, MatchEvent, LineupPlayer } from '@/types';
 interface TeamViewProps {
   teamId: number;
   isSplit?: boolean;
+  panelIndex?: number;
 }
 
-export default function TeamView({ teamId, isSplit = false }: TeamViewProps) {
+export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: TeamViewProps) {
   const { selectPlayer, openSplitPlayer, openSplitTeam, selectTeam } = useNavigation();
   const [roster, setRoster] = useState<Player[]>([]);
   const [nextEvent, setNextEvent] = useState<MatchEvent | null>(null);
@@ -80,7 +81,7 @@ export default function TeamView({ teamId, isSplit = false }: TeamViewProps) {
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
   const handlePlayerClick = (player: Player) => {
-    selectPlayer(0, player.id, player);
+    selectPlayer(panelIndex, player.id, player);
   };
 
   const handleOpponentClick = () => {

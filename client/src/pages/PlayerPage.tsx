@@ -56,17 +56,15 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   };
 
   return (
-    <div className="relative">
+    <div>
       {panelIndex === 0 && !hasSplit && <SearchBar />}
 
-      {/* Header giocatore */}
-      <div className="relative mt-6 pb-4 border-b border-border">
-        <PlayerHeader player={displayPlayer} />
-        {/* Split view + button — aligned with player header */}
+      <div className="relative mt-8">
+        {/* Split view + button — same position as TeamView */}
         {isDesktop && !hasSplit && panelIndex === 0 && (
           <button
             onClick={openSplitHome}
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+            className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
             aria-label="Apri vista affiancata"
             title="Apri vista affiancata"
           >
@@ -75,6 +73,11 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             </svg>
           </button>
         )}
+
+        {/* Header giocatore */}
+        <div className="pb-4 border-b border-border">
+          <PlayerHeader player={displayPlayer} />
+        </div>
       </div>
 
       {/* Filtri */}

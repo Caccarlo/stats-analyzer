@@ -26,7 +26,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
   const renderPanelHeader = (panelIndex: number) => {
     const panel = state.panels[panelIndex];
     const showBack = panelIndex === 1
-      ? panel?.view !== 'home'
+      ? panel?.view !== 'home' && !(panel?.view === 'player' && panel?.teamId === state.panels[0]?.teamId)
       : panel?.view === 'player';
 
     return (
@@ -77,7 +77,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
         {canOpenSplit && (
           <button
             onClick={openSplitHome}
-            className="hidden lg:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+            className="hidden lg:flex absolute right-3 top-6 z-10 w-10 h-10 items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
             aria-label="Apri vista affiancata"
             title="Apri vista affiancata"
           >

@@ -1,4 +1,5 @@
 import { useNavigation } from '@/context/NavigationContext';
+import type { PanelState } from '@/types';
 
 interface ContentPanelProps {
   children: React.ReactNode;
@@ -7,16 +8,30 @@ interface ContentPanelProps {
 }
 
 export default function ContentPanel({ children, splitContent, topBar }: ContentPanelProps) {
-  const { state, closeSplit, goBack } = useNavigation();
+  const { state, closeSplit, goBack, openSplitHome } = useNavigation();
   const hasSplit = state.panels.length > 1 && splitContent;
+  const currentView = state.panels[0]?.view;
+  const canOpenSplit = !hasSplit && (currentView === 'team' || currentView === 'player');
+
+  const getBackLabel = (panel: PanelState) => {
+    switch (panel.view) {
+      case 'player': return panel.teamName ?? 'Indietro';
+      case 'team': return panel.leagueName ?? 'Indietro';
+      case 'teams': return panel.countryName ?? 'Indietro';
+      case 'leagues': return 'Paesi';
+      default: return 'Indietro';
+    }
+  };
 
   const renderPanelHeader = (panelIndex: number) => {
     const panel = state.panels[panelIndex];
-    const showBack = panel?.view === 'player';
+    const showBack = panelIndex === 1
+      ? panel?.view !== 'home'
+      : panel?.view === 'player';
 
     return (
       <div className="hidden lg:flex items-center justify-between px-6 pt-4 pb-0 flex-shrink-0">
-        {showBack ? (
+        {showBack && panel ? (
           <button
             onClick={() => goBack(panelIndex)}
             className="flex items-center gap-1.5 text-text-secondary hover:text-neon transition-colors text-sm"
@@ -24,7 +39,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-            {panel?.teamName ?? 'Indietro'}
+            {getBackLabel(panel)}
           </button>
         ) : (
           <div />
@@ -57,6 +72,20 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
             {children}
           </div>
         </div>
+
+        {/* Add split button */}
+        {canOpenSplit && (
+          <button
+            onClick={openSplitHome}
+            className="hidden lg:flex fixed right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+            aria-label="Apri vista affiancata"
+            title="Apri vista affiancata"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        )}
 
         {/* Split panel */}
         {hasSplit && (

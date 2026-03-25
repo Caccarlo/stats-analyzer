@@ -60,9 +60,9 @@ export const COUNTRIES: CountryConfig[] = [
   },
 ];
 
-export default function CountryList() {
+export default function CountryList({ panelIndex = 0 }: { panelIndex?: number }) {
   const { state, selectCountry } = useNavigation();
-  const panel = state.panels[0];
+  const panel = state.panels[panelIndex];
 
   return (
     <div className="py-2">
@@ -71,7 +71,7 @@ export default function CountryList() {
         return (
           <button
             key={country.id}
-            onClick={() => selectCountry(0, country.id, country.name)}
+            onClick={() => selectCountry(panelIndex, country.id, country.name)}
             className={`
               w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left
               ${isActive

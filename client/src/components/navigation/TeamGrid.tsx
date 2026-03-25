@@ -6,9 +6,10 @@ import { COUNTRIES } from './CountryList';
 
 interface TeamGridProps {
   leagueId: number;
+  panelIndex?: number;
 }
 
-export default function TeamGrid({ leagueId }: TeamGridProps) {
+export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
   const { selectTeam } = useNavigation();
   const [teams, setTeams] = useState<StandingRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +62,7 @@ export default function TeamGrid({ leagueId }: TeamGridProps) {
         {teams.map((row) => (
           <button
             key={row.team.id}
-            onClick={() => selectTeam(0, row.team.id, row.team.name)}
+            onClick={() => selectTeam(panelIndex, row.team.id, row.team.name)}
             className="relative flex flex-col items-center gap-2 bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors"
           >
             <span className="absolute top-1.5 left-2 text-xs text-text-muted/70 font-medium">

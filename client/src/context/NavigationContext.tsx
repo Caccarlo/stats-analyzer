@@ -124,6 +124,7 @@ interface NavContextValue {
   goBack: (panel: number) => void;
   openSplitPlayer: (player: Player) => void;
   openSplitTeam: (teamId: number, teamName?: string) => void;
+  openSplitHome: () => void;
   closeSplit: (panel?: number) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string) => void;
   selectLeague: (panel: number, leagueId: number, leagueName?: string, seasonId?: number) => void;
@@ -164,6 +165,10 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const openSplitHome = () => {
+    dispatch({ type: 'OPEN_SPLIT', panelState: { view: 'home' } });
+  };
+
   const closeSplit = (panel: number = 1) => {
     dispatch({ type: 'CLOSE_SPLIT', panel });
   };
@@ -198,6 +203,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         goBack,
         openSplitPlayer,
         openSplitTeam,
+        openSplitHome,
         closeSplit,
         selectCountry,
         selectLeague,

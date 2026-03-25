@@ -46,8 +46,8 @@ function AppContent() {
       case 'teams':
         return panel.leagueId ? (
           <div>
-            <SearchBar panelIndex={panelIndex} />
-            <div className="mt-6">
+            {!hasSplit && <SearchBar panelIndex={panelIndex} />}
+            <div className={!hasSplit ? 'mt-6' : ''}>
               <TeamGrid leagueId={panel.leagueId} panelIndex={panelIndex} />
             </div>
           </div>
@@ -56,8 +56,8 @@ function AppContent() {
       case 'leagues':
         return panel.countryId ? (
           <div>
-            <SearchBar panelIndex={panelIndex} />
-            <div className="mt-6">
+            {!hasSplit && <SearchBar panelIndex={panelIndex} />}
+            <div className={!hasSplit ? 'mt-6' : ''}>
               <LeagueList countryId={panel.countryId} panelIndex={panelIndex} />
             </div>
           </div>
@@ -65,7 +65,12 @@ function AppContent() {
 
       case 'home':
       default:
-        return <HomePage panelIndex={panelIndex} />;
+        return (
+          <div>
+            {!hasSplit && panelIndex === 0 && <SearchBar panelIndex={panelIndex} />}
+            <HomePage panelIndex={panelIndex} />
+          </div>
+        );
     }
   };
 

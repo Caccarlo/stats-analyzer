@@ -2,11 +2,20 @@ import { useState } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 
 export default function Sidebar({ children }: { children: React.ReactNode }) {
-  const { state, goBack } = useNavigation();
+  const { state, goBack, dispatch } = useNavigation();
   const panel = state.panels[0];
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const canGoBack = panel.view !== 'home';
+  const getBackLabel = (): string | null => {
+    switch (panel.view) {
+      case 'player': return panel.teamName ?? 'Paesi';
+      case 'team': return panel.leagueName ?? 'Paesi';
+      case 'teams': return panel.countryName ?? 'Paesi';
+      default: return null;
+    }
+  };
+
+  const backLabel = getBackLabel();
 
   return (
     <>
@@ -40,11 +49,14 @@ export default function Sidebar({ children }: { children: React.ReactNode }) {
       >
         {/* Header */}
         <div className="p-4 border-b border-border">
-          <h1 className="text-neon font-bold text-lg tracking-tight">Stats Analyzer</h1>
+          <h1
+            className="text-neon font-bold text-lg tracking-tight cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => dispatch({ type: 'RESET' })}
+          >Stats Analyzer</h1>
         </div>
 
         {/* Back button */}
-        {canGoBack && (
+        {backLabel && (
           <button
             onClick={() => {
               goBack(0);
@@ -55,7 +67,7 @@ export default function Sidebar({ children }: { children: React.ReactNode }) {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-            Indietro
+            {backLabel}
           </button>
         )}
 

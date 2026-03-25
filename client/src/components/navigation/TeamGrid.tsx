@@ -61,7 +61,7 @@ export default function TeamGrid({ leagueId }: TeamGridProps) {
         {teams.map((row) => (
           <button
             key={row.team.id}
-            onClick={() => selectTeam(0, row.team.id)}
+            onClick={() => selectTeam(0, row.team.id, row.team.name)}
             className="flex flex-col items-center gap-2 bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors"
           >
             <img

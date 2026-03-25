@@ -9,6 +9,7 @@ import CountryList from '@/components/navigation/CountryList';
 import LeagueList from '@/components/navigation/LeagueList';
 import TeamGrid from '@/components/navigation/TeamGrid';
 import TeamView from '@/components/navigation/TeamView';
+import SidebarTeamList from '@/components/navigation/SidebarTeamList';
 
 function AppContent() {
   const { state } = useNavigation();
@@ -33,7 +34,7 @@ function AppContent() {
         return panel.teamId ? (
           <div>
             <SearchBar />
-            <div className="mt-6">
+            <div className="mt-8 ml-4">
               <TeamView teamId={panel.teamId} />
             </div>
           </div>
@@ -65,9 +66,59 @@ function AppContent() {
     }
   };
 
-  // Sidebar mostra la lista paesi tranne che nella vista squadra (mostra le squadre del campionato)
   const renderSidebarContent = () => {
-    return <CountryList />;
+    switch (panel0.view) {
+      case 'teams':
+        return panel0.leagueId ? (
+          <>
+            <p className="px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide">
+              {panel0.leagueName ?? 'Campionato'}
+            </p>
+            <SidebarTeamList leagueId={panel0.leagueId} />
+          </>
+        ) : null;
+
+      case 'team': {
+        const code = panel0.teamName?.substring(0, 2).toUpperCase() ?? '';
+        return (
+          <>
+            <p className="px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide">
+              {panel0.teamName ?? 'Squadra'}
+            </p>
+            <div className="py-1">
+              <div className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-neon border-l-2 border-neon bg-neon/5">
+                <span className="font-mono text-xs w-5 text-center opacity-60">{code}</span>
+                <span className="font-medium">Formazione</span>
+              </div>
+            </div>
+          </>
+        );
+      }
+
+      case 'player': {
+        const name = panel0.playerData?.shortName ?? panel0.playerData?.name ?? 'Giocatore';
+        const initials = name.split(/[\s.]+/).filter(Boolean).map(w => w[0]).join('').substring(0, 2).toUpperCase();
+        return (
+          <>
+            <p className="px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide">Giocatore</p>
+            <div className="py-1">
+              <div className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-neon border-l-2 border-neon bg-neon/5">
+                <span className="font-mono text-xs w-5 text-center opacity-60">{initials}</span>
+                <span className="font-medium">{name}</span>
+              </div>
+            </div>
+          </>
+        );
+      }
+
+      default:
+        return (
+          <>
+            <p className="px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide">Paesi</p>
+            <CountryList />
+          </>
+        );
+    }
   };
 
   return (

@@ -153,88 +153,97 @@ export default function TeamView({ teamId }: TeamViewProps) {
         </div>
       )}
 
-      {/* Campo con formazione */}
-      {starters.length > 0 && formationPositions.length > 0 && (
-        <div className="mb-6">
-          <div
-            className="relative bg-field-bg border border-field-lines rounded-lg overflow-hidden mx-auto"
-            style={{ aspectRatio: '68/105', maxWidth: '400px' }}
-          >
-            {/* Linee campo */}
-            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 680 1050" preserveAspectRatio="none">
-              {/* Bordo */}
-              <rect x="10" y="10" width="660" height="1030" fill="none" stroke="#2a5535" strokeWidth="2" />
-              {/* Linea centrocampo */}
-              <line x1="10" y1="525" x2="670" y2="525" stroke="#2a5535" strokeWidth="2" />
-              {/* Cerchio centrocampo */}
-              <circle cx="340" cy="525" r="91.5" fill="none" stroke="#2a5535" strokeWidth="2" />
-              {/* Area rigore top */}
-              <rect x="138" y="10" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
-              <rect x="218" y="10" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
-              {/* Area rigore bottom */}
-              <rect x="138" y="875" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
-              <rect x="218" y="985" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
-            </svg>
+      {/* Layout desktop: campo a sinistra, panchina a destra */}
+      <div className="flex flex-col lg:flex-row lg:gap-6 lg:items-start">
+        {/* Campo con formazione */}
+        {starters.length > 0 && formationPositions.length > 0 && (
+          <div className="mb-6 lg:mb-0 lg:flex-shrink-0 lg:w-[400px]">
+            <div
+              className="relative bg-field-bg border border-field-lines rounded-lg overflow-hidden mx-auto lg:mx-0 w-full"
+              style={{ aspectRatio: '68/105' }}
+            >
+              {/* Linee campo */}
+              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 680 1050" preserveAspectRatio="none">
+                {/* Bordo */}
+                <rect x="10" y="10" width="660" height="1030" fill="none" stroke="#2a5535" strokeWidth="2" />
+                {/* Linea centrocampo */}
+                <line x1="10" y1="525" x2="670" y2="525" stroke="#2a5535" strokeWidth="2" />
+                {/* Cerchio centrocampo */}
+                <circle cx="340" cy="525" r="91.5" fill="none" stroke="#2a5535" strokeWidth="2" />
+                {/* Area rigore top */}
+                <rect x="138" y="10" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
+                <rect x="218" y="10" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
+                {/* Area rigore bottom */}
+                <rect x="138" y="875" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
+                <rect x="218" y="985" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
+              </svg>
 
-            {/* Giocatori */}
-            {starters.map((lp, idx) => {
-              const pos = formationPositions[idx];
-              if (!pos) return null;
+              {/* Giocatori */}
+              {starters.map((lp, idx) => {
+                const pos = formationPositions[idx];
+                if (!pos) return null;
 
-              return (
-                <button
-                  key={lp.player.id}
-                  onClick={() => handlePlayerClick(lp.player)}
-                  className="absolute flex flex-col items-center transform -translate-x-1/2 -translate-y-1/2 group"
-                  style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-                >
-                  <div className="w-8 h-8 rounded-full bg-neon/80 flex items-center justify-center text-xs font-bold text-black group-hover:bg-neon transition-colors">
-                    {lp.player.jerseyNumber ?? idx + 1}
-                  </div>
-                  <span className="text-[10px] text-white mt-0.5 font-medium text-center leading-tight max-w-[60px] truncate">
-                    {lp.player.shortName ?? lp.player.name.split(' ').pop()}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Panchina / Rosa */}
-      <div>
-        <h3 className="text-sm font-semibold text-text-secondary mb-3 uppercase tracking-wide">
-          Rosa completa
-        </h3>
-        {['G', 'D', 'M', 'F'].map((pos) => {
-          const players = benchByPosition[pos];
-          if (!players?.length) return null;
-          return (
-            <div key={pos} className="mb-4">
-              <p className="text-xs text-text-muted mb-2">{positionLabels[pos]}</p>
-              <div className="flex flex-wrap gap-2">
-                {players.map((p) => (
+                return (
                   <button
-                    key={p.id}
-                    onClick={() => handlePlayerClick(p)}
-                    className="flex items-center gap-2 bg-surface border border-border rounded-full px-3 py-1.5 text-sm text-text-primary hover:border-neon transition-colors"
+                    key={lp.player.id}
+                    onClick={() => handlePlayerClick(lp.player)}
+                    className="absolute flex flex-col items-center transform -translate-x-1/2 -translate-y-1/2 group"
+                    style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
                   >
-                    <img
-                      src={getPlayerImageUrl(p.id)}
-                      alt=""
-                      className="w-6 h-6 rounded-full object-cover bg-border"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                    {p.name}
-                    {p.jerseyNumber && (
-                      <span className="text-text-muted text-xs">#{p.jerseyNumber}</span>
-                    )}
+                    <div className="w-8 h-8 rounded-full bg-neon/80 flex items-center justify-center text-xs font-bold text-black group-hover:bg-neon transition-colors">
+                      {lp.player.jerseyNumber ?? idx + 1}
+                    </div>
+                    <span className="text-[10px] text-white mt-0.5 font-medium text-center leading-tight max-w-[60px] truncate">
+                      {lp.player.shortName ?? lp.player.name.split(' ').pop()}
+                    </span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        )}
+
+        {/* Panchina / Rosa */}
+        <div className="lg:flex-1 lg:min-w-0">
+          <h3 className="text-sm font-semibold text-text-secondary mb-3 uppercase tracking-wide">
+            Rosa completa
+          </h3>
+          {['G', 'D', 'M', 'F'].map((pos) => {
+            const players = benchByPosition[pos];
+            if (!players?.length) return null;
+            return (
+              <div key={pos} className="mb-4">
+                <p className="text-xs text-text-muted mb-2">{positionLabels[pos]}</p>
+                <div className="flex flex-wrap gap-2">
+                  {players.map((p) => {
+                    const parts = p.name.split(' ');
+                    const shortName = parts.length > 1
+                      ? `${parts[0][0]}. ${parts.slice(1).join(' ')}`
+                      : p.name;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => handlePlayerClick(p)}
+                        className="flex items-center gap-2 bg-surface border border-border rounded-full px-3 py-1.5 text-sm text-text-primary hover:border-neon transition-colors"
+                      >
+                        <img
+                          src={getPlayerImageUrl(p.id)}
+                          alt=""
+                          className="w-6 h-6 rounded-full object-cover bg-border"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                        {shortName}
+                        {p.jerseyNumber && (
+                          <span className="text-text-muted text-xs">#{p.jerseyNumber}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

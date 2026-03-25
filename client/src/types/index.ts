@@ -166,9 +166,12 @@ export type ViewType = 'home' | 'leagues' | 'teams' | 'team' | 'player';
 export interface PanelState {
   view: ViewType;
   countryId?: string;
+  countryName?: string;
   leagueId?: number;
+  leagueName?: string;
   seasonId?: number;
   teamId?: number;
+  teamName?: string;
   playerId?: number;
   playerData?: Player;
 }

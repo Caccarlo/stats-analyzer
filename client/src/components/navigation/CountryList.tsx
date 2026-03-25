@@ -71,7 +71,7 @@ export default function CountryList() {
         return (
           <button
             key={country.id}
-            onClick={() => selectCountry(0, country.id)}
+            onClick={() => selectCountry(0, country.id, country.name)}
             className={`
               w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors text-left
               ${isActive

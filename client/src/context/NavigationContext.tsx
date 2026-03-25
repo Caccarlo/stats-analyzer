@@ -44,25 +44,41 @@ function reducer(state: NavState, action: NavAction): NavState {
         return state;
       }
 
-      const prevView = viewOrder[idx - 1];
+      // Find appropriate previous view, skipping levels without required context
+      let prevIdx = idx - 1;
+      while (prevIdx > 0) {
+        const candidate = viewOrder[prevIdx];
+        if (candidate === 'team' && !current.teamId) { prevIdx--; continue; }
+        if (candidate === 'teams' && !current.leagueId) { prevIdx--; continue; }
+        if (candidate === 'leagues' && !current.countryId) { prevIdx--; continue; }
+        break;
+      }
+
+      const prevView = viewOrder[prevIdx];
       const newPanel = { ...current, view: prevView };
 
       // Reset a cascata
       if (prevView === 'home') {
         newPanel.countryId = undefined;
+        newPanel.countryName = undefined;
         newPanel.leagueId = undefined;
+        newPanel.leagueName = undefined;
         newPanel.seasonId = undefined;
         newPanel.teamId = undefined;
+        newPanel.teamName = undefined;
         newPanel.playerId = undefined;
         newPanel.playerData = undefined;
       } else if (prevView === 'leagues') {
         newPanel.leagueId = undefined;
+        newPanel.leagueName = undefined;
         newPanel.seasonId = undefined;
         newPanel.teamId = undefined;
+        newPanel.teamName = undefined;
         newPanel.playerId = undefined;
         newPanel.playerData = undefined;
       } else if (prevView === 'teams') {
         newPanel.teamId = undefined;
+        newPanel.teamName = undefined;
         newPanel.playerId = undefined;
         newPanel.playerData = undefined;
       } else if (prevView === 'team') {
@@ -75,18 +91,17 @@ function reducer(state: NavState, action: NavAction): NavState {
     }
 
     case 'OPEN_SPLIT': {
+      const splitPanel: PanelState = {
+        view: 'player',
+        playerId: action.playerData.id,
+        playerData: action.playerData,
+        teamId: action.playerData.team?.id,
+        teamName: action.playerData.team?.name,
+      };
       if (panels.length >= 2) {
-        panels[1] = {
-          view: 'player',
-          playerId: action.playerData.id,
-          playerData: action.playerData,
-        };
+        panels[1] = splitPanel;
       } else {
-        panels.push({
-          view: 'player',
-          playerId: action.playerData.id,
-          playerData: action.playerData,
-        });
+        panels.push(splitPanel);
       }
       return { panels };
     }
@@ -113,9 +128,9 @@ interface NavContextValue {
   goBack: (panel: number) => void;
   openSplitPlayer: (player: Player) => void;
   closeSplit: () => void;
-  selectCountry: (panel: number, countryId: string) => void;
-  selectLeague: (panel: number, leagueId: number, seasonId?: number) => void;
-  selectTeam: (panel: number, teamId: number) => void;
+  selectCountry: (panel: number, countryId: string, countryName?: string) => void;
+  selectLeague: (panel: number, leagueId: number, leagueName?: string, seasonId?: number) => void;
+  selectTeam: (panel: number, teamId: number, teamName?: string) => void;
   selectPlayer: (panel: number, playerId: number, playerData?: Player) => void;
 }
 
@@ -140,20 +155,25 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'CLOSE_SPLIT', panel: 1 });
   };
 
-  const selectCountry = (panel: number, countryId: string) => {
-    navigateTo(panel, 'leagues', { countryId });
+  const selectCountry = (panel: number, countryId: string, countryName?: string) => {
+    navigateTo(panel, 'leagues', { countryId, countryName });
   };
 
-  const selectLeague = (panel: number, leagueId: number, seasonId?: number) => {
-    navigateTo(panel, 'teams', { leagueId, seasonId });
+  const selectLeague = (panel: number, leagueId: number, leagueName?: string, seasonId?: number) => {
+    navigateTo(panel, 'teams', { leagueId, leagueName, seasonId });
   };
 
-  const selectTeam = (panel: number, teamId: number) => {
-    navigateTo(panel, 'team', { teamId });
+  const selectTeam = (panel: number, teamId: number, teamName?: string) => {
+    navigateTo(panel, 'team', { teamId, teamName });
   };
 
   const selectPlayer = (panel: number, playerId: number, playerData?: Player) => {
-    navigateTo(panel, 'player', { playerId, playerData });
+    const data: Partial<PanelState> = { playerId, playerData };
+    if (playerData?.team) {
+      data.teamId = playerData.team.id;
+      data.teamName = playerData.team.name;
+    }
+    navigateTo(panel, 'player', data);
   };
 
   return (

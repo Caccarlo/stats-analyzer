@@ -12,10 +12,11 @@ import type { Player, MatchEvent, LineupPlayer } from '@/types';
 
 interface TeamViewProps {
   teamId: number;
+  isSplit?: boolean;
 }
 
-export default function TeamView({ teamId }: TeamViewProps) {
-  const { selectPlayer, openSplitPlayer } = useNavigation();
+export default function TeamView({ teamId, isSplit = false }: TeamViewProps) {
+  const { selectPlayer, openSplitPlayer, openSplitTeam, selectTeam } = useNavigation();
   const [roster, setRoster] = useState<Player[]>([]);
   const [nextEvent, setNextEvent] = useState<MatchEvent | null>(null);
   const [lineupPlayers, setLineupPlayers] = useState<LineupPlayer[]>([]);
@@ -84,8 +85,11 @@ export default function TeamView({ teamId }: TeamViewProps) {
 
   const handleOpponentClick = () => {
     if (!opponent) return;
-    // Su desktop apri split view navigando alla squadra avversaria
-    // Per ora naviga alla squadra
+    if (isDesktop) {
+      openSplitTeam(opponent.id, opponent.name);
+    } else {
+      selectTeam(0, opponent.id, opponent.name);
+    }
   };
 
   if (loading) {
@@ -154,12 +158,12 @@ export default function TeamView({ teamId }: TeamViewProps) {
       )}
 
       {/* Layout desktop: campo a sinistra, panchina a destra */}
-      <div className="flex flex-col lg:flex-row lg:gap-6 lg:items-start">
+      <div className={`flex flex-col ${isSplit ? '' : 'lg:flex-row lg:gap-6 lg:items-start'}`}>
         {/* Campo con formazione */}
         {starters.length > 0 && formationPositions.length > 0 && (
-          <div className="mb-6 lg:mb-0 lg:flex-shrink-0 lg:w-[400px]">
+          <div className={`mb-6 ${isSplit ? 'w-full flex justify-center' : 'lg:mb-0 lg:flex-shrink-0 lg:w-[400px]'}`}>
             <div
-              className="relative bg-field-bg border border-field-lines rounded-lg overflow-hidden mx-auto lg:mx-0 w-full"
+              className={`relative bg-field-bg border border-field-lines rounded-lg overflow-hidden ${isSplit ? 'w-[400px]' : 'w-full mx-auto lg:mx-0'}`}
               style={{ aspectRatio: '68/105' }}
             >
               {/* Linee campo */}

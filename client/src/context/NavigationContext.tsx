@@ -15,7 +15,7 @@ const initialState: NavState = { panels: [initialPanel] };
 type NavAction =
   | { type: 'SET_VIEW'; panel: number; view: ViewType; data?: Partial<PanelState> }
   | { type: 'GO_BACK'; panel: number }
-  | { type: 'OPEN_SPLIT'; playerData: Player }
+  | { type: 'OPEN_SPLIT'; panelState: PanelState }
   | { type: 'CLOSE_SPLIT'; panel: number }
   | { type: 'RESET' };
 
@@ -91,22 +91,18 @@ function reducer(state: NavState, action: NavAction): NavState {
     }
 
     case 'OPEN_SPLIT': {
-      const splitPanel: PanelState = {
-        view: 'player',
-        playerId: action.playerData.id,
-        playerData: action.playerData,
-        teamId: action.playerData.team?.id,
-        teamName: action.playerData.team?.name,
-      };
       if (panels.length >= 2) {
-        panels[1] = splitPanel;
+        panels[1] = action.panelState;
       } else {
-        panels.push(splitPanel);
+        panels.push(action.panelState);
       }
       return { panels };
     }
 
     case 'CLOSE_SPLIT': {
+      if (action.panel === 0 && panels.length > 1) {
+        return { panels: [panels[1]] };
+      }
       return { panels: [panels[0]] };
     }
 
@@ -127,7 +123,8 @@ interface NavContextValue {
   navigateTo: (panel: number, view: ViewType, data?: Partial<PanelState>) => void;
   goBack: (panel: number) => void;
   openSplitPlayer: (player: Player) => void;
-  closeSplit: () => void;
+  openSplitTeam: (teamId: number, teamName?: string) => void;
+  closeSplit: (panel?: number) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string) => void;
   selectLeague: (panel: number, leagueId: number, leagueName?: string, seasonId?: number) => void;
   selectTeam: (panel: number, teamId: number, teamName?: string) => void;
@@ -148,11 +145,27 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   };
 
   const openSplitPlayer = (player: Player) => {
-    dispatch({ type: 'OPEN_SPLIT', playerData: player });
+    dispatch({
+      type: 'OPEN_SPLIT',
+      panelState: {
+        view: 'player',
+        playerId: player.id,
+        playerData: player,
+        teamId: player.team?.id,
+        teamName: player.team?.name,
+      },
+    });
   };
 
-  const closeSplit = () => {
-    dispatch({ type: 'CLOSE_SPLIT', panel: 1 });
+  const openSplitTeam = (teamId: number, teamName?: string) => {
+    dispatch({
+      type: 'OPEN_SPLIT',
+      panelState: { view: 'team', teamId, teamName },
+    });
+  };
+
+  const closeSplit = (panel: number = 1) => {
+    dispatch({ type: 'CLOSE_SPLIT', panel });
   };
 
   const selectCountry = (panel: number, countryId: string, countryName?: string) => {
@@ -184,6 +197,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         navigateTo,
         goBack,
         openSplitPlayer,
+        openSplitTeam,
         closeSplit,
         selectCountry,
         selectLeague,

@@ -61,7 +61,7 @@ export default function SearchBar() {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-md">
+    <div ref={containerRef} className="relative w-full max-w-md mx-auto">
       <input
         type="text"
         value={query}

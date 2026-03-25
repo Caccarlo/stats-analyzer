@@ -22,7 +22,7 @@ export default function SidebarTeamList({ leagueId }: SidebarTeamListProps) {
         if (cancelled || !seasons.length) return;
         const standings = await getSeasonStandings(leagueId, seasons[0].id);
         if (!cancelled) {
-          setTeams(standings.sort((a, b) => a.team.name.localeCompare(b.team.name)));
+          setTeams(standings);
         }
       } catch {
         // silently fail

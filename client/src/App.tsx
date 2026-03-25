@@ -16,6 +16,8 @@ function AppContent() {
   const panel0 = state.panels[0];
   const panel1 = state.panels[1];
 
+  const hasSplit = state.panels.length > 1;
+
   const renderContent = (panelIndex: number) => {
     const panel = state.panels[panelIndex];
     if (!panel) return null;
@@ -33,9 +35,9 @@ function AppContent() {
       case 'team':
         return panel.teamId ? (
           <div>
-            <SearchBar />
-            <div className="mt-8 ml-4">
-              <TeamView teamId={panel.teamId} />
+            {!hasSplit && panelIndex === 0 && <SearchBar />}
+            <div className={!hasSplit && panelIndex === 0 ? 'mt-8 ml-4' : ''}>
+              <TeamView teamId={panel.teamId} isSplit={hasSplit} />
             </div>
           </div>
         ) : null;
@@ -128,6 +130,7 @@ function AppContent() {
       </Sidebar>
       <ContentPanel
         splitContent={panel1 ? renderContent(1) : undefined}
+        topBar={hasSplit ? <SearchBar /> : undefined}
       >
         {renderContent(0)}
       </ContentPanel>

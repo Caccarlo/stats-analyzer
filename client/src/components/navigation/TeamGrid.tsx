@@ -62,8 +62,20 @@ export default function TeamGrid({ leagueId }: TeamGridProps) {
           <button
             key={row.team.id}
             onClick={() => selectTeam(0, row.team.id, row.team.name)}
-            className="flex flex-col items-center gap-2 bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors"
+            className="relative flex flex-col items-center gap-2 bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors"
           >
+            <span className="absolute top-1.5 left-2 text-xs text-text-muted/70 font-medium">
+              {row.position}.
+            </span>
+            <div className="absolute top-1.5 right-2 text-right leading-none">
+              <span className="text-[11px] text-text-muted/70 font-medium">
+                {row.points} pts
+              </span>
+              <br />
+              <span className="text-[10px] text-text-muted/60">
+                {row.matches} pg
+              </span>
+            </div>
             <img
               src={getTeamImageUrl(row.team.id)}
               alt=""

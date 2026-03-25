@@ -64,7 +64,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
           {topBar}
         </div>
       )}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex relative">
         {/* Main panel */}
         <div className={`flex-1 flex flex-col overflow-y-auto ${hasSplit ? 'w-1/2' : 'w-full'}`}>
           {hasSplit && renderPanelHeader(0)}
@@ -77,7 +77,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
         {canOpenSplit && (
           <button
             onClick={openSplitHome}
-            className="hidden lg:flex fixed right-4 top-1/2 -translate-y-1/2 z-10 w-10 h-10 items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+            className="hidden lg:flex absolute right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
             aria-label="Apri vista affiancata"
             title="Apri vista affiancata"
           >

@@ -81,7 +81,13 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
   const handlePlayerClick = (player: Player) => {
-    selectPlayer(panelIndex, player.id, player);
+    if (isDesktop && panelIndex === 0) {
+      // Desktop panel 0: open/replace player in split panel
+      openSplitPlayer(player);
+    } else {
+      // Mobile or already in split panel: navigate in place
+      selectPlayer(panelIndex, player.id, player);
+    }
   };
 
   const handleOpponentClick = () => {

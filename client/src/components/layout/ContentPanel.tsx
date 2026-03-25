@@ -24,7 +24,9 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
   const renderPanelHeader = (panelIndex: number) => {
     const panel = state.panels[panelIndex];
     const showBack = panelIndex === 1
-      ? panel?.view !== 'home' && !(panel?.view === 'player' && panel?.teamId === state.panels[0]?.teamId)
+      ? panel?.view !== 'home'
+        && !(panel?.view === 'player' && panel?.teamId === state.panels[0]?.teamId)
+        && !(panel?.view === 'team' && !panel?.leagueId)
       : panel?.view === 'player';
 
     return (

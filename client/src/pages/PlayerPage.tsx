@@ -56,26 +56,28 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   };
 
   return (
-    <div className="relative">
-      {/* Split view + button */}
-      {isDesktop && !hasSplit && panelIndex === 0 && (
-        <button
-          onClick={openSplitHome}
-          className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
-          aria-label="Apri vista affiancata"
-          title="Apri vista affiancata"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-      )}
-
+    <div>
       {panelIndex === 0 && !hasSplit && <SearchBar />}
 
-      {/* Header giocatore */}
-      <div className="mt-6 pb-4 border-b border-border">
-        <PlayerHeader player={displayPlayer} />
+      <div className="relative mt-8">
+        {/* Split view + button — same position as TeamView */}
+        {isDesktop && !hasSplit && panelIndex === 0 && (
+          <button
+            onClick={openSplitHome}
+            className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+            aria-label="Apri vista affiancata"
+            title="Apri vista affiancata"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        )}
+
+        {/* Header giocatore */}
+        <div className="pb-4 border-b border-border">
+          <PlayerHeader player={displayPlayer} />
+        </div>
       </div>
 
       {/* Filtri */}

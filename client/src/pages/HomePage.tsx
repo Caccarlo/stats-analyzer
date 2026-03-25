@@ -1,10 +1,8 @@
-import SearchBar from '@/components/layout/SearchBar';
 import CountryList from '@/components/navigation/CountryList';
 
 export default function HomePage({ panelIndex = 0 }: { panelIndex?: number }) {
   return (
     <div>
-      <SearchBar panelIndex={panelIndex} />
       {panelIndex > 0 ? (
         <div className="mt-4">
           <p className="text-text-secondary text-sm mb-3 px-4">Seleziona un paese per iniziare:</p>

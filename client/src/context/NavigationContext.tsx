@@ -122,7 +122,7 @@ interface NavContextValue {
   // Helper functions
   navigateTo: (panel: number, view: ViewType, data?: Partial<PanelState>) => void;
   goBack: (panel: number) => void;
-  openSplitPlayer: (player: Player) => void;
+  openSplitPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string) => void;
   openSplitTeam: (teamId: number, teamName?: string) => void;
   openSplitHome: () => void;
   closeSplit: (panel?: number) => void;
@@ -145,15 +145,15 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'GO_BACK', panel });
   };
 
-  const openSplitPlayer = (player: Player) => {
+  const openSplitPlayer = (player: Player, overrideTeamId?: number, overrideTeamName?: string) => {
     dispatch({
       type: 'OPEN_SPLIT',
       panelState: {
         view: 'player',
         playerId: player.id,
         playerData: player,
-        teamId: player.team?.id,
-        teamName: player.team?.name,
+        teamId: overrideTeamId ?? player.team?.id,
+        teamName: overrideTeamName ?? player.team?.name,
       },
     });
   };

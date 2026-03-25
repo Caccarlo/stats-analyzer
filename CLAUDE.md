@@ -204,8 +204,8 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 These rules MUST be followed automatically on every task, without the user asking.
 
 ### Git Workflow
-1. **Before starting work**: check `git status` and current branch
-2. **Create a feature branch** from `master` for every change: `feature/<short-description>`
+1. **Before starting work**: check `git status`, current branch, and list existing branches (`git branch`)
+2. **Reuse or create a branch BEFORE making any code changes**: if an existing feature branch is relevant to the current change, switch to it. Only create a new branch (`feature/<short-description>` from `master`) if no suitable branch exists. Never edit files while still on `master`
 3. **Commit often** with clear, concise messages describing the "why"
 4. **When the task is complete**: push the branch, create a PR via `gh pr create`, and merge it into `master` via `gh pr merge` (squash merge preferred)
 5. **After merge**: switch back to `master` and pull

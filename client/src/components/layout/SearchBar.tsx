@@ -10,7 +10,7 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const containerRef = useRef<HTMLDivElement>(null);
-  const { selectPlayer } = useNavigation();
+  const { selectPlayer, closeSplit } = useNavigation();
 
   // Debounce search
   useEffect(() => {
@@ -48,7 +48,8 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
   }, []);
 
   const handleSelect = (result: SearchResult) => {
-    selectPlayer(panelIndex, result.entity.id, result.entity);
+    closeSplit();
+    selectPlayer(0, result.entity.id, result.entity);
     setQuery('');
     setOpen(false);
   };

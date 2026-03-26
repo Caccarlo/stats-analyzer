@@ -34,7 +34,7 @@ export default function FieldMap({
     <div>
       <svg
         viewBox={`0 0 ${FIELD_W} ${FIELD_H}`}
-        className="w-full max-w-[280px] rounded-lg border border-field-lines"
+        className="w-full max-w-[238px] rounded-lg border border-field-lines"
         style={{ aspectRatio: '68/105', background: '#1a3320' }}
       >
         {/* Linee campo */}

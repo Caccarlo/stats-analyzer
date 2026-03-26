@@ -59,7 +59,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
   return (
     <div className="md:ml-[210px] flex-1 flex flex-col min-h-screen">
       {topBar && (
-        <div className="px-6 pt-16 md:pt-6 pb-16 md:pb-6 max-w-xl w-full">
+        <div className="px-6 pt-16 md:pt-6 pb-6 w-full">
           {topBar}
         </div>
       )}

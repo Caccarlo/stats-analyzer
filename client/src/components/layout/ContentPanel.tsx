@@ -65,7 +65,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
       )}
       <div className="flex-1 flex">
         {/* Main panel */}
-        <div className={`flex-1 flex flex-col overflow-y-auto ${hasSplit ? 'w-1/2' : 'w-full'}`}>
+        <div className={`flex-1 flex flex-col overflow-y-auto min-w-0 ${hasSplit ? 'w-1/2' : 'w-full'}`}>
           {hasSplit && renderPanelHeader(0)}
           <div className={`flex-1 p-6 ${hasSplit ? 'pt-4' : topBar ? 'pt-4' : 'pt-16 md:pt-6'}`}>
             {children}
@@ -74,7 +74,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
 
         {/* Split panel */}
         {hasSplit && (
-          <div className="hidden lg:flex flex-col w-1/2 border-l border-border overflow-y-auto">
+          <div className="hidden lg:flex flex-col w-1/2 border-l border-border overflow-y-auto min-w-0">
             {renderPanelHeader(1)}
             <div className="flex-1 p-6 pt-4">
               {splitContent}

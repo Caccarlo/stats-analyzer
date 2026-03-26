@@ -171,7 +171,16 @@ function AppContent() {
       </Sidebar>
       <ContentPanel
         splitContent={panel1 ? renderContent(1) : undefined}
-        topBar={hasSplit ? <SearchBar /> : undefined}
+        topBar={hasSplit ? (
+          <div className="flex">
+            <div className="w-1/2 pr-6">
+              <SearchBar panelIndex={0} />
+            </div>
+            <div className="w-1/2 pl-6">
+              <SearchBar panelIndex={1} />
+            </div>
+          </div>
+        ) : undefined}
       >
         {renderContent(0)}
       </ContentPanel>

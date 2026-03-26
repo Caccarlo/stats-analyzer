@@ -123,7 +123,7 @@ interface NavContextValue {
   navigateTo: (panel: number, view: ViewType, data?: Partial<PanelState>) => void;
   goBack: (panel: number) => void;
   openSplitPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string) => void;
-  openSplitTeam: (teamId: number, teamName?: string) => void;
+  openSplitTeam: (teamId: number, teamName?: string, context?: Partial<PanelState>) => void;
   openSplitHome: () => void;
   closeSplit: (panel?: number) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string) => void;
@@ -158,10 +158,10 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const openSplitTeam = (teamId: number, teamName?: string) => {
+  const openSplitTeam = (teamId: number, teamName?: string, context?: Partial<PanelState>) => {
     dispatch({
       type: 'OPEN_SPLIT',
-      panelState: { view: 'team', teamId, teamName },
+      panelState: { view: 'team', teamId, teamName, ...context },
     });
   };
 

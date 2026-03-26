@@ -31,7 +31,7 @@ export default function FieldMap({
   const field = { width: FIELD_W, height: FIELD_H };
 
   return (
-    <div className="mt-3">
+    <div>
       <svg
         viewBox={`0 0 ${FIELD_W} ${FIELD_H}`}
         className="w-full max-w-[280px] rounded-lg border border-field-lines"

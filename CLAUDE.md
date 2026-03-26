@@ -105,15 +105,16 @@ PanelState = {
 - `RESET` — return to home
 
 ### Helper Functions
-`navigateTo`, `selectCountry`, `selectLeague`, `selectTeam`, `selectPlayer`, `openSplitPlayer`, `openSplitTeam`, `openSplitHome`, `closeSplit`, `goBack` — all panel-index-aware.
+`navigateTo`, `selectCountry`, `selectLeague`, `selectTeam`, `selectPlayer`, `openSplitPlayer`, `openSplitTeam`, `swapSplitAndOpenTeam`, `swapSplitAndOpenPlayer`, `openSplitHome`, `closeSplit`, `goBack` — all panel-index-aware.
 
 ### Split View Rules
 - Desktop only (lg: 1024px+), panels 50/50
 - "+" button rendered in `App.tsx` (centered via `left-1/2`) when viewing team or player full-screen: opens split with home view (country selection) for independent navigation
 - Clicking player in TeamView: if no split open, opens split with that player; if split already open (two teams), navigates in-place in the same panel
-- Clicking opponent team in MatchCard: swaps panels or opens team in split
+- Clicking foul-involved player in MatchCard: from left panel opens split on right; from right panel swaps (current player → left, new player → right)
+- Clicking opponent team in TeamView/MatchCard: swaps panels or opens team in split
 - Each panel navigates independently
-- Right panel back button shows contextual labels at each hierarchy level (league name, country name, "Paesi")
+- Right panel back button shows contextual labels at each hierarchy level (league name, country name, "Paesi"); hidden only when panel 0 is team view and panel 1 player is from the same team
 - Clicking opponent team in TeamView passes full navigation context (leagueId, leagueName, countryId, countryName) derived from the match tournament and `COUNTRIES` config, so back button works through the full hierarchy
 - Left panel back button shows team name or "Indietro"
 - SearchBar only shown inside individual views when NOT in split mode; in split mode the fixed `topBar` SearchBar in `ContentPanel` covers both panels

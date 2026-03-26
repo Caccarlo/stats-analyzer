@@ -113,7 +113,8 @@ PanelState = {
 - Clicking player in TeamView: if no split open, opens split with that player; if split already open (two teams), navigates in-place in the same panel
 - Clicking opponent team in MatchCard: swaps panels or opens team in split
 - Each panel navigates independently
-- Right panel back button shows contextual labels at each hierarchy level (league name, country name, "Paesi"); hidden when team opened directly via opponent click (no leagueId — X button suffices)
+- Right panel back button shows contextual labels at each hierarchy level (league name, country name, "Paesi")
+- Clicking opponent team in TeamView passes full navigation context (leagueId, leagueName, countryId, countryName) derived from the match tournament and `COUNTRIES` config, so back button works through the full hierarchy
 - Left panel back button shows team name or "Indietro"
 - SearchBar only shown inside individual views when NOT in split mode; in split mode the fixed `topBar` SearchBar in `ContentPanel` covers both panels
 - Navigation components (CountryList, LeagueList, TeamGrid, HomePage) accept `panelIndex` prop for panel-aware navigation

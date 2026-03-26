@@ -8,6 +8,7 @@ import {
   getPlayerImageUrl,
 } from '@/api/sofascore';
 import { getFormationPositions } from '@/utils/positionMapping';
+import { COUNTRIES } from '@/components/navigation/CountryList';
 import type { Player, MatchEvent, LineupPlayer } from '@/types';
 
 interface TeamViewProps {
@@ -92,9 +93,19 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
   };
 
   const handleOpponentClick = () => {
-    if (!opponent) return;
+    if (!opponent || !nextEvent) return;
+    // Ricava contesto di navigazione dal torneo della partita
+    const leagueId = nextEvent.tournament.uniqueTournament.id;
+    const leagueName = nextEvent.tournament.uniqueTournament.name;
+    const country = COUNTRIES.find(c => c.leagues.some(l => l.id === leagueId));
+    const navContext = {
+      leagueId,
+      leagueName,
+      countryId: country?.id,
+      countryName: country?.name,
+    };
     if (isDesktop) {
-      openSplitTeam(opponent.id, opponent.name);
+      openSplitTeam(opponent.id, opponent.name, navContext);
     } else {
       selectTeam(0, opponent.id, opponent.name);
     }

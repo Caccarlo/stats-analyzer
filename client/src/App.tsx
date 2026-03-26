@@ -71,7 +71,9 @@ function AppContent() {
                   </svg>
                 </button>
               )}
-              <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
+              <div className={!hasSplit && panelIndex === 0 ? 'ml-4' : ''}>
+                <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
+              </div>
             </div>
           </div>
         ) : null;

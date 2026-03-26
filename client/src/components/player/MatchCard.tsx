@@ -133,7 +133,7 @@ export default function MatchCard({
   const showTwoColumns = showCommitted && showSuffered;
 
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden h-full flex flex-col">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col">
       {/* Header with X close button */}
       <div className="flex items-start justify-between px-4 py-3">
         <div className="flex-1 min-w-0">
@@ -170,9 +170,9 @@ export default function MatchCard({
           </div>
         ) : (
           <>
-            {/* Campo + titolarità affiancati */}
+            {/* Campo + titolarità affiancati e centrati */}
             {positions ? (
-              <div className="flex gap-3 items-start mb-5">
+              <div className="flex gap-3 items-start justify-center mb-5">
                 <FieldMap
                   homePositions={positions.home}
                   awayPositions={positions.away}
@@ -188,7 +188,7 @@ export default function MatchCard({
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-text-secondary mb-3">
+              <div className="text-xs text-text-secondary mb-3 text-center">
                 <span>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</span>
                 {substituteOutMinute != null && (
                   <span> · Uscito al {substituteOutMinute}'</span>
@@ -200,7 +200,7 @@ export default function MatchCard({
             {showTwoColumns ? (
               <div className="grid grid-cols-2 gap-3">
                 {/* Commessi a sinistra */}
-                <div>
+                <div className="flex flex-col items-center text-center">
                   <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
                     Falli commessi ({committedFouls.length})
                   </p>
@@ -210,7 +210,7 @@ export default function MatchCard({
                   }
                 </div>
                 {/* Subiti a destra */}
-                <div>
+                <div className="flex flex-col items-center text-center">
                   <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
                     Falli subiti ({sufferedFouls.length})
                   </p>
@@ -223,7 +223,7 @@ export default function MatchCard({
             ) : (
               <>
                 {showSuffered && sufferedFouls.length > 0 && (
-                  <div className="mb-3">
+                  <div className="mb-3 flex flex-col items-center text-center">
                     <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
                       Falli subiti ({sufferedFouls.length})
                     </p>
@@ -232,7 +232,7 @@ export default function MatchCard({
                 )}
 
                 {showCommitted && committedFouls.length > 0 && (
-                  <div className="mb-3">
+                  <div className="mb-3 flex flex-col items-center text-center">
                     <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
                       Falli commessi ({committedFouls.length})
                     </p>
@@ -241,7 +241,7 @@ export default function MatchCard({
                 )}
 
                 {visibleFouls.length === 0 && (
-                  <p className="text-text-muted text-sm">Nessun fallo in questa partita</p>
+                  <p className="text-text-muted text-sm text-center">Nessun fallo in questa partita</p>
                 )}
               </>
             )}

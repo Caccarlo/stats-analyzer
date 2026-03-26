@@ -109,13 +109,14 @@ PanelState = {
 
 ### Split View Rules
 - Desktop only (lg: 1024px+), panels 50/50
-- "+" button on right edge when viewing team or player full-screen: opens split with home view (country selection) for independent navigation
-- Clicking player in TeamView: opens split with that player
+- "+" button rendered in `App.tsx` (centered via `left-1/2`) when viewing team or player full-screen: opens split with home view (country selection) for independent navigation
+- Clicking player in TeamView: if no split open, opens split with that player; if split already open (two teams), navigates in-place in the same panel
 - Clicking opponent team in MatchCard: swaps panels or opens team in split
 - Each panel navigates independently
-- Right panel back button shows contextual labels at each hierarchy level (league name, country name, "Paesi")
+- Right panel back button shows contextual labels at each hierarchy level (league name, country name, "Paesi"); hidden when team opened directly via opponent click (no leagueId — X button suffices)
 - Left panel back button shows team name or "Indietro"
-- Navigation components (CountryList, LeagueList, TeamGrid, SearchBar, HomePage) accept `panelIndex` prop for panel-aware navigation
+- SearchBar only shown inside individual views when NOT in split mode; in split mode the fixed `topBar` SearchBar in `ContentPanel` covers both panels
+- Navigation components (CountryList, LeagueList, TeamGrid, HomePage) accept `panelIndex` prop for panel-aware navigation
 
 ## SofaScore API Endpoints
 
@@ -182,6 +183,9 @@ Defined in `CountryList.tsx`.
 - Mobile (<768px): sidebar hidden, hamburger overlay, single panel
 - Tablet (768px+): sidebar fixed 210px, content fills remaining
 - Desktop (1024px+): same + split view available
+
+### Scrollbar
+`html { scrollbar-gutter: stable }` — prevents layout shift when navigating between views with different content heights (scrollbar appearing/disappearing changes content width).
 
 ### Field SVG
 Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half.

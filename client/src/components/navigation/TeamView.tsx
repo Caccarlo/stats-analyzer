@@ -17,7 +17,7 @@ interface TeamViewProps {
 }
 
 export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: TeamViewProps) {
-  const { state, selectPlayer, openSplitPlayer, openSplitTeam, selectTeam, openSplitHome } = useNavigation();
+  const { state, selectPlayer, openSplitPlayer, openSplitTeam, selectTeam } = useNavigation();
   const hasSplit = state.panels.length > 1;
   const [roster, setRoster] = useState<Player[]>([]);
   const [nextEvent, setNextEvent] = useState<MatchEvent | null>(null);
@@ -125,21 +125,7 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
   }, {});
 
   return (
-    <div className="relative">
-      {/* Split view + button — positioned at 50% width, aligned with header */}
-      {isDesktop && !hasSplit && panelIndex === 0 && (
-        <button
-          onClick={openSplitHome}
-          className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
-          aria-label="Apri vista affiancata"
-          title="Apri vista affiancata"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-      )}
-
+    <div>
       {/* Header squadra */}
       <div className="flex items-center gap-3 mb-4">
         <img

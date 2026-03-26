@@ -26,7 +26,7 @@ export default function MatchCard({
   const [open, setOpen] = useState(defaultOpen);
   const { fouls, positions, substituteInMinute, substituteOutMinute, loading } =
     useMatchDetails(event.id, playerId, open);
-  const { openSplitPlayer, selectPlayer } = useNavigation();
+  const { openSplitPlayer, swapSplitAndOpenPlayer, selectPlayer } = useNavigation();
 
   // Determina se il giocatore è nella squadra di casa o ospite
   const isHome = event.homeTeam.id === playerTeamId;
@@ -57,8 +57,8 @@ export default function MatchCard({
   const handlePlayerClick = (player: Player) => {
     if (isDesktop) {
       if (panelIndex > 0) {
-        // Nel pannello split, naviga dentro lo stesso pannello
-        selectPlayer(panelIndex, player.id, player);
+        // Right panel: swap current player to left, open new player on right
+        swapSplitAndOpenPlayer(player);
       } else {
         openSplitPlayer(player);
       }

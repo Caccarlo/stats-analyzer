@@ -187,9 +187,9 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
               {/* Selected match cards */}
               {selectedEvents.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-6">
+                <div className="flex flex-wrap items-stretch gap-2 mt-6">
                   {selectedEvents.map((event) => (
-                    <div key={event.id} className={cardWidthClass}>
+                    <div key={event.id} className={`${cardWidthClass} flex`}>
                       <MatchCard
                         event={event}
                         playerId={playerId}

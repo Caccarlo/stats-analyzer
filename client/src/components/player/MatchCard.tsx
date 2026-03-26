@@ -35,9 +35,9 @@ export default function MatchCard({
   // Determina se il giocatore è nella squadra di casa o ospite
   const isHome = event.homeTeam.id === playerTeamId;
 
-  // Data partita
+  // Data partita (con anno)
   const date = new Date(event.startTimestamp * 1000);
-  const dateStr = date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
+  const dateStr = date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 
   // Filtra falli per tipo
   const committedFouls = fouls.filter((f) => f.type === 'committed' || f.type === 'handball');
@@ -84,22 +84,56 @@ export default function MatchCard({
     }
   };
 
-  // Titolarità
-  const getTitularityText = () => {
-    if (substituteInMinute != null && substituteOutMinute != null) {
-      return `Entrato al ${substituteInMinute}' · Uscito al ${substituteOutMinute}'`;
-    }
-    if (substituteInMinute != null) {
-      return `Entrato al ${substituteInMinute}'`;
-    }
-    if (substituteOutMinute != null) {
-      return `Titolare · Uscito al ${substituteOutMinute}'`;
-    }
-    return 'Titolare';
-  };
+  // Render a single foul entry
+  const renderFoul = (f: FoulMatchup, i: number) => (
+    <div key={i} className="flex items-start gap-2 text-sm text-text-secondary py-1">
+      {f.minute != null && (
+        <span className="text-text-muted text-xs w-8 flex-shrink-0">{f.minute}'</span>
+      )}
+      <span>
+        {f.type === 'suffered' ? (
+          <>
+            Conquista punizione
+            {f.playerFouling && (
+              <>
+                {' da '}
+                <button
+                  onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)}
+                  className="text-neon hover:underline"
+                >
+                  {f.playerFouling.name}
+                </button>
+              </>
+            )}
+          </>
+        ) : f.type === 'handball' ? (
+          'Fallo di mano'
+        ) : (
+          <>
+            Fallo
+            {f.playerFouled && (
+              <>
+                {' su '}
+                <button
+                  onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)}
+                  className="text-neon hover:underline"
+                >
+                  {f.playerFouled.name}
+                </button>
+              </>
+            )}
+          </>
+        )}
+        {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
+      </span>
+    </div>
+  );
+
+  // Both foul types visible and at least one foul exists in each
+  const showTwoColumns = showCommitted && showSuffered && (committedFouls.length > 0 || sufferedFouls.length > 0);
 
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden">
+    <div className="bg-surface border border-border rounded-lg overflow-hidden h-full flex flex-col">
       {/* Header with X close button */}
       <div className="flex items-start justify-between px-4 py-3">
         <div className="flex-1 min-w-0">
@@ -128,7 +162,7 @@ export default function MatchCard({
       </div>
 
       {/* Content — always visible */}
-      <div className="px-4 pb-4 border-t border-border pt-3">
+      <div className="px-4 pb-4 border-t border-border pt-3 flex-1">
         {!details ? (
           <div className="flex items-center gap-2 text-text-muted text-sm">
             <div className="w-3 h-3 border-2 border-neon border-t-transparent rounded-full animate-spin" />
@@ -136,91 +170,80 @@ export default function MatchCard({
           </div>
         ) : (
           <>
-            {/* Titolarità */}
-            <p className="text-text-secondary text-xs mb-3">{getTitularityText()}</p>
-
-            {/* Falli subiti */}
-            {showSuffered && sufferedFouls.length > 0 && (
-              <div className="mb-3">
-                <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
-                  Falli subiti ({sufferedFouls.length})
-                </p>
-                {sufferedFouls.map((f, i) => (
-                  <div key={i} className="flex items-start gap-2 text-sm text-text-secondary py-1">
-                    {f.minute != null && (
-                      <span className="text-text-muted text-xs w-8 flex-shrink-0">{f.minute}'</span>
-                    )}
-                    <span>
-                      Conquista punizione
-                      {f.playerFouling && (
-                        <>
-                          {' da '}
-                          <button
-                            onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)}
-                            className="text-neon hover:underline"
-                          >
-                            {f.playerFouling.name}
-                          </button>
-                        </>
-                      )}
-                      {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
-                    </span>
-                  </div>
-                ))}
+            {/* Campo + titolarità affiancati */}
+            {positions ? (
+              <div className="flex gap-3 items-start mb-3">
+                <FieldMap
+                  homePositions={positions.home}
+                  awayPositions={positions.away}
+                  selectedPlayerId={playerId}
+                  involvedPlayerIds={involvedPlayerIds}
+                  onPlayerClick={handlePlayerClick}
+                />
+                <div className="text-xs text-text-secondary space-y-0.5 pt-1">
+                  <p>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</p>
+                  {substituteOutMinute != null && (
+                    <p>Uscito al {substituteOutMinute}'</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-text-secondary mb-3">
+                <span>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</span>
+                {substituteOutMinute != null && (
+                  <span> · Uscito al {substituteOutMinute}'</span>
+                )}
               </div>
             )}
 
-            {/* Falli commessi */}
-            {showCommitted && committedFouls.length > 0 && (
-              <div className="mb-3">
-                <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
-                  Falli commessi ({committedFouls.length})
-                </p>
-                {committedFouls.map((f, i) => (
-                  <div key={i} className="flex items-start gap-2 text-sm text-text-secondary py-1">
-                    {f.minute != null && (
-                      <span className="text-text-muted text-xs w-8 flex-shrink-0">{f.minute}'</span>
-                    )}
-                    <span>
-                      {f.type === 'handball' ? (
-                        'Fallo di mano'
-                      ) : (
-                        <>
-                          Fallo
-                          {f.playerFouled && (
-                            <>
-                              {' su '}
-                              <button
-                                onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)}
-                                className="text-neon hover:underline"
-                              >
-                                {f.playerFouled.name}
-                              </button>
-                            </>
-                          )}
-                        </>
-                      )}
-                      {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
-                    </span>
-                  </div>
-                ))}
+            {/* Falli */}
+            {showTwoColumns ? (
+              <div className="grid grid-cols-2 gap-3">
+                {/* Commessi a sinistra */}
+                <div>
+                  <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
+                    Falli commessi ({committedFouls.length})
+                  </p>
+                  {committedFouls.length > 0
+                    ? committedFouls.map(renderFoul)
+                    : <p className="text-text-muted text-sm">Nessuno</p>
+                  }
+                </div>
+                {/* Subiti a destra */}
+                <div>
+                  <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
+                    Falli subiti ({sufferedFouls.length})
+                  </p>
+                  {sufferedFouls.length > 0
+                    ? sufferedFouls.map(renderFoul)
+                    : <p className="text-text-muted text-sm">Nessuno</p>
+                  }
+                </div>
               </div>
-            )}
+            ) : (
+              <>
+                {showSuffered && sufferedFouls.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
+                      Falli subiti ({sufferedFouls.length})
+                    </p>
+                    {sufferedFouls.map(renderFoul)}
+                  </div>
+                )}
 
-            {/* Nessun fallo */}
-            {visibleFouls.length === 0 && (
-              <p className="text-text-muted text-sm">Nessun fallo in questa partita</p>
-            )}
+                {showCommitted && committedFouls.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
+                      Falli commessi ({committedFouls.length})
+                    </p>
+                    {committedFouls.map(renderFoul)}
+                  </div>
+                )}
 
-            {/* Mappa campo */}
-            {positions && (
-              <FieldMap
-                homePositions={positions.home}
-                awayPositions={positions.away}
-                selectedPlayerId={playerId}
-                involvedPlayerIds={involvedPlayerIds}
-                onPlayerClick={handlePlayerClick}
-              />
+                {visibleFouls.length === 0 && (
+                  <p className="text-text-muted text-sm">Nessun fallo in questa partita</p>
+                )}
+              </>
             )}
           </>
         )}

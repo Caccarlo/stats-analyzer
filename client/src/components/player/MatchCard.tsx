@@ -70,13 +70,16 @@ export default function MatchCard({
   };
 
   const handlePlayerClick = (player: Player) => {
+    // Foul-involved player is always on the opponent team
+    const teamId = player.team?.id ?? opponent?.id;
+    const teamName = player.team?.name ?? opponent?.name;
     if (isDesktop) {
       const navContext = buildNavContext();
       if (panelIndex > 0) {
         // Right panel: swap current player to left, open new player on right
-        swapSplitAndOpenPlayer(player, undefined, undefined, navContext);
+        swapSplitAndOpenPlayer(player, teamId, teamName, navContext);
       } else {
-        openSplitPlayer(player, undefined, undefined, navContext);
+        openSplitPlayer(player, teamId, teamName, navContext);
       }
     } else {
       selectPlayer(0, player.id, player);

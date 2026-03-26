@@ -70,6 +70,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     [selectedTournaments],
   );
 
+  // All season IDs for the current season year (used to know when to stop loading pages)
+  const validSeasonIds = useMemo(
+    () => new Set(allTournamentsForSeason.map((t) => t.seasonId)),
+    [allTournamentsForSeason],
+  );
+
   // Timeline hook
   const {
     filteredEvents,
@@ -79,7 +85,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     loadingEvents,
     toggleMatch,
     deselectMatch,
-  } = useMatchTimeline(playerId, selectedTournamentIds, selectedSeasonYear);
+  } = useMatchTimeline(playerId, selectedTournamentIds, validSeasonIds);
 
   // Selected events sorted chronologically (most recent first, same as filteredEvents order)
   const selectedEvents = useMemo(

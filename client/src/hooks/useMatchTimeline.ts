@@ -17,34 +17,37 @@ export interface UseMatchTimelineResult {
 export function useMatchTimeline(
   playerId: number,
   selectedTournamentIds: Set<number>,
-  selectedSeasonYear: string,
+  validSeasonIds: Set<number>,
 ): UseMatchTimelineResult {
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
-  const [detailsLoadedIds, setDetailsLoadedIds] = useState<Set<number>>(new Set());
-  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [loadingEvents, setLoadingEvents] = useState(true);
 
-  // Track whether initial pre-selection has been done for current load
+  // Use ref for tracking loaded details to avoid stale closures
+  const loadedIdsRef = useRef<Set<number>>(new Set());
   const preSelectedRef = useRef(false);
-  // Track current playerId + season to detect changes
-  const loadKeyRef = useRef('');
 
-  // ── Load ALL event pages eagerly ──
+  // Serialize validSeasonIds for stable dependency comparison
+  const seasonIdsKey = useMemo(
+    () => [...validSeasonIds].sort().join(','),
+    [validSeasonIds],
+  );
+
+  // ── Load event pages, stopping once past the current season ──
   useEffect(() => {
-    const key = `${playerId}-${selectedSeasonYear}`;
-    if (loadKeyRef.current === key) return;
-    loadKeyRef.current = key;
+    // Don't load until we know which seasons are valid
+    if (validSeasonIds.size === 0) return;
 
     let cancelled = false;
     preSelectedRef.current = false;
+    loadedIdsRef.current = new Set();
     setAllEvents([]);
     setSelectedEventIds(new Set());
     setDetailsMap(new Map());
-    setDetailsLoadedIds(new Set());
     setLoadingEvents(true);
 
-    async function loadAllPages() {
+    async function loadPages() {
       let page = 0;
       let accumulated: MatchEvent[] = [];
       let hasMore = true;
@@ -53,7 +56,16 @@ export function useMatchTimeline(
         try {
           const { events: pageEvents, hasNextPage } = await getPlayerEvents(playerId, page);
           if (cancelled) return;
-          accumulated = [...accumulated, ...pageEvents];
+
+          // Keep only completed matches from valid seasons
+          const relevant = pageEvents.filter(
+            (e) => e.status?.code === 100 && validSeasonIds.has(e.season?.id),
+          );
+          accumulated = [...accumulated, ...relevant];
+
+          // If this page had events but none matched our season, we've gone past it — stop
+          if (pageEvents.length > 0 && relevant.length === 0) break;
+
           hasMore = hasNextPage;
           page++;
         } catch {
@@ -67,17 +79,16 @@ export function useMatchTimeline(
       }
     }
 
-    loadAllPages();
+    loadPages();
     return () => { cancelled = true; };
-  }, [playerId, selectedSeasonYear]);
+  }, [playerId, seasonIdsKey]);
 
-  // ── Filtered events (derived) ──
+  // ── Filtered events by selected tournaments (derived) ──
   const filteredEvents = useMemo(() => {
-    return allEvents.filter((e) => {
-      if (e.status?.code !== 100) return false;
-      if (selectedTournamentIds.size === 0) return true;
-      return selectedTournamentIds.has(e.tournament?.uniqueTournament?.id);
-    });
+    if (selectedTournamentIds.size === 0) return allEvents;
+    return allEvents.filter((e) =>
+      selectedTournamentIds.has(e.tournament?.uniqueTournament?.id),
+    );
   }, [allEvents, selectedTournamentIds]);
 
   // ── Pre-select last N matches after initial load ──
@@ -107,59 +118,62 @@ export function useMatchTimeline(
 
     let cancelled = false;
 
-    async function loadDetails() {
-      // Priority 1: selected matches
-      const selectedIds = [...selectedEventIds];
-      const selectedPromises = selectedIds.map(async (eventId) => {
-        if (detailsLoadedIds.has(eventId)) return;
-        try {
-          const result = await fetchMatchDetails(eventId, playerId);
-          if (cancelled) return;
-          setDetailsMap((prev) => new Map(prev).set(eventId, result));
-          setDetailsLoadedIds((prev) => new Set(prev).add(eventId));
-        } catch { /* skip failed */ }
-      });
-      await Promise.all(selectedPromises);
-      if (cancelled) return;
+    async function loadAllDetails() {
+      const eventIds = filteredEvents.map((e) => e.id);
 
-      // Priority 2: remaining matches in batches of 3
-      const remaining = filteredEvents
-        .filter((e) => !detailsLoadedIds.has(e.id) && !selectedIds.includes(e.id))
-        .map((e) => e.id);
-
-      for (let i = 0; i < remaining.length; i += 3) {
+      for (let i = 0; i < eventIds.length; i += 3) {
         if (cancelled) return;
-        const batch = remaining.slice(i, i + 3);
-        const batchPromises = batch.map(async (eventId) => {
-          // Re-check in case it was loaded by another path
-          const key = `${eventId}-${playerId}`;
-          if (matchDetailsCache.has(key)) {
-            const cached = matchDetailsCache.get(key)!;
-            if (!cancelled) {
-              setDetailsMap((prev) => new Map(prev).set(eventId, cached));
-              setDetailsLoadedIds((prev) => new Set(prev).add(eventId));
+        const batch = eventIds.slice(i, i + 3);
+        const batchResults: { eventId: number; result: CachedMatchDetails }[] = [];
+
+        await Promise.all(
+          batch.map(async (eventId) => {
+            if (loadedIdsRef.current.has(eventId)) return;
+
+            const key = `${eventId}-${playerId}`;
+            if (matchDetailsCache.has(key)) {
+              const cached = matchDetailsCache.get(key)!;
+              loadedIdsRef.current.add(eventId);
+              batchResults.push({ eventId, result: cached });
+              return;
             }
-            return;
-          }
-          try {
-            const result = await fetchMatchDetails(eventId, playerId);
-            if (cancelled) return;
-            setDetailsMap((prev) => new Map(prev).set(eventId, result));
-            setDetailsLoadedIds((prev) => new Set(prev).add(eventId));
-          } catch { /* skip failed */ }
-        });
-        await Promise.all(batchPromises);
+
+            try {
+              const result = await fetchMatchDetails(eventId, playerId);
+              if (cancelled) return;
+              loadedIdsRef.current.add(eventId);
+              batchResults.push({ eventId, result });
+            } catch { /* skip failed */ }
+          }),
+        );
+
         if (cancelled) return;
-        // Pause between batches
-        if (i + 3 < remaining.length) {
+
+        if (batchResults.length > 0) {
+          setDetailsMap((prev) => {
+            const next = new Map(prev);
+            for (const { eventId, result } of batchResults) {
+              next.set(eventId, result);
+            }
+            return next;
+          });
+        }
+
+        if (i + 3 < eventIds.length) {
           await new Promise((r) => setTimeout(r, 300));
         }
       }
     }
 
-    loadDetails();
+    loadAllDetails();
     return () => { cancelled = true; };
-  }, [filteredEvents, selectedEventIds, playerId]);
+  }, [filteredEvents, playerId]);
+
+  // ── Derived: loaded IDs set for rendering ──
+  const detailsLoadedIds = useMemo(
+    () => new Set(detailsMap.keys()),
+    [detailsMap],
+  );
 
   // ── Actions ──
   const toggleMatch = useCallback((eventId: number) => {

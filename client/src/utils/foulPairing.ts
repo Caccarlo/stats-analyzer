@@ -103,10 +103,10 @@ export function extractSubstitutionInfo(
     if (comment.type !== 'substitution') continue;
 
     if (comment.playerIn?.id === playerId) {
-      inMinute = extractMinute(comment.text);
+      inMinute = extractMinute(comment.text) ?? comment.time;
     }
     if (comment.playerOut?.id === playerId) {
-      outMinute = extractMinute(comment.text);
+      outMinute = extractMinute(comment.text) ?? comment.time;
     }
   }
 

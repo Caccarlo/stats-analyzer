@@ -129,8 +129,8 @@ export default function MatchCard({
     </div>
   );
 
-  // Both foul types visible and at least one foul exists in each
-  const showTwoColumns = showCommitted && showSuffered && (committedFouls.length > 0 || sufferedFouls.length > 0);
+  // Always use two columns when both foul filters are active (consistent card size)
+  const showTwoColumns = showCommitted && showSuffered;
 
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden h-full flex flex-col">
@@ -172,7 +172,7 @@ export default function MatchCard({
           <>
             {/* Campo + titolarità affiancati */}
             {positions ? (
-              <div className="flex gap-3 items-start mb-3">
+              <div className="flex gap-3 items-start mb-5">
                 <FieldMap
                   homePositions={positions.home}
                   awayPositions={positions.away}

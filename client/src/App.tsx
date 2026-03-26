@@ -13,32 +13,67 @@ import SidebarTeamList from '@/components/navigation/SidebarTeamList';
 
 
 function AppContent() {
-  const { state } = useNavigation();
+  const { state, openSplitHome } = useNavigation();
   const panel0 = state.panels[0];
   const panel1 = state.panels[1];
 
   const hasSplit = state.panels.length > 1;
+  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
   const renderContent = (panelIndex: number) => {
     const panel = state.panels[panelIndex];
     if (!panel) return null;
 
+    const showPlusButton = isDesktop && !hasSplit && panelIndex === 0
+      && (panel.view === 'team' || panel.view === 'player');
+
     switch (panel.view) {
       case 'player':
         return panel.playerId ? (
-          <PlayerPage
-            playerId={panel.playerId}
-            playerData={panel.playerData}
-            panelIndex={panelIndex}
-          />
+          <div>
+            {!hasSplit && panelIndex === 0 && <SearchBar panelIndex={panelIndex} />}
+            <div className={showPlusButton ? 'relative mt-8' : ''}>
+              {showPlusButton && (
+                <button
+                  onClick={openSplitHome}
+                  className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+                  aria-label="Apri vista affiancata"
+                  title="Apri vista affiancata"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+              )}
+              <PlayerPage
+                playerId={panel.playerId}
+                playerData={panel.playerData}
+                panelIndex={panelIndex}
+              />
+            </div>
+          </div>
         ) : null;
 
       case 'team':
         return panel.teamId ? (
           <div>
             {!hasSplit && panelIndex === 0 && <SearchBar panelIndex={panelIndex} />}
-            <div className={!hasSplit && panelIndex === 0 ? 'mt-8 ml-4' : ''}>
-              <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
+            <div className={showPlusButton ? 'relative mt-8' : ''}>
+              {showPlusButton && (
+                <button
+                  onClick={openSplitHome}
+                  className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+                  aria-label="Apri vista affiancata"
+                  title="Apri vista affiancata"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+              )}
+              <div className={!hasSplit && panelIndex === 0 ? 'ml-4' : ''}>
+                <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
+              </div>
             </div>
           </div>
         ) : null;

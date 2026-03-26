@@ -66,7 +66,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
       )}
       <div className="flex-1 flex">
         {/* Main panel */}
-        <div className={`flex-1 flex flex-col overflow-y-auto [scrollbar-gutter:stable] ${hasSplit ? 'w-1/2' : 'w-full'}`}>
+        <div className={`flex-1 flex flex-col overflow-y-auto ${hasSplit ? 'w-1/2' : 'w-full'}`}>
           {hasSplit && renderPanelHeader(0)}
           <div className={`flex-1 p-6 ${hasSplit ? 'pt-4' : topBar ? 'pt-4' : 'pt-16 md:pt-6'}`}>
             {children}

@@ -114,6 +114,15 @@ export async function getTeamNextEvent(teamId: number): Promise<MatchEvent | nul
 
 // === Giocatore ===
 
+export async function getPlayerInfo(playerId: number): Promise<Player | null> {
+  try {
+    const data = await apiFetch<{ player: Player }>(`player/${playerId}`);
+    return data.player ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getPlayerSeasons(playerId: number): Promise<TournamentSeason[]> {
   const data = await apiFetch<{ uniqueTournamentSeasons: TournamentSeason[] }>(
     `player/${playerId}/statistics/seasons`

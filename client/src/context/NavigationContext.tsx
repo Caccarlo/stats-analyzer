@@ -135,6 +135,7 @@ interface NavContextValue {
   openSplitPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string) => void;
   openSplitTeam: (teamId: number, teamName?: string, context?: Partial<PanelState>) => void;
   swapSplitAndOpenTeam: (teamId: number, teamName?: string, context?: Partial<PanelState>) => void;
+  swapSplitAndOpenPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string) => void;
   openSplitHome: () => void;
   closeSplit: (panel?: number) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string) => void;
@@ -183,6 +184,19 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const swapSplitAndOpenPlayer = (player: Player, overrideTeamId?: number, overrideTeamName?: string) => {
+    dispatch({
+      type: 'SWAP_SPLIT_AND_OPEN',
+      panelState: {
+        view: 'player',
+        playerId: player.id,
+        playerData: player,
+        teamId: overrideTeamId ?? player.team?.id,
+        teamName: overrideTeamName ?? player.team?.name,
+      },
+    });
+  };
+
   const openSplitHome = () => {
     dispatch({ type: 'OPEN_SPLIT', panelState: { view: 'home' } });
   };
@@ -222,6 +236,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         openSplitPlayer,
         openSplitTeam,
         swapSplitAndOpenTeam,
+        swapSplitAndOpenPlayer,
         openSplitHome,
         closeSplit,
         selectCountry,

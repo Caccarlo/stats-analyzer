@@ -27,6 +27,8 @@ export default function PlayerFilters({
   allTournamentsForSeason,
 }: PlayerFiltersProps) {
   const selectedIds = new Set(selectedTournaments.map((t) => t.tournamentId));
+  const isLastTournament = selectedIds.size === 1;
+  const isLastFoulType = showCommitted !== showSuffered; // exactly one active
 
   return (
     <div className="space-y-4">
@@ -52,14 +54,17 @@ export default function PlayerFilters({
         <div className="flex flex-wrap gap-2">
           {allTournamentsForSeason.map((t) => {
             const active = selectedIds.has(t.tournamentId);
+            const locked = active && isLastTournament;
             return (
               <button
                 key={t.tournamentId}
-                onClick={() => onToggleTournament(t.tournamentId)}
+                onClick={() => !locked && onToggleTournament(t.tournamentId)}
                 className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
-                  active
-                    ? 'bg-neon/15 border-neon text-neon'
-                    : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                  locked
+                    ? 'bg-neon/15 border-neon text-neon opacity-50 cursor-not-allowed'
+                    : active
+                      ? 'bg-neon/15 border-neon text-neon'
+                      : 'bg-surface border-border text-text-muted hover:border-border-hover'
                 }`}
               >
                 {active ? '✓ ' : ''}{t.tournamentName}
@@ -73,26 +78,40 @@ export default function PlayerFilters({
       <div>
         <label className="text-text-muted text-sm mb-2 block">Mostra:</label>
         <div className="flex gap-2">
-          <button
-            onClick={() => onShowCommittedChange(!showCommitted)}
-            className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
-              showCommitted
-                ? 'bg-negative/15 border-negative text-negative'
-                : 'bg-surface border-border text-text-muted hover:border-border-hover'
-            }`}
-          >
-            {showCommitted ? '✓ ' : ''}Falli commessi
-          </button>
-          <button
-            onClick={() => onShowSufferedChange(!showSuffered)}
-            className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
-              showSuffered
-                ? 'bg-neon/15 border-neon text-neon'
-                : 'bg-surface border-border text-text-muted hover:border-border-hover'
-            }`}
-          >
-            {showSuffered ? '✓ ' : ''}Falli subiti
-          </button>
+          {(() => {
+            const committedLocked = showCommitted && isLastFoulType;
+            return (
+              <button
+                onClick={() => !committedLocked && onShowCommittedChange(!showCommitted)}
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                  committedLocked
+                    ? 'bg-negative/15 border-negative text-negative opacity-50 cursor-not-allowed'
+                    : showCommitted
+                      ? 'bg-negative/15 border-negative text-negative'
+                      : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                }`}
+              >
+                {showCommitted ? '✓ ' : ''}Falli commessi
+              </button>
+            );
+          })()}
+          {(() => {
+            const sufferedLocked = showSuffered && isLastFoulType;
+            return (
+              <button
+                onClick={() => !sufferedLocked && onShowSufferedChange(!showSuffered)}
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                  sufferedLocked
+                    ? 'bg-neon/15 border-neon text-neon opacity-50 cursor-not-allowed'
+                    : showSuffered
+                      ? 'bg-neon/15 border-neon text-neon'
+                      : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                }`}
+              >
+                {showSuffered ? '✓ ' : ''}Falli subiti
+              </button>
+            );
+          })()}
         </div>
       </div>
     </div>

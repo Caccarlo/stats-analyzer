@@ -93,10 +93,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     [filteredEvents, selectedEventIds],
   );
 
-  // Card width class based on count
+  // Card width class based on count — always full width in split view
+  const isSplitView = state.panels.length > 1;
   const cardCount = selectedEvents.length;
-  const cardWidthClass =
-    cardCount === 1
+  const cardWidthClass = isSplitView
+    ? 'w-full'
+    : cardCount === 1
       ? 'w-full'
       : cardCount === 2
         ? 'w-full md:w-[calc(50%-4px)]'
@@ -111,7 +113,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   };
 
   return (
-    <div>
+    <div className="min-w-0">
       {/* Header giocatore */}
       <div className="pb-4 border-b border-border">
         <PlayerHeader player={displayPlayer} />

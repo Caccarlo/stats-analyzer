@@ -1,4 +1,7 @@
+import { useState, useEffect } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
+import { useNavigation } from '@/context/NavigationContext';
+import { getPlayerInfo } from '@/api/sofascore';
 import type { Player } from '@/types';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
@@ -12,6 +15,23 @@ interface PlayerPageProps {
 }
 
 export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: PlayerPageProps) {
+  const { state, navigateTo } = useNavigation();
+  const [resolvedPlayer, setResolvedPlayer] = useState<Player | undefined>(playerData);
+
+  // Fetch full player data (including team) and update panel state
+  useEffect(() => {
+    let cancelled = false;
+    getPlayerInfo(playerId).then((info) => {
+      if (cancelled || !info) return;
+      setResolvedPlayer(info);
+      const panel = state.panels[panelIndex];
+      if (info.team && panel?.teamId !== info.team.id) {
+        navigateTo(panelIndex, 'player', { teamId: info.team.id, teamName: info.team.name });
+      }
+    });
+    return () => { cancelled = true; };
+  }, [playerId]);
+
   const {
     tournamentSeasons,
     availableSeasonYears,
@@ -42,8 +62,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  // Placeholder player per il header
-  const displayPlayer: Player = playerData ?? {
+  // Placeholder player per il header (usa dati completi se disponibili)
+  const displayPlayer: Player = resolvedPlayer ?? {
     id: playerId,
     name: `Giocatore #${playerId}`,
     slug: '',

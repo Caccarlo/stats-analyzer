@@ -132,10 +132,10 @@ interface NavContextValue {
   // Helper functions
   navigateTo: (panel: number, view: ViewType, data?: Partial<PanelState>) => void;
   goBack: (panel: number) => void;
-  openSplitPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string) => void;
+  openSplitPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string, context?: Partial<PanelState>) => void;
   openSplitTeam: (teamId: number, teamName?: string, context?: Partial<PanelState>) => void;
   swapSplitAndOpenTeam: (teamId: number, teamName?: string, context?: Partial<PanelState>) => void;
-  swapSplitAndOpenPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string) => void;
+  swapSplitAndOpenPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string, context?: Partial<PanelState>) => void;
   openSplitHome: () => void;
   closeSplit: (panel?: number) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string) => void;
@@ -157,10 +157,11 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'GO_BACK', panel });
   };
 
-  const openSplitPlayer = (player: Player, overrideTeamId?: number, overrideTeamName?: string) => {
+  const openSplitPlayer = (player: Player, overrideTeamId?: number, overrideTeamName?: string, context?: Partial<PanelState>) => {
     dispatch({
       type: 'OPEN_SPLIT',
       panelState: {
+        ...context,
         view: 'player',
         playerId: player.id,
         playerData: player,
@@ -184,10 +185,11 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const swapSplitAndOpenPlayer = (player: Player, overrideTeamId?: number, overrideTeamName?: string) => {
+  const swapSplitAndOpenPlayer = (player: Player, overrideTeamId?: number, overrideTeamName?: string, context?: Partial<PanelState>) => {
     dispatch({
       type: 'SWAP_SPLIT_AND_OPEN',
       panelState: {
+        ...context,
         view: 'player',
         playerId: player.id,
         playerData: player,

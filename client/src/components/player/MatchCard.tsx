@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useMatchDetails } from '@/hooks/useMatchDetails';
 import { useNavigation } from '@/context/NavigationContext';
 import type { MatchEvent, Player, FoulMatchup } from '@/types';
+import { COUNTRIES } from '@/components/navigation/CountryList';
 import FieldMap from './FieldMap';
 
 interface MatchCardProps {
@@ -54,13 +55,28 @@ export default function MatchCard({
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
+  // Build navigation context from match tournament for back button hierarchy
+  const buildNavContext = () => {
+    if (!event.tournament?.uniqueTournament) return undefined;
+    const leagueId = event.tournament.uniqueTournament.id;
+    const leagueName = event.tournament.uniqueTournament.name;
+    const country = COUNTRIES.find(c => c.leagues.some(l => l.id === leagueId));
+    return {
+      leagueId,
+      leagueName,
+      countryId: country?.id,
+      countryName: country?.name,
+    };
+  };
+
   const handlePlayerClick = (player: Player) => {
     if (isDesktop) {
+      const navContext = buildNavContext();
       if (panelIndex > 0) {
         // Right panel: swap current player to left, open new player on right
-        swapSplitAndOpenPlayer(player);
+        swapSplitAndOpenPlayer(player, undefined, undefined, navContext);
       } else {
-        openSplitPlayer(player);
+        openSplitPlayer(player, undefined, undefined, navContext);
       }
     } else {
       selectPlayer(0, player.id, player);

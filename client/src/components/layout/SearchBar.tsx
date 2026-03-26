@@ -61,7 +61,7 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
   };
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-md mx-auto">
+    <div ref={containerRef} className="relative w-full max-w-md">
       <input
         type="text"
         value={query}

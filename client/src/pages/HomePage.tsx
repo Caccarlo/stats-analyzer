@@ -9,7 +9,7 @@ export default function HomePage({ panelIndex = 0 }: { panelIndex?: number }) {
           <CountryList panelIndex={panelIndex} />
         </div>
       ) : (
-        <div className="mt-4 text-center">
+        <div className="mt-4">
           <p className="text-text-secondary text-sm">
             Seleziona un paese dal pannello a sinistra oppure cerca un giocatore dalla barra di ricerca.
           </p>

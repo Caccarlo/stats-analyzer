@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
+import { useMatchTimeline } from '@/hooks/useMatchTimeline';
 import { useNavigation } from '@/context/NavigationContext';
 import { getPlayerInfo } from '@/api/sofascore';
 import type { Player } from '@/types';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
 import StatsOverview from '@/components/player/StatsOverview';
-import MatchList from '@/components/player/MatchList';
+import MatchTimeline from '@/components/player/MatchTimeline';
+import MatchCard from '@/components/player/MatchCard';
 
 interface PlayerPageProps {
   playerId: number;
@@ -62,6 +64,38 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
+  // Tournament IDs set for filtering
+  const selectedTournamentIds = useMemo(
+    () => new Set(selectedTournaments.map((t) => t.tournamentId)),
+    [selectedTournaments],
+  );
+
+  // Timeline hook
+  const {
+    filteredEvents,
+    selectedEventIds,
+    detailsMap,
+    detailsLoadedIds,
+    loadingEvents,
+    toggleMatch,
+    deselectMatch,
+  } = useMatchTimeline(playerId, selectedTournamentIds, selectedSeasonYear);
+
+  // Selected events sorted chronologically (most recent first, same as filteredEvents order)
+  const selectedEvents = useMemo(
+    () => filteredEvents.filter((e) => selectedEventIds.has(e.id)),
+    [filteredEvents, selectedEventIds],
+  );
+
+  // Card width class based on count
+  const cardCount = selectedEvents.length;
+  const cardWidthClass =
+    cardCount === 1
+      ? 'w-full'
+      : cardCount === 2
+        ? 'w-full md:w-[calc(50%-4px)]'
+        : 'w-full md:w-[calc(33.333%-6px)]';
+
   // Placeholder player per il header (usa dati completi se disponibili)
   const displayPlayer: Player = resolvedPlayer ?? {
     id: playerId,
@@ -96,7 +130,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         </div>
       )}
 
-      {/* Loading */}
+      {/* Loading stats */}
       {loading && (
         <div className="mt-6 flex items-center gap-2 text-text-muted">
           <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
@@ -122,16 +156,48 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         </div>
       )}
 
-      {/* Lista partite */}
+      {/* Timeline partite */}
       {!loading && (
         <div className="mt-8">
-          <MatchList
-            playerId={playerId}
-            selectedTournamentIds={new Set(selectedTournaments.map((t) => t.tournamentId))}
-            showCommitted={showCommitted}
-            showSuffered={showSuffered}
-            panelIndex={panelIndex}
-          />
+          {loadingEvents ? (
+            <div className="flex items-center gap-2 text-text-muted">
+              <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+              Caricamento partite...
+            </div>
+          ) : (
+            <>
+              <MatchTimeline
+                events={filteredEvents}
+                selectedEventIds={selectedEventIds}
+                detailsMap={detailsMap}
+                detailsLoadedIds={detailsLoadedIds}
+                showCommitted={showCommitted}
+                showSuffered={showSuffered}
+                playerId={playerId}
+                onToggleMatch={toggleMatch}
+              />
+
+              {/* Selected match cards */}
+              {selectedEvents.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-6">
+                  {selectedEvents.map((event) => (
+                    <div key={event.id} className={cardWidthClass}>
+                      <MatchCard
+                        event={event}
+                        playerId={playerId}
+                        playerTeamId={resolvedPlayer?.team?.id}
+                        showCommitted={showCommitted}
+                        showSuffered={showSuffered}
+                        panelIndex={panelIndex}
+                        details={detailsMap.get(event.id)}
+                        onDeselect={deselectMatch}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

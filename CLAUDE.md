@@ -34,14 +34,15 @@ stats-analyzer/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters
-    │   │   └── useMatchDetails.ts    # Fetches match fouls + positions (lazy, on card expand)
+    │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions, exports shared cache + fetchMatchDetails()
+    │   │   └── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state
     │   ├── utils/
     │   │   ├── foulPairing.ts        # Extracts fouls from match comments, pairs them, translates zones
     │   │   ├── statsCalculator.ts    # Aggregates stats across tournaments (per-match, per-90)
     │   │   └── positionMapping.ts    # SofaScore coords -> SVG coords, 13+ formation templates
     │   ├── pages/
     │   │   ├── HomePage.tsx          # Landing with search bar
-    │   │   └── PlayerPage.tsx        # Player analysis: stats + match list + field map
+    │   │   └── PlayerPage.tsx        # Player analysis: stats + timeline + selectable match cards
     │   └── components/
     │       ├── layout/
     │       │   ├── Sidebar.tsx       # Fixed 210px left panel, hamburger on mobile
@@ -57,8 +58,8 @@ stats-analyzer/
     │       │   ├── PlayerHeader.tsx  # Avatar, name, team, position, number
     │       │   ├── PlayerFilters.tsx # Season/tournament/foul-type toggles
     │       │   ├── StatsOverview.tsx # 3x2 stat cards grid
-    │       │   ├── MatchList.tsx     # Paginated match list (CSS columns layout)
-    │       │   ├── MatchCard.tsx     # Expandable match card with foul details
+    │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges
+    │       │   ├── MatchCard.tsx     # Always-open match card with foul details + X close button
     │       │   └── FieldMap.tsx      # SVG field with player position dots
     │       └── common/
     │           ├── Badge.tsx         # Styled badge (3 variants)
@@ -75,7 +76,7 @@ Browser (5173) -> React App -> sofascore.ts (client cache 5min + retry x3)
 ```
 
 - **Server**: Minimal proxy. Spoofs browser headers (User-Agent, Referer, Accept-Language: it-IT). In-memory `Map` cache with TTL. No controllers, no middleware beyond CORS.
-- **Client**: No React Router. Custom state-based routing via `NavigationContext` (useReducer). Data fetching via custom hooks with cancellation tokens. Match details lazy-loaded on card expand.
+- **Client**: No React Router. Custom state-based routing via `NavigationContext` (useReducer). Data fetching via custom hooks with cancellation tokens. Match details progressively loaded in background via `useMatchTimeline`.
 
 ## Navigation & Split View
 
@@ -202,8 +203,10 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Match comments from API are in English — zone text must be translated to Italian
 - Numbers always rounded — no long decimals (use `.toFixed(2)`)
 - Split view only above 1024px width
-- Match cards: open by default on desktop, closed on mobile
-- Match details lazy-load on card expand, then cached for session
+- Match timeline: horizontal scrollable bar with all matches, foul count badges loaded progressively
+- Match cards: always open (not expandable), selectable via timeline; last 3 pre-selected on desktop, 1 on mobile
+- Match details loaded progressively in background (selected first, then remaining in batches of 3), cached for session
+- Card layout: 1 card = 100%, 2 = 50%, 3+ = 33.33% (flexbox wrap); always 100% on mobile
 - Player who changed team mid-season: separate matches with visual divider showing team name
 
 ## Workflow Rules

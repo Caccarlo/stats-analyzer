@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react';
-import { useMatchDetails } from '@/hooks/useMatchDetails';
 import { useNavigation } from '@/context/NavigationContext';
 import type { MatchEvent, Player, FoulMatchup } from '@/types';
+import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { COUNTRIES } from '@/components/navigation/CountryList';
 import FieldMap from './FieldMap';
 
@@ -11,8 +10,9 @@ interface MatchCardProps {
   playerTeamId?: number;
   showCommitted: boolean;
   showSuffered: boolean;
-  defaultOpen?: boolean;
   panelIndex?: number;
+  details: CachedMatchDetails | undefined;
+  onDeselect: (eventId: number) => void;
 }
 
 export default function MatchCard({
@@ -21,17 +21,19 @@ export default function MatchCard({
   playerTeamId,
   showCommitted,
   showSuffered,
-  defaultOpen = false,
   panelIndex = 0,
+  details,
+  onDeselect,
 }: MatchCardProps) {
-  const [open, setOpen] = useState(defaultOpen);
-  const { fouls, positions, substituteInMinute, substituteOutMinute, loading } =
-    useMatchDetails(event.id, playerId, open);
   const { openSplitPlayer, swapSplitAndOpenPlayer, selectPlayer } = useNavigation();
+
+  const fouls = details?.fouls ?? [];
+  const positions = details?.positions ?? null;
+  const substituteInMinute = details?.substituteInMinute;
+  const substituteOutMinute = details?.substituteOutMinute;
 
   // Determina se il giocatore è nella squadra di casa o ospite
   const isHome = event.homeTeam.id === playerTeamId;
-  const opponent = isHome ? event.awayTeam : event.homeTeam;
 
   // Data partita
   const date = new Date(event.startTimestamp * 1000);
@@ -70,11 +72,9 @@ export default function MatchCard({
   };
 
   const handlePlayerClick = (player: Player) => {
-    // Team will be resolved by PlayerPage via getPlayerInfo API
     if (isDesktop) {
       const navContext = buildNavContext();
       if (panelIndex > 0) {
-        // Right panel: swap current player to left, open new player on right
         swapSplitAndOpenPlayer(player, player.team?.id, player.team?.name, navContext);
       } else {
         openSplitPlayer(player, player.team?.id, player.team?.name, navContext);
@@ -86,7 +86,6 @@ export default function MatchCard({
 
   // Titolarità
   const getTitularityText = () => {
-    // Se abbiamo dati di sostituzione
     if (substituteInMinute != null && substituteOutMinute != null) {
       return `Entrato al ${substituteInMinute}' · Uscito al ${substituteOutMinute}'`;
     }
@@ -100,12 +99,9 @@ export default function MatchCard({
   };
 
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden break-inside-avoid mb-3">
-      {/* Header - sempre visibile */}
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface-hover transition-colors text-left"
-      >
+    <div className="bg-surface border border-border rounded-lg overflow-hidden">
+      {/* Header with X close button */}
+      <div className="flex items-start justify-between px-4 py-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <span>{event.tournament?.name}</span>
@@ -119,128 +115,116 @@ export default function MatchCard({
             </span>{' '}
             {event.awayTeam.shortName ?? event.awayTeam.name}
           </div>
-          {/* Mini summary */}
-          {!open && visibleFouls.length > 0 && (
-            <div className="flex gap-3 mt-1 text-xs">
-              {showCommitted && committedFouls.length > 0 && (
-                <span className="text-negative">{committedFouls.length} commessi</span>
-              )}
-              {showSuffered && sufferedFouls.length > 0 && (
-                <span className="text-neon">{sufferedFouls.length} subiti</span>
-              )}
-            </div>
-          )}
         </div>
-        <svg
-          className={`w-4 h-4 text-text-muted transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
+        <button
+          onClick={() => onDeselect(event.id)}
+          className="flex-shrink-0 ml-2 p-1 text-text-muted hover:text-text-primary transition-colors"
+          title="Rimuovi"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
 
-      {/* Corpo espandibile */}
-      {open && (
-        <div className="px-4 pb-4 border-t border-border pt-3">
-          {loading ? (
-            <div className="flex items-center gap-2 text-text-muted text-sm">
-              <div className="w-3 h-3 border-2 border-neon border-t-transparent rounded-full animate-spin" />
-              Caricamento dettagli...
-            </div>
-          ) : (
-            <>
-              {/* Titolarità */}
-              <p className="text-text-secondary text-xs mb-3">{getTitularityText()}</p>
+      {/* Content — always visible */}
+      <div className="px-4 pb-4 border-t border-border pt-3">
+        {!details ? (
+          <div className="flex items-center gap-2 text-text-muted text-sm">
+            <div className="w-3 h-3 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+            Caricamento dettagli...
+          </div>
+        ) : (
+          <>
+            {/* Titolarità */}
+            <p className="text-text-secondary text-xs mb-3">{getTitularityText()}</p>
 
-              {/* Falli subiti */}
-              {showSuffered && sufferedFouls.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
-                    Falli subiti ({sufferedFouls.length})
-                  </p>
-                  {sufferedFouls.map((f, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm text-text-secondary py-1">
-                      {f.minute != null && (
-                        <span className="text-text-muted text-xs w-8 flex-shrink-0">{f.minute}'</span>
+            {/* Falli subiti */}
+            {showSuffered && sufferedFouls.length > 0 && (
+              <div className="mb-3">
+                <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
+                  Falli subiti ({sufferedFouls.length})
+                </p>
+                {sufferedFouls.map((f, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm text-text-secondary py-1">
+                    {f.minute != null && (
+                      <span className="text-text-muted text-xs w-8 flex-shrink-0">{f.minute}'</span>
+                    )}
+                    <span>
+                      Conquista punizione
+                      {f.playerFouling && (
+                        <>
+                          {' da '}
+                          <button
+                            onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)}
+                            className="text-neon hover:underline"
+                          >
+                            {f.playerFouling.name}
+                          </button>
+                        </>
                       )}
-                      <span>
-                        Conquista punizione
-                        {f.playerFouling && (
-                          <>
-                            {' da '}
-                            <button
-                              onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)}
-                              className="text-neon hover:underline"
-                            >
-                              {f.playerFouling.name}
-                            </button>
-                          </>
-                        )}
-                        {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                      {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
-              {/* Falli commessi */}
-              {showCommitted && committedFouls.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
-                    Falli commessi ({committedFouls.length})
-                  </p>
-                  {committedFouls.map((f, i) => (
-                    <div key={i} className="flex items-start gap-2 text-sm text-text-secondary py-1">
-                      {f.minute != null && (
-                        <span className="text-text-muted text-xs w-8 flex-shrink-0">{f.minute}'</span>
+            {/* Falli commessi */}
+            {showCommitted && committedFouls.length > 0 && (
+              <div className="mb-3">
+                <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
+                  Falli commessi ({committedFouls.length})
+                </p>
+                {committedFouls.map((f, i) => (
+                  <div key={i} className="flex items-start gap-2 text-sm text-text-secondary py-1">
+                    {f.minute != null && (
+                      <span className="text-text-muted text-xs w-8 flex-shrink-0">{f.minute}'</span>
+                    )}
+                    <span>
+                      {f.type === 'handball' ? (
+                        'Fallo di mano'
+                      ) : (
+                        <>
+                          Fallo
+                          {f.playerFouled && (
+                            <>
+                              {' su '}
+                              <button
+                                onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)}
+                                className="text-neon hover:underline"
+                              >
+                                {f.playerFouled.name}
+                              </button>
+                            </>
+                          )}
+                        </>
                       )}
-                      <span>
-                        {f.type === 'handball' ? (
-                          'Fallo di mano'
-                        ) : (
-                          <>
-                            Fallo
-                            {f.playerFouled && (
-                              <>
-                                {' su '}
-                                <button
-                                  onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)}
-                                  className="text-neon hover:underline"
-                                >
-                                  {f.playerFouled.name}
-                                </button>
-                              </>
-                            )}
-                          </>
-                        )}
-                        {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                      {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
-              {/* Nessun fallo */}
-              {visibleFouls.length === 0 && (
-                <p className="text-text-muted text-sm">Nessun fallo in questa partita</p>
-              )}
+            {/* Nessun fallo */}
+            {visibleFouls.length === 0 && (
+              <p className="text-text-muted text-sm">Nessun fallo in questa partita</p>
+            )}
 
-              {/* Mappa campo */}
-              {positions && (
-                <FieldMap
-                  homePositions={positions.home}
-                  awayPositions={positions.away}
-                  selectedPlayerId={playerId}
-                  involvedPlayerIds={involvedPlayerIds}
-                  onPlayerClick={handlePlayerClick}
-                />
-              )}
-            </>
-          )}
-        </div>
-      )}
+            {/* Mappa campo */}
+            {positions && (
+              <FieldMap
+                homePositions={positions.home}
+                awayPositions={positions.away}
+                selectedPlayerId={playerId}
+                involvedPlayerIds={involvedPlayerIds}
+                onPlayerClick={handlePlayerClick}
+              />
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

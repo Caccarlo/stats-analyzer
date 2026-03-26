@@ -1,25 +1,50 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { FoulMatchup, PlayerPosition } from '@/types';
 import { getMatchComments, getMatchAveragePositions } from '@/api/sofascore';
 import { extractFoulsForPlayer, extractSubstitutionInfo } from '@/utils/foulPairing';
 
-interface MatchDetailsResult {
+export interface CachedMatchDetails {
   fouls: FoulMatchup[];
   positions: { home: PlayerPosition[]; away: PlayerPosition[] } | null;
   substituteInMinute?: number;
   substituteOutMinute?: number;
+}
+
+interface MatchDetailsResult extends CachedMatchDetails {
   loading: boolean;
   error: string | null;
 }
 
-interface CachedResult {
-  fouls: FoulMatchup[];
-  positions: { home: PlayerPosition[]; away: PlayerPosition[] } | null;
-  substituteInMinute?: number;
-  substituteOutMinute?: number;
-}
+// Shared module-level cache — used by both useMatchDetails and useMatchTimeline
+export const matchDetailsCache = new Map<string, CachedMatchDetails>();
 
-const cache = new Map<string, CachedResult>();
+// Standalone fetch function — checks cache, fetches if needed, stores result
+export async function fetchMatchDetails(
+  eventId: number,
+  playerId: number,
+): Promise<CachedMatchDetails> {
+  const key = `${eventId}-${playerId}`;
+
+  const cached = matchDetailsCache.get(key);
+  if (cached) return cached;
+
+  const [comments, avgPos] = await Promise.all([
+    getMatchComments(eventId),
+    getMatchAveragePositions(eventId),
+  ]);
+
+  const matchFouls = extractFoulsForPlayer(comments, playerId);
+  const subInfo = extractSubstitutionInfo(comments, playerId);
+
+  const result: CachedMatchDetails = {
+    fouls: matchFouls,
+    positions: avgPos,
+    substituteInMinute: subInfo.inMinute,
+    substituteOutMinute: subInfo.outMinute,
+  };
+  matchDetailsCache.set(key, result);
+  return result;
+}
 
 export function useMatchDetails(
   eventId: number | null,
@@ -39,8 +64,8 @@ export function useMatchDetails(
     const key = `${eventId}-${playerId}`;
 
     // Check cache
-    if (cache.has(key)) {
-      const cached = cache.get(key)!;
+    if (matchDetailsCache.has(key)) {
+      const cached = matchDetailsCache.get(key)!;
       setFouls(cached.fouls);
       setPositions(cached.positions);
       setSubIn(cached.substituteInMinute);
@@ -52,28 +77,13 @@ export function useMatchDetails(
     setLoading(true);
     setError(null);
 
-    Promise.all([
-      getMatchComments(eventId),
-      getMatchAveragePositions(eventId),
-    ])
-      .then(([comments, avgPos]) => {
+    fetchMatchDetails(eventId, playerId)
+      .then((result) => {
         if (cancelled) return;
-
-        const matchFouls = extractFoulsForPlayer(comments, playerId);
-        const subInfo = extractSubstitutionInfo(comments, playerId);
-
-        const result: CachedResult = {
-          fouls: matchFouls,
-          positions: avgPos,
-          substituteInMinute: subInfo.inMinute,
-          substituteOutMinute: subInfo.outMinute,
-        };
-        cache.set(key, result);
-
-        setFouls(matchFouls);
-        setPositions(avgPos);
-        setSubIn(subInfo.inMinute);
-        setSubOut(subInfo.outMinute);
+        setFouls(result.fouls);
+        setPositions(result.positions);
+        setSubIn(result.substituteInMinute);
+        setSubOut(result.substituteOutMinute);
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);

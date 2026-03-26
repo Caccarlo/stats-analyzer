@@ -134,6 +134,7 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 | `event/{id}/lineups` | Formation + players | TeamView |
 | `event/{id}/comments` | Match chronicle (fouls) | useMatchDetails |
 | `event/{id}/average-positions` | Player avg positions | useMatchDetails |
+| `player/{id}` | Player info (includes current team) | PlayerPage |
 | `player/{id}/statistics/seasons` | Player tournament list | usePlayerData |
 | `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData |
 | `player/{id}/events/last/{page}` | Match history (paginated) | usePlayerData |

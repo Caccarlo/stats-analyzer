@@ -18,7 +18,7 @@ interface TeamViewProps {
 }
 
 export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: TeamViewProps) {
-  const { state, selectPlayer, openSplitPlayer, openSplitTeam, selectTeam } = useNavigation();
+  const { state, selectPlayer, openSplitPlayer, openSplitTeam, swapSplitAndOpenTeam, selectTeam } = useNavigation();
   const hasSplit = state.panels.length > 1;
   const [roster, setRoster] = useState<Player[]>([]);
   const [nextEvent, setNextEvent] = useState<MatchEvent | null>(null);
@@ -86,8 +86,11 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
     if (isDesktop && panelIndex === 0 && !hasSplit) {
       // Desktop panel 0, no split yet: open split with player on right
       openSplitPlayer(player, teamId, teamName);
+    } else if (isDesktop && panelIndex === 0 && hasSplit && state.panels[1]?.teamId === teamId) {
+      // Split with same team (team + teammate): replace player on right
+      openSplitPlayer(player, teamId, teamName);
     } else {
-      // Split view (navigate in-place in same panel), mobile, or panel 1
+      // Different teams split (navigate in-place), mobile, or panel 1
       selectPlayer(panelIndex, player.id, player);
     }
   };
@@ -105,7 +108,12 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
       countryName: country?.name,
     };
     if (isDesktop) {
-      openSplitTeam(opponent.id, opponent.name, navContext);
+      if (hasSplit) {
+        // [team | player/team] -> [panel1 | opponent]: swap and open
+        swapSplitAndOpenTeam(opponent.id, opponent.name, navContext);
+      } else {
+        openSplitTeam(opponent.id, opponent.name, navContext);
+      }
     } else {
       selectTeam(0, opponent.id, opponent.name);
     }

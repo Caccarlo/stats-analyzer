@@ -19,6 +19,10 @@
   --color-field-lines: #2a5535;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   background-color: var(--color-bg);

@@ -16,6 +16,7 @@ type NavAction =
   | { type: 'SET_VIEW'; panel: number; view: ViewType; data?: Partial<PanelState> }
   | { type: 'GO_BACK'; panel: number }
   | { type: 'OPEN_SPLIT'; panelState: PanelState }
+  | { type: 'SWAP_SPLIT_AND_OPEN'; panelState: PanelState }
   | { type: 'CLOSE_SPLIT'; panel: number }
   | { type: 'RESET' };
 
@@ -99,6 +100,15 @@ function reducer(state: NavState, action: NavAction): NavState {
       return { panels };
     }
 
+    case 'SWAP_SPLIT_AND_OPEN': {
+      // [A][B] -> [B][new]: move panel 1 to panel 0, put new state in panel 1
+      if (panels.length >= 2) {
+        return { panels: [panels[1], action.panelState] };
+      }
+      // No split open: just open split normally
+      return { panels: [panels[0], action.panelState] };
+    }
+
     case 'CLOSE_SPLIT': {
       if (action.panel === 0 && panels.length > 1) {
         return { panels: [panels[1]] };
@@ -124,6 +134,7 @@ interface NavContextValue {
   goBack: (panel: number) => void;
   openSplitPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string) => void;
   openSplitTeam: (teamId: number, teamName?: string, context?: Partial<PanelState>) => void;
+  swapSplitAndOpenTeam: (teamId: number, teamName?: string, context?: Partial<PanelState>) => void;
   openSplitHome: () => void;
   closeSplit: (panel?: number) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string) => void;
@@ -161,6 +172,13 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const openSplitTeam = (teamId: number, teamName?: string, context?: Partial<PanelState>) => {
     dispatch({
       type: 'OPEN_SPLIT',
+      panelState: { view: 'team', teamId, teamName, ...context },
+    });
+  };
+
+  const swapSplitAndOpenTeam = (teamId: number, teamName?: string, context?: Partial<PanelState>) => {
+    dispatch({
+      type: 'SWAP_SPLIT_AND_OPEN',
       panelState: { view: 'team', teamId, teamName, ...context },
     });
   };
@@ -203,6 +221,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         goBack,
         openSplitPlayer,
         openSplitTeam,
+        swapSplitAndOpenTeam,
         openSplitHome,
         closeSplit,
         selectCountry,

@@ -74,6 +74,8 @@ export function useMatchTimeline(
       }
 
       if (!cancelled) {
+        // Sort descending by date (most recent first)
+        accumulated.sort((a, b) => b.startTimestamp - a.startTimestamp);
         setAllEvents(accumulated);
         setLoadingEvents(false);
       }

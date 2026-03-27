@@ -1,14 +1,40 @@
 import { useState, useEffect, useMemo } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
 import { useMatchTimeline } from '@/hooks/useMatchTimeline';
+import { useSplitCardSync } from '@/hooks/useSplitCardSync';
 import { useNavigation } from '@/context/NavigationContext';
 import { getPlayerInfo } from '@/api/sofascore';
-import type { Player } from '@/types';
+import type { Player, MatchEvent } from '@/types';
+import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
 import StatsOverview from '@/components/player/StatsOverview';
 import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
+
+// Wrapper component for cross-panel card height sync (hooks can't be called in .map())
+function SyncedCardSlot({
+  panelIndex,
+  cardIndex,
+  isSplitView,
+  details,
+  className,
+  children,
+}: {
+  panelIndex: number;
+  cardIndex: number;
+  isSplitView: boolean;
+  details: CachedMatchDetails | undefined;
+  className: string;
+  children: React.ReactNode;
+}) {
+  const ref = useSplitCardSync(panelIndex, cardIndex, isSplitView, details ? 'loaded' : 'pending');
+  return (
+    <div ref={ref} className={className}>
+      {children}
+    </div>
+  );
+}
 
 interface PlayerPageProps {
   playerId: number;
@@ -187,8 +213,15 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
               {/* Selected match cards */}
               {selectedEvents.length > 0 && (
                 <div className="flex flex-wrap items-stretch gap-2 mt-6">
-                  {selectedEvents.map((event) => (
-                    <div key={event.id} className={`${cardWidthClass} flex`}>
+                  {selectedEvents.map((event, index) => (
+                    <SyncedCardSlot
+                      key={event.id}
+                      panelIndex={panelIndex}
+                      cardIndex={index}
+                      isSplitView={isSplitView}
+                      details={detailsMap.get(event.id)}
+                      className={`${cardWidthClass} flex`}
+                    >
                       <MatchCard
                         event={event}
                         playerId={playerId}
@@ -199,7 +232,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                         details={detailsMap.get(event.id)}
                         onDeselect={deselectMatch}
                       />
-                    </div>
+                    </SyncedCardSlot>
                   ))}
                 </div>
               )}

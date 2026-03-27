@@ -61,7 +61,8 @@ stats-analyzer/
     │       │   ├── StatsOverview.tsx # 3x2 stat cards grid
     │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges
     │       │   ├── MatchCard.tsx     # Always-open match card with foul details + X close button
-    │       │   └── FieldMap.tsx      # SVG field with player position dots
+    │       │   ├── FieldMap.tsx      # SVG field with player position dots
+    │       │   └── HeatmapField.tsx  # Canvas-based player heatmap on half-size field
     │       └── common/
     │           ├── Badge.tsx         # Styled badge (3 variants)
     │           └── PlayerDot.tsx     # SVG circle for field map
@@ -140,6 +141,7 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 | `player/{id}/statistics/seasons` | Player tournament list | usePlayerData |
 | `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData |
 | `player/{id}/events/last/{page}` | Match history (paginated) | usePlayerData |
+| `event/{id}/player/{id}/heatmap` | Player heatmap points for a match | HeatmapField |
 | `team/{id}/image`, `player/{id}/image`, etc. | Images | via /api/img/ |
 
 ## Business Logic

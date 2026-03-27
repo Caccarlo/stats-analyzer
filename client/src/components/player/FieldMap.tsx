@@ -1,4 +1,4 @@
-import type { PlayerPosition, Player } from '@/types';
+import type { PlayerPosition } from '@/types';
 import { homeToScreen, awayToScreen } from '@/utils/positionMapping';
 import PlayerDot from '@/components/common/PlayerDot';
 
@@ -6,8 +6,9 @@ interface FieldMapProps {
   homePositions: PlayerPosition[];
   awayPositions: PlayerPosition[];
   selectedPlayerId: number;
+  activePlayerId: number;
   involvedPlayerIds: Set<number>;
-  onPlayerClick?: (player: Player) => void;
+  onActivePlayerChange: (id: number) => void;
 }
 
 const FIELD_W = 680;
@@ -17,11 +18,11 @@ export default function FieldMap({
   homePositions,
   awayPositions,
   selectedPlayerId,
+  activePlayerId,
   involvedPlayerIds,
-  onPlayerClick,
+  onActivePlayerChange,
 }: FieldMapProps) {
-  // Filtra: mostra solo il giocatore selezionato + quelli coinvolti nei falli
-  const relevantIds = new Set([selectedPlayerId, ...involvedPlayerIds]);
+  const relevantIds = new Set([selectedPlayerId, activePlayerId, ...involvedPlayerIds]);
 
   const homeDots = homePositions.filter((p) => relevantIds.has(p.player.id));
   const awayDots = awayPositions.filter((p) => relevantIds.has(p.player.id));
@@ -49,7 +50,8 @@ export default function FieldMap({
         {/* Giocatori casa (metà superiore) */}
         {homeDots.map((p) => {
           const pos = homeToScreen(p.averageX, p.averageY, field);
-          const isSelected = p.player.id === selectedPlayerId;
+          const isPagePlayer = p.player.id === selectedPlayerId;
+          const isHighlighted = p.player.id === activePlayerId;
           return (
             <PlayerDot
               key={p.player.id}
@@ -57,9 +59,9 @@ export default function FieldMap({
               y={pos.y}
               label={p.player.name.split(' ').pop()}
               number={p.player.jerseyNumber}
-              color={isSelected ? '#4ade80' : '#e0e0e0'}
-              highlighted={isSelected}
-              onClick={onPlayerClick ? () => onPlayerClick(p.player) : undefined}
+              color={isPagePlayer ? '#4ade80' : '#e0e0e0'}
+              highlighted={isHighlighted}
+              onClick={() => onActivePlayerChange(p.player.id)}
             />
           );
         })}
@@ -67,7 +69,8 @@ export default function FieldMap({
         {/* Giocatori ospiti (metà inferiore) */}
         {awayDots.map((p) => {
           const pos = awayToScreen(p.averageX, p.averageY, field);
-          const isSelected = p.player.id === selectedPlayerId;
+          const isPagePlayer = p.player.id === selectedPlayerId;
+          const isHighlighted = p.player.id === activePlayerId;
           return (
             <PlayerDot
               key={p.player.id}
@@ -75,9 +78,9 @@ export default function FieldMap({
               y={pos.y}
               label={p.player.name.split(' ').pop()}
               number={p.player.jerseyNumber}
-              color={isSelected ? '#4ade80' : '#e0e0e0'}
-              highlighted={isSelected}
-              onClick={onPlayerClick ? () => onPlayerClick(p.player) : undefined}
+              color={isPagePlayer ? '#4ade80' : '#e0e0e0'}
+              highlighted={isHighlighted}
+              onClick={() => onActivePlayerChange(p.player.id)}
             />
           );
         })}

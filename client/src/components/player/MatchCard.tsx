@@ -1,8 +1,10 @@
+import { useState, useEffect } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import type { MatchEvent, Player, FoulMatchup } from '@/types';
+import type { MatchEvent, Player, FoulMatchup, PlayerPosition } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { COUNTRIES } from '@/components/navigation/CountryList';
 import FieldMap from './FieldMap';
+import HeatmapField from './HeatmapField';
 
 interface MatchCardProps {
   event: MatchEvent;
@@ -27,6 +29,12 @@ export default function MatchCard({
 }: MatchCardProps) {
   const { openSplitPlayer, swapSplitAndOpenPlayer, selectPlayer } = useNavigation();
 
+  const [activePlayerId, setActivePlayerId] = useState(playerId);
+
+  useEffect(() => {
+    setActivePlayerId(playerId);
+  }, [playerId]);
+
   const fouls = details?.fouls ?? [];
   const positions = details?.positions ?? null;
   const substituteInMinute = details?.substituteInMinute;
@@ -34,6 +42,11 @@ export default function MatchCard({
 
   // Determina se il giocatore è nella squadra di casa o ospite
   const isHome = event.homeTeam.id === playerTeamId;
+
+  // Determina se il giocatore attivo è nella squadra di casa
+  const activeIsHome = positions
+    ? positions.home.some((p: PlayerPosition) => p.player.id === activePlayerId)
+    : isHome;
 
   // Data partita (con anno)
   const date = new Date(event.startTimestamp * 1000);
@@ -167,21 +180,33 @@ export default function MatchCard({
           </div>
         ) : (
           <>
-            {/* Campo + titolarità affiancati e centrati */}
+            {/* Campo posizioni + Titolarità/Heatmap */}
             {positions ? (
-              <div className="flex gap-3 items-start justify-center mb-7">
-                <FieldMap
-                  homePositions={positions.home}
-                  awayPositions={positions.away}
-                  selectedPlayerId={playerId}
-                  involvedPlayerIds={involvedPlayerIds}
-                  onPlayerClick={handlePlayerClick}
-                />
-                <div className="text-xs text-text-secondary space-y-0.5 pt-1">
-                  <p>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</p>
-                  {substituteOutMinute != null && (
-                    <p>Uscito al {substituteOutMinute}'</p>
-                  )}
+              <div className="grid grid-cols-2 gap-3 mb-7">
+                {/* Colonna sinistra: Campo posizioni */}
+                <div className="flex flex-col items-center">
+                  <FieldMap
+                    homePositions={positions.home}
+                    awayPositions={positions.away}
+                    selectedPlayerId={playerId}
+                    activePlayerId={activePlayerId}
+                    involvedPlayerIds={involvedPlayerIds}
+                    onActivePlayerChange={setActivePlayerId}
+                  />
+                </div>
+                {/* Colonna destra: Titolarità + Heatmap */}
+                <div className="flex flex-col items-center">
+                  <div className="text-xs text-text-secondary space-y-0.5 pt-1 mb-2">
+                    <p>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</p>
+                    {substituteOutMinute != null && (
+                      <p>Uscito al {substituteOutMinute}'</p>
+                    )}
+                  </div>
+                  <HeatmapField
+                    eventId={event.id}
+                    playerId={activePlayerId}
+                    isHome={activeIsHome}
+                  />
                 </div>
               </div>
             ) : (

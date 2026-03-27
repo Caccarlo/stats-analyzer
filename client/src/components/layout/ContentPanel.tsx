@@ -57,15 +57,15 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
   };
 
   return (
-    <div className="md:ml-[210px] flex-1 flex flex-col min-h-screen overflow-hidden">
+    <div className={`md:ml-[210px] flex-1 flex flex-col overflow-hidden ${hasSplit ? 'h-screen' : 'min-h-screen'}`}>
       {topBar && (
-        <div className="px-6 pt-16 md:pt-6 pb-6 w-full">
+        <div className="px-6 pt-16 md:pt-6 pb-6 w-full flex-shrink-0">
           {topBar}
         </div>
       )}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Main panel */}
-        <div className={`flex-1 flex flex-col overflow-y-auto overflow-x-hidden min-w-0 ${hasSplit ? 'w-1/2' : 'w-full'}`}>
+        <div className={`flex-1 flex flex-col overflow-x-hidden min-w-0 min-h-0 ${hasSplit ? 'w-1/2 overflow-y-scroll split-panel' : 'w-full overflow-y-auto'}`}>
           {hasSplit && renderPanelHeader(0)}
           <div className={`flex-1 p-6 ${hasSplit ? 'pt-4' : topBar ? 'pt-4' : 'pt-16 md:pt-6'}`}>
             {children}
@@ -74,7 +74,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
 
         {/* Split panel */}
         {hasSplit && (
-          <div className="hidden lg:flex flex-col w-1/2 border-l border-border overflow-y-auto overflow-x-hidden min-w-0">
+          <div className="hidden lg:flex flex-col w-1/2 border-l border-border overflow-y-scroll overflow-x-hidden min-w-0 min-h-0 split-panel">
             {renderPanelHeader(1)}
             <div className="flex-1 p-6 pt-4">
               {splitContent}

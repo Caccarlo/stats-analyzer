@@ -16,10 +16,11 @@ function translateZone(text: string): string {
   return '';
 }
 
-function extractMinute(text: string): number | undefined {
+function extractMinute(text: string, fallbackTime?: number): number | undefined {
   // Prova a estrarre il minuto dal testo del commento (es. "45' +2")
   const match = text.match(/(\d+)'/);
-  return match ? parseInt(match[1], 10) : undefined;
+  if (match) return parseInt(match[1], 10);
+  return fallbackTime;
 }
 
 export function extractFoulsForPlayer(
@@ -37,7 +38,7 @@ export function extractFoulsForPlayer(
       if (comment.text.toLowerCase().includes('handball')) {
         results.push({
           type: 'handball',
-          minute: extractMinute(comment.text),
+          minute: extractMinute(comment.text, comment.time),
           zoneText: translateZone(comment.text),
           rawText: comment.text,
         });
@@ -60,7 +61,7 @@ export function extractFoulsForPlayer(
 
       results.push({
         type: 'committed',
-        minute: extractMinute(comment.text),
+        minute: extractMinute(comment.text, comment.time),
         playerFouled: victim ?? undefined,
         zoneText: translateZone(zoneText || comment.text),
         rawText: comment.text,
@@ -81,7 +82,7 @@ export function extractFoulsForPlayer(
 
       results.push({
         type: 'suffered',
-        minute: extractMinute(comment.text),
+        minute: extractMinute(comment.text, comment.time),
         playerFouling: fouler ?? undefined,
         zoneText: translateZone(comment.text),
         rawText: comment.text,

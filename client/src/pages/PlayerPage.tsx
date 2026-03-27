@@ -181,7 +181,6 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                 detailsLoadedIds={detailsLoadedIds}
                 showCommitted={showCommitted}
                 showSuffered={showSuffered}
-                playerId={playerId}
                 onToggleMatch={toggleMatch}
               />
 

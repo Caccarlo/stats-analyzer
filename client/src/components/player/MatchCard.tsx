@@ -84,48 +84,45 @@ export default function MatchCard({
     }
   };
 
-  // Render a single foul entry
+  // Abbreviate name: "Marco Zaccagni" → "M. Zaccagni"
+  const abbreviateName = (name: string) => {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length <= 1) return name;
+    return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
+  };
+
+  // Render a single foul entry — compact format: "52' su M. Zaccagni propria metà"
   const renderFoul = (f: FoulMatchup, i: number) => (
-    <div key={i} className="flex items-start gap-2 text-sm text-text-secondary py-1">
-      {f.minute != null && (
-        <span className="text-text-muted text-xs w-8 flex-shrink-0">{f.minute}'</span>
+    <div key={i} className="text-sm text-text-secondary py-0.5">
+      {f.type === 'handball' ? (
+        <span>{f.minute != null && <span className="text-text-muted">{f.minute}' </span>}Fallo di mano{f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}</span>
+      ) : f.type === 'suffered' ? (
+        <span>
+          {f.minute != null && <span className="text-text-muted">{f.minute}' </span>}
+          {f.playerFouling ? (
+            <>
+              da{' '}
+              <button onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)} className="text-neon hover:underline">
+                {abbreviateName(f.playerFouling.name)}
+              </button>
+            </>
+          ) : 'punizione conquistata'}
+          {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
+        </span>
+      ) : (
+        <span>
+          {f.minute != null && <span className="text-text-muted">{f.minute}' </span>}
+          {f.playerFouled ? (
+            <>
+              su{' '}
+              <button onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)} className="text-neon hover:underline">
+                {abbreviateName(f.playerFouled.name)}
+              </button>
+            </>
+          ) : 'fallo commesso'}
+          {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
+        </span>
       )}
-      <span>
-        {f.type === 'suffered' ? (
-          <>
-            Conquista punizione
-            {f.playerFouling && (
-              <>
-                {' da '}
-                <button
-                  onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)}
-                  className="text-neon hover:underline"
-                >
-                  {f.playerFouling.name}
-                </button>
-              </>
-            )}
-          </>
-        ) : f.type === 'handball' ? (
-          'Fallo di mano'
-        ) : (
-          <>
-            Fallo
-            {f.playerFouled && (
-              <>
-                {' su '}
-                <button
-                  onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)}
-                  className="text-neon hover:underline"
-                >
-                  {f.playerFouled.name}
-                </button>
-              </>
-            )}
-          </>
-        )}
-        {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
-      </span>
     </div>
   );
 
@@ -172,7 +169,7 @@ export default function MatchCard({
           <>
             {/* Campo + titolarità affiancati e centrati */}
             {positions ? (
-              <div className="flex gap-3 items-start justify-center mb-5">
+              <div className="flex gap-3 items-start justify-center mb-7">
                 <FieldMap
                   homePositions={positions.home}
                   awayPositions={positions.away}

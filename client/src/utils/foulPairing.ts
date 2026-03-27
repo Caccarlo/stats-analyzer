@@ -1,11 +1,11 @@
 import type { MatchComment, FoulMatchup } from '@/types';
 
 const ZONE_TRANSLATIONS: Record<string, string> = {
-  'in the defensive half': 'nella propria metà campo',
-  'in their own half': 'nella propria metà campo',
-  'in the attacking half': 'nella metà campo avversaria',
-  'on the left wing': 'sulla fascia sinistra',
-  'on the right wing': 'sulla fascia destra',
+  'in the defensive half': 'propria metà',
+  'in their own half': 'propria metà',
+  'in the attacking half': 'metà avversaria',
+  'on the left wing': 'fascia sinistra',
+  'on the right wing': 'fascia destra',
 };
 
 function translateZone(text: string): string {

@@ -25,15 +25,15 @@ export default function PlayerDot({
     >
       {/* Alone per giocatore evidenziato */}
       {highlighted && (
-        <circle r={16} fill={color} opacity={0.2} />
+        <circle r={32} fill={color} opacity={0.2} />
       )}
 
       {/* Pallino */}
       <circle
-        r={highlighted ? 12 : 10}
+        r={highlighted ? 24 : 20}
         fill={color}
         stroke={highlighted ? '#fff' : 'rgba(255,255,255,0.3)'}
-        strokeWidth={highlighted ? 2 : 1}
+        strokeWidth={highlighted ? 3 : 2}
       />
 
       {/* Numero maglia */}
@@ -42,7 +42,7 @@ export default function PlayerDot({
           textAnchor="middle"
           dominantBaseline="central"
           fill={highlighted ? '#000' : '#fff'}
-          fontSize={highlighted ? 9 : 8}
+          fontSize={highlighted ? 25 : 16}
           fontWeight="bold"
         >
           {number}
@@ -52,10 +52,10 @@ export default function PlayerDot({
       {/* Cognome sotto il pallino */}
       {label && (
         <text
-          y={18}
+          y={55}
           textAnchor="middle"
           fill="#e0e0e0"
-          fontSize={7}
+          fontSize={30}
           fontWeight="500"
         >
           {label}

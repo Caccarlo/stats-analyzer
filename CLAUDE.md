@@ -35,7 +35,8 @@ stats-analyzer/
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters
     │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions, exports shared cache + fetchMatchDetails()
-    │   │   └── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state
+    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state
+    │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
     │   │   ├── foulPairing.ts        # Extracts fouls from match comments, pairs them, translates zones
     │   │   ├── statsCalculator.ts    # Aggregates stats across tournaments (per-match, per-90)

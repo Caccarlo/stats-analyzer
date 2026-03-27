@@ -8,7 +8,6 @@ interface MatchTimelineProps {
   detailsLoadedIds: Set<number>;
   showCommitted: boolean;
   showSuffered: boolean;
-  playerId: number;
   onToggleMatch: (eventId: number) => void;
 }
 
@@ -20,19 +19,17 @@ function abbreviateTournament(name: string): string {
   return words.map((w) => w[0]?.toUpperCase() ?? '').join('.');
 }
 
-function getFoulCount(
+function getFoulCounts(
   details: CachedMatchDetails | undefined,
-  playerId: number,
-  showCommitted: boolean,
-  showSuffered: boolean,
-): number | null {
+): { committed: number; suffered: number } | null {
   if (!details) return null; // not loaded yet
-  let count = 0;
+  let committed = 0;
+  let suffered = 0;
   for (const f of details.fouls) {
-    if (showCommitted && (f.type === 'committed' || f.type === 'handball')) count++;
-    if (showSuffered && f.type === 'suffered') count++;
+    if (f.type === 'committed' || f.type === 'handball') committed++;
+    if (f.type === 'suffered') suffered++;
   }
-  return count;
+  return { committed, suffered };
 }
 
 export default function MatchTimeline({
@@ -42,7 +39,6 @@ export default function MatchTimeline({
   detailsLoadedIds,
   showCommitted,
   showSuffered,
-  playerId,
   onToggleMatch,
 }: MatchTimelineProps) {
   if (events.length === 0) return null;
@@ -58,7 +54,7 @@ export default function MatchTimeline({
             const isSelected = selectedEventIds.has(event.id);
             const details = detailsMap.get(event.id);
             const isLoaded = detailsLoadedIds.has(event.id);
-            const foulCount = getFoulCount(details, playerId, showCommitted, showSuffered);
+            const counts = getFoulCounts(details);
 
             const homeCode = event.homeTeam.nameCode ?? event.homeTeam.shortName ?? event.homeTeam.name.substring(0, 3).toUpperCase();
             const awayCode = event.awayTeam.nameCode ?? event.awayTeam.shortName ?? event.awayTeam.name.substring(0, 3).toUpperCase();
@@ -86,17 +82,38 @@ export default function MatchTimeline({
                   {homeCode} - {awayCode}
                 </span>
 
-                {/* Row 3: Foul badge */}
-                <div className="mt-1">
+                {/* Row 3: Foul badges */}
+                <div className="mt-1 flex items-center gap-1">
                   {!isLoaded ? (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
                       <span className="w-2 h-2 border border-text-muted border-t-transparent rounded-full animate-spin mr-1" />
                       ...
                     </span>
-                  ) : foulCount != null && foulCount > 0 ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-neon/15 text-neon">
-                      {foulCount}
-                    </span>
+                  ) : counts != null ? (
+                    <>
+                      {showCommitted && showSuffered ? (
+                        <>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                            {counts.committed}
+                          </span>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                            {counts.suffered}
+                          </span>
+                        </>
+                      ) : showCommitted ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                          {counts.committed}
+                        </span>
+                      ) : showSuffered ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                          {counts.suffered}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
+                          0
+                        </span>
+                      )}
+                    </>
                   ) : (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
                       0

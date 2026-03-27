@@ -122,6 +122,13 @@ export interface PlayerPosition {
   isSelectedPlayer?: boolean;
 }
 
+// === Heatmap ===
+
+export interface HeatmapPoint {
+  x: number;
+  y: number;
+}
+
 // === Formazione ===
 
 export interface LineupPlayer {

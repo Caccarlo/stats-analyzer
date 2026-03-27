@@ -9,6 +9,7 @@ import type {
   MatchComment,
   MatchLineups,
   PlayerPosition,
+  HeatmapPoint,
   StandingRow,
   SearchResult,
 } from '@/types';
@@ -188,6 +189,20 @@ export async function getMatchAveragePositions(
     return data;
   } catch {
     return null;
+  }
+}
+
+export async function getPlayerMatchHeatmap(
+  eventId: number,
+  playerId: number
+): Promise<HeatmapPoint[]> {
+  try {
+    const data = await apiFetch<{ heatmap: HeatmapPoint[] }>(
+      `event/${eventId}/player/${playerId}/heatmap`
+    );
+    return data.heatmap ?? [];
+  } catch {
+    return [];
   }
 }
 

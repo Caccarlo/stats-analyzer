@@ -57,7 +57,6 @@ export default function FieldMap({
               key={p.player.id}
               x={pos.x}
               y={pos.y}
-              label={p.player.name.split(' ').pop()}
               number={p.player.jerseyNumber}
               color={isPagePlayer ? '#4ade80' : '#e0e0e0'}
               highlighted={isHighlighted}
@@ -76,7 +75,6 @@ export default function FieldMap({
               key={p.player.id}
               x={pos.x}
               y={pos.y}
-              label={p.player.name.split(' ').pop()}
               number={p.player.jerseyNumber}
               color={isPagePlayer ? '#4ade80' : '#e0e0e0'}
               highlighted={isHighlighted}

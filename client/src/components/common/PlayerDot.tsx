@@ -11,12 +11,14 @@ interface PlayerDotProps {
 export default function PlayerDot({
   x,
   y,
-  label,
   number,
   color = '#e0e0e0',
   highlighted = false,
   onClick,
 }: PlayerDotProps) {
+  const DOT_RADIUS = 30; // tutti i pallini hanno la stessa dimensione
+  const NUMBER_SIZE = 30; // tutti i numeri hanno la stessa dimensione
+
   return (
     <g
       transform={`translate(${x}, ${y})`}
@@ -25,12 +27,12 @@ export default function PlayerDot({
     >
       {/* Alone per giocatore evidenziato */}
       {highlighted && (
-        <circle r={32} fill={color} opacity={0.2} />
+        <circle r={DOT_RADIUS + 8} fill={color} opacity={0.2} />
       )}
 
       {/* Pallino */}
       <circle
-        r={highlighted ? 24 : 20}
+        r={DOT_RADIUS}
         fill={color}
         stroke={highlighted ? '#fff' : 'rgba(255,255,255,0.3)'}
         strokeWidth={highlighted ? 3 : 2}
@@ -41,24 +43,11 @@ export default function PlayerDot({
         <text
           textAnchor="middle"
           dominantBaseline="central"
-          fill={highlighted ? '#000' : '#fff'}
-          fontSize={highlighted ? 25 : 16}
+          fill="#000"
+          fontSize={NUMBER_SIZE}
           fontWeight="bold"
         >
           {number}
-        </text>
-      )}
-
-      {/* Cognome sotto il pallino */}
-      {label && (
-        <text
-          y={55}
-          textAnchor="middle"
-          fill="#e0e0e0"
-          fontSize={30}
-          fontWeight="500"
-        >
-          {label}
         </text>
       )}
     </g>

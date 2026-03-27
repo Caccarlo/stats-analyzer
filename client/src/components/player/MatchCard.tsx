@@ -88,7 +88,7 @@ export default function MatchCard({
   const abbreviateName = (name: string) => {
     const parts = name.trim().split(/\s+/);
     if (parts.length <= 1) return name;
-    return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
+    return `${parts[0][0]}. ${parts.slice(1).join(" ")}`;
   };
 
   // Render a single foul entry — compact format: "52' su M. Zaccagni propria metà"

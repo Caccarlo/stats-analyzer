@@ -1,5 +1,6 @@
 // Campo da calcio: 105m x 68m → aspect-ratio 68/105
-// Home team: metà SUPERIORE, Away team: metà INFERIORE
+// Home team: porta in alto, attacco verso il basso
+// Away team: porta in basso, attacco verso l'alto
 
 export interface FieldDimensions {
   width: number;
@@ -17,7 +18,7 @@ export function homeToScreen(
 ): { x: number; y: number } {
   return {
     x: (avgY / 100) * field.width,
-    y: (avgX / 100) * (field.height / 2),
+    y: (avgX / 100) * field.height,
   };
 }
 
@@ -28,7 +29,7 @@ export function awayToScreen(
 ): { x: number; y: number } {
   return {
     x: (1 - avgY / 100) * field.width,
-    y: (1 - avgX / 100) * (field.height / 2) + field.height / 2,
+    y: (1 - avgX / 100) * field.height,
   };
 }
 

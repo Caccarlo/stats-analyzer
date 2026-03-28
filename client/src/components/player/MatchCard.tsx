@@ -260,113 +260,85 @@ export default function MatchCard({
   const renderPositionsSection = () => {
     if (!positions) return null;
 
-    // ── SINGLE: campo landscape, FieldMap centrato H+V, stats 2x2 a sinistra, heatmap centrata ──
+    // Colonna sinistra comune ai 3 modi (portrait o landscape)
+    const leftCol = (portrait: boolean) => (
+      <div className="flex items-center justify-center">
+        <div ref={fieldRef} className={`w-full ${portrait ? 'max-w-[238px]' : 'max-w-[367px]'}`}>
+          <FieldMap
+            homePositions={positions.home}
+            awayPositions={positions.away}
+            selectedPlayerId={playerId}
+            activePlayerId={activePlayerId}
+            involvedPlayerIds={involvedPlayerIds}
+            onActivePlayerChange={setActivePlayerId}
+            orientation={portrait ? 'portrait' : 'landscape'}
+          />
+        </div>
+      </div>
+    );
+
+    // ── SINGLE: heatmap centrata nel 100% della colonna; nome absolute top-center; stats 2x2 absolute left V-center ──
     if (layoutMode === 'single') {
       return (
         <div className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
-          {/* Colonna sinistra: FieldMap centrato orizzontalmente e verticalmente */}
-          <div className="flex items-center justify-center">
-            <div ref={fieldRef} className="w-full max-w-[367px]">
-              <FieldMap
-                homePositions={positions.home}
-                awayPositions={positions.away}
-                selectedPlayerId={playerId}
-                activePlayerId={activePlayerId}
-                involvedPlayerIds={involvedPlayerIds}
-                onActivePlayerChange={setActivePlayerId}
-                orientation="landscape"
-              />
+          {leftCol(false)}
+          <div className="relative flex items-center justify-center">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2">
+              {playerNameRow}
             </div>
-          </div>
-
-          {/* Colonna destra: nome in alto, poi riga flex con stats (sinistra) + heatmap (centro) */}
-          <div className="flex flex-col items-center gap-2">
-            {playerNameRow}
-            <div className="flex-1 flex items-center w-full gap-2">
+            <div className="absolute left-0 top-1/2 -translate-y-1/2">
               {renderStatBoxes(2)}
-              <div className="flex-1 flex items-center justify-center">
-                <HeatmapField
-                  eventId={event.id}
-                  playerId={activePlayerId}
-                  isHome={activeIsHome}
-                  orientation="landscape"
-                  maxWidth={heatmapMaxWidth}
-                />
-              </div>
             </div>
-          </div>
-        </div>
-      );
-    }
-
-    // ── DOUBLE: campo portrait, FieldMap centrato H+V, stats 1-colonna a sinistra, heatmap centrata ──
-    if (layoutMode === 'double') {
-      return (
-        <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
-          {/* Colonna sinistra: FieldMap centrato orizzontalmente e verticalmente */}
-          <div className="flex items-center justify-center">
-            <div ref={fieldRef} className="w-full max-w-[238px]">
-              <FieldMap
-                homePositions={positions.home}
-                awayPositions={positions.away}
-                selectedPlayerId={playerId}
-                activePlayerId={activePlayerId}
-                involvedPlayerIds={involvedPlayerIds}
-                onActivePlayerChange={setActivePlayerId}
-              />
-            </div>
-          </div>
-
-          {/* Colonna destra: nome in alto, poi riga flex con stats (1-col, sinistra) + heatmap (centro) */}
-          <div className="flex flex-col items-center gap-2">
-            {playerNameRow}
-            <div className="flex-1 flex items-center w-full gap-2">
-              {renderStatBoxes(1)}
-              <div className="flex-1 flex items-center justify-center">
-                <HeatmapField
-                  eventId={event.id}
-                  playerId={activePlayerId}
-                  isHome={activeIsHome}
-                  maxWidth={heatmapMaxWidth}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // ── MULTI (3+): campo portrait, FieldMap centrato H+V, stats 2x2 a sinistra, heatmap centrata ──
-    return (
-      <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
-        {/* Colonna sinistra: FieldMap centrato orizzontalmente e verticalmente */}
-        <div className="flex items-center justify-center">
-          <div ref={fieldRef} className="w-full max-w-[238px]">
-            <FieldMap
-              homePositions={positions.home}
-              awayPositions={positions.away}
-              selectedPlayerId={playerId}
-              activePlayerId={activePlayerId}
-              involvedPlayerIds={involvedPlayerIds}
-              onActivePlayerChange={setActivePlayerId}
+            <HeatmapField
+              eventId={event.id}
+              playerId={activePlayerId}
+              isHome={activeIsHome}
+              orientation="landscape"
+              maxWidth={heatmapMaxWidth}
             />
           </div>
         </div>
+      );
+    }
 
-        {/* Colonna destra: nome in alto, poi riga flex con stats 2x2 (sinistra) + heatmap (centro) */}
-        <div className="flex flex-col items-center gap-2">
-          {playerNameRow}
-          <div className="flex-1 flex items-center w-full gap-2">
-            {renderStatBoxes(2)}
-            <div className="flex-1 flex items-center justify-center">
-              <HeatmapField
-                eventId={event.id}
-                playerId={activePlayerId}
-                isHome={activeIsHome}
-                maxWidth={heatmapMaxWidth}
-              />
+    // ── DOUBLE: stesso schema di single ma campo portrait e stats 1-colonna ──
+    if (layoutMode === 'double') {
+      return (
+        <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
+          {leftCol(true)}
+          <div className="relative flex items-center justify-center">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2">
+              {playerNameRow}
             </div>
+            <div className="absolute left-0 top-1/2 -translate-y-1/2">
+              {renderStatBoxes(1)}
+            </div>
+            <HeatmapField
+              eventId={event.id}
+              playerId={activePlayerId}
+              isHome={activeIsHome}
+              maxWidth={heatmapMaxWidth}
+            />
           </div>
+        </div>
+      );
+    }
+
+    // ── MULTI (3+): heatmap centrata nel 100% della colonna; nome e stats 2x2 absolute top centrate H ──
+    return (
+      <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
+        {leftCol(true)}
+        <div className="relative flex items-center justify-center">
+          <div className="absolute top-0 left-0 right-0 flex flex-col items-center gap-1">
+            {playerNameRow}
+            {renderStatBoxes(2)}
+          </div>
+          <HeatmapField
+            eventId={event.id}
+            playerId={activePlayerId}
+            isHome={activeIsHome}
+            maxWidth={heatmapMaxWidth}
+          />
         </div>
       </div>
     );

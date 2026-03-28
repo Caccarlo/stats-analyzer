@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import type { MatchEvent, Player, FoulMatchup, PlayerPosition } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
@@ -13,7 +13,8 @@ interface MatchCardProps {
   showCommitted: boolean;
   showSuffered: boolean;
   panelIndex?: number;
-  details: CachedMatchDetails | undefined;
+  detailsMap: Map<number, CachedMatchDetails>;
+  filteredEvents: MatchEvent[];
   onDeselect: (eventId: number) => void;
 }
 
@@ -24,7 +25,8 @@ export default function MatchCard({
   showCommitted,
   showSuffered,
   panelIndex = 0,
-  details,
+  detailsMap,
+  filteredEvents,
   onDeselect,
 }: MatchCardProps) {
   const { openSplitPlayer, swapSplitAndOpenPlayer, selectPlayer } = useNavigation();
@@ -35,24 +37,23 @@ export default function MatchCard({
     setActivePlayerId(playerId);
   }, [playerId]);
 
+  // Deriva details direttamente dalla map
+  const details = detailsMap.get(event.id);
+
   const fouls = details?.fouls ?? [];
   const positions = details?.positions ?? null;
   const substituteInMinute = details?.substituteInMinute;
   const substituteOutMinute = details?.substituteOutMinute;
 
-  // Determina se il giocatore è nella squadra di casa o ospite
   const isHome = event.homeTeam.id === playerTeamId;
 
-  // Determina se il giocatore attivo è nella squadra di casa
   const activeIsHome = positions
     ? positions.home.some((p: PlayerPosition) => p.player.id === activePlayerId)
     : isHome;
 
-  // Data partita (con anno)
   const date = new Date(event.startTimestamp * 1000);
   const dateStr = date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 
-  // Filtra falli per tipo
   const committedFouls = fouls.filter((f) => f.type === 'committed' || f.type === 'handball');
   const sufferedFouls = fouls.filter((f) => f.type === 'suffered');
 
@@ -61,7 +62,6 @@ export default function MatchCard({
     ...(showSuffered ? sufferedFouls : []),
   ];
 
-  // Giocatori coinvolti nei falli (per la mappa)
   const involvedPlayerIds = new Set<number>();
   fouls.forEach((f) => {
     if (f.playerFouled?.id) involvedPlayerIds.add(f.playerFouled.id);
@@ -70,7 +70,6 @@ export default function MatchCard({
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
-  // Build navigation context from match tournament for back button hierarchy
   const buildNavContext = () => {
     if (!event.tournament?.uniqueTournament) return undefined;
     const leagueId = event.tournament.uniqueTournament.id;
@@ -97,18 +96,53 @@ export default function MatchCard({
     }
   };
 
-  // Abbreviate name: "Marco Zaccagni" → "M. Zaccagni"
   const abbreviateName = (name: string) => {
     const parts = name.trim().split(/\s+/);
     if (parts.length <= 1) return name;
-    return `${parts[0][0]}. ${parts.slice(1).join(" ")}`;
+    return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
   };
 
-  // Render a single foul entry — compact format: "52' su M. Zaccagni propria metà"
+  // Giocatore attivo (per foto e nome sopra heatmap)
+  const activePlayer = useMemo(() => {
+    if (!positions) return null;
+    return (
+      positions.home.find((p: PlayerPosition) => p.player.id === activePlayerId)?.player ??
+      positions.away.find((p: PlayerPosition) => p.player.id === activePlayerId)?.player ??
+      null
+    );
+  }, [positions, activePlayerId]);
+
+  // Medie falli del giocatore attivo su tutte le partite filtrate caricate
+  const activePlayerStats = useMemo(() => {
+    let committed = 0;
+    let suffered = 0;
+    let matchCount = 0;
+
+    for (const ev of filteredEvents) {
+      const d = detailsMap.get(ev.id);
+      if (!d) continue;
+      matchCount++;
+      d.fouls.forEach((f) => {
+        if (f.playerFouling?.id === activePlayerId) committed++;
+        if (f.playerFouled?.id === activePlayerId) suffered++;
+      });
+    }
+
+    return {
+      matchCount,
+      committedPerGame: matchCount > 0 ? committed / matchCount : 0,
+      sufferedPerGame: matchCount > 0 ? suffered / matchCount : 0,
+    };
+  }, [activePlayerId, filteredEvents, detailsMap]);
+
   const renderFoul = (f: FoulMatchup, i: number) => (
     <div key={i} className="text-sm text-text-secondary py-0.5">
       {f.type === 'handball' ? (
-        <span>{f.minute != null && <span className="text-text-muted">{f.minute}' </span>}Fallo di mano{f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}</span>
+        <span>
+          {f.minute != null && <span className="text-text-muted">{f.minute}' </span>}
+          Fallo di mano
+          {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
+        </span>
       ) : f.type === 'suffered' ? (
         <span>
           {f.minute != null && <span className="text-text-muted">{f.minute}' </span>}
@@ -139,12 +173,11 @@ export default function MatchCard({
     </div>
   );
 
-  // Always use two columns when both foul filters are active (consistent card size)
   const showTwoColumns = showCommitted && showSuffered;
 
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col">
-      {/* Header with X close button */}
+      {/* Header */}
       <div className="flex items-start justify-between px-4 py-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs text-text-muted">
@@ -160,9 +193,15 @@ export default function MatchCard({
             {event.awayTeam.shortName ?? event.awayTeam.name}
           </div>
         </div>
+        <div className="text-xs text-text-muted text-right flex-shrink-0 mx-2">
+          <p>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</p>
+          {substituteOutMinute != null && (
+            <p>Uscito al {substituteOutMinute}'</p>
+          )}
+        </div>
         <button
           onClick={() => onDeselect(event.id)}
-          className="flex-shrink-0 ml-2 p-1 text-text-muted hover:text-text-primary transition-colors"
+          className="flex-shrink-0 p-1 text-text-muted hover:text-text-primary transition-colors"
           title="Rimuovi"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -171,7 +210,7 @@ export default function MatchCard({
         </button>
       </div>
 
-      {/* Content — always visible */}
+      {/* Content */}
       <div className="px-4 pb-4 border-t border-border pt-3 flex-1">
         {!details ? (
           <div className="flex items-center gap-2 text-text-muted text-sm">
@@ -180,11 +219,10 @@ export default function MatchCard({
           </div>
         ) : (
           <>
-            {/* Campo posizioni + Titolarità/Heatmap */}
             {positions ? (
-              <div className="grid grid-cols-2 gap-3 mb-7">
-                {/* Colonna sinistra: Campo posizioni */}
-                <div className="flex flex-col items-center">
+              <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
+                {/* Colonna sinistra: FieldMap */}
+                <div className="flex justify-center">
                   <FieldMap
                     homePositions={positions.home}
                     awayPositions={positions.away}
@@ -194,14 +232,52 @@ export default function MatchCard({
                     onActivePlayerChange={setActivePlayerId}
                   />
                 </div>
-                {/* Colonna destra: Titolarità + Heatmap */}
-                <div className="flex flex-col items-center">
-                  <div className="text-xs text-text-secondary space-y-0.5 pt-1 mb-2">
-                    <p>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</p>
-                    {substituteOutMinute != null && (
-                      <p>Uscito al {substituteOutMinute}'</p>
+                {/* Colonna destra: giocatore attivo + medie + heatmap */}
+                <div className="relative flex items-center justify-center">
+                  {/* Testo in alto, allineato al top del FieldMap */}
+                  <div className="absolute top-0 left-0 right-0 flex flex-col items-center gap-1">
+                    {activePlayer && (
+                      <div className="flex items-center gap-2 w-full justify-center">
+                        <img
+                          src={`https://api.sofascore.com/api/v1/player/${activePlayerId}/image`}
+                          alt={activePlayer.name}
+                          className="w-7 h-7 rounded-full object-cover bg-surface-2"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                        <span className="text-sm text-text-primary font-medium truncate max-w-[100px]">
+                          {abbreviateName(activePlayer.name)}
+                        </span>
+                      </div>
                     )}
+                    <div className="w-full grid grid-cols-2 gap-1 px-10 mt-1">
+                      {(showSuffered || (!showCommitted && !showSuffered)) && (
+                        <>
+                          <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between">
+                            <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./p</p>
+                            <p className="text-negative text-xs font-bold">—</p>
+                          </div>
+                          <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between">
+                            <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./90</p>
+                            <p className="text-negative text-xs font-bold">—</p>
+                          </div>
+                        </>
+                      )}
+                      {(showCommitted || (!showCommitted && !showSuffered)) && (
+                        <>
+                          <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between">
+                            <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./p</p>
+                            <p className="text-neon text-xs font-bold">—</p>
+                          </div>
+                          <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between">
+                            <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./90</p>
+                            <p className="text-neon text-xs font-bold">—</p>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Heatmap centrata verticalmente */}
                   <HeatmapField
                     eventId={event.id}
                     playerId={activePlayerId}
@@ -221,7 +297,6 @@ export default function MatchCard({
             {/* Falli */}
             {showTwoColumns ? (
               <div className="grid grid-cols-2 gap-3">
-                {/* Commessi a sinistra */}
                 <div className="flex flex-col items-center text-center">
                   <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
                     Falli commessi ({committedFouls.length})
@@ -231,7 +306,6 @@ export default function MatchCard({
                     : <p className="text-text-muted text-sm">Nessuno</p>
                   }
                 </div>
-                {/* Subiti a destra */}
                 <div className="flex flex-col items-center text-center">
                   <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
                     Falli subiti ({sufferedFouls.length})
@@ -252,7 +326,6 @@ export default function MatchCard({
                     {sufferedFouls.map(renderFoul)}
                   </div>
                 )}
-
                 {showCommitted && committedFouls.length > 0 && (
                   <div className="mb-3 flex flex-col items-center text-center">
                     <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
@@ -261,7 +334,6 @@ export default function MatchCard({
                     {committedFouls.map(renderFoul)}
                   </div>
                 )}
-
                 {visibleFouls.length === 0 && (
                   <p className="text-text-muted text-sm text-center">Nessun fallo in questa partita</p>
                 )}

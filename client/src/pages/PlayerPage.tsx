@@ -229,7 +229,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                         showCommitted={showCommitted}
                         showSuffered={showSuffered}
                         panelIndex={panelIndex}
-                        details={detailsMap.get(event.id)}
+                        detailsMap={detailsMap}
+                        filteredEvents={filteredEvents}
                         onDeselect={deselectMatch}
                       />
                     </SyncedCardSlot>

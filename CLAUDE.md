@@ -62,7 +62,7 @@ stats-analyzer/
     │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle
     │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay
     │       │   ├── FieldMap.tsx      # SVG field with clickable position dots; activePlayerId + involvedPlayerIds filtering
-    │       │   └── HeatmapField.tsx  # Canvas-based player heatmap; maxWidth prop = half of FieldMap width (measured via ResizeObserver)
+    │       │   └── HeatmapField.tsx  # Canvas-based player heatmap; maxWidth prop = half of FieldMap width (measured via ResizeObserver), fallback 119px portrait / 200px landscape
     │       └── common/
     │           ├── Badge.tsx         # Styled badge (3 variants)
     │           └── PlayerDot.tsx     # SVG circle for field map
@@ -120,7 +120,7 @@ PanelState = {
 - Right panel back button shows contextual labels at each hierarchy level (league name, country name, "Paesi"); hidden only when panel 0 is team view and panel 1 player is from the same team
 - Clicking opponent team in TeamView passes full navigation context (leagueId, leagueName, countryId, countryName) derived from the match tournament and `COUNTRIES` config, so back button works through the full hierarchy
 - Left panel back button shows team name or "Indietro"
-- SearchBar only shown inside individual views when NOT in split mode; in split mode the fixed `topBar` SearchBar in `ContentPanel` covers both panels
+- SearchBar only shown inside individual views when NOT in split mode; in split mode the `topBar` in `ContentPanel` shows two separate SearchBars (one per panel, each 50% width)
 - Navigation components (CountryList, LeagueList, TeamGrid, HomePage) accept `panelIndex` prop for panel-aware navigation
 
 ## SofaScore API Endpoints
@@ -129,6 +129,7 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 
 | Endpoint | Purpose | Used in |
 |----------|---------|---------|
+| `sport/football/categories` | Football categories list | (available, not yet used) |
 | `search/all?q={query}` | Global player search | SearchBar |
 | `unique-tournament/{id}/seasons` | Tournament seasons | LeagueList, TeamGrid |
 | `unique-tournament/{id}/season/{id}/standings/total` | Teams from standings | TeamGrid |
@@ -207,9 +208,9 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Numbers always rounded — no long decimals (use `.toFixed(2)`)
 - Split view only above 1024px width
 - Match timeline: horizontal scrollable bar with all matches, foul count badges loaded progressively
-- Match cards: always open (not expandable), selectable via timeline; last 3 pre-selected on desktop, 1 on mobile
+- Match cards: always open (not expandable), selectable via timeline; most recent 3 pre-selected on desktop, 1 on mobile
 - Match details loaded progressively in background (selected first, then remaining in batches of 3), cached for session
-- Card layout: 1 card = 100%, 2 = 50%, 3+ = 33.33% (flexbox wrap); always 100% on mobile
+- Card layout: 1 card = 100%, 2 = `calc(50%-4px)`, 3+ = `calc(33.333%-6px)` (flexbox wrap, gap-compensated); 100% below `md:` (768px) and in split view
 - Player who changed team mid-season: separate matches with visual divider showing team name
 - MatchCard layout modes driven by `cardCount`: single (1 card, landscape FieldMap), double (2 cards, portrait FieldMap), multi (3+ cards, portrait FieldMap)
 - MatchCard active player: clicking a dot in FieldMap sets the active player; shows their season averages (aggregated across all selected tournaments) left of heatmap, and their own match foul counts right of heatmap; hidden when active player is the main PlayerPage player

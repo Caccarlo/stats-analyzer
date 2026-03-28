@@ -33,7 +33,7 @@ stats-analyzer/
     │   ├── context/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
-    │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters
+    │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway)
     │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions; exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player
     │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state, selectAll/deselectAll
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
@@ -43,7 +43,7 @@ stats-analyzer/
     │   │   └── positionMapping.ts    # SofaScore coords -> SVG coords, 13+ formation templates
     │   ├── pages/
     │   │   ├── HomePage.tsx          # Landing with search bar
-    │   │   └── PlayerPage.tsx        # Player analysis: stats + timeline + selectable match cards
+    │   │   └── PlayerPage.tsx        # Player analysis: stats + timeline + selectable match cards; computes venueFilteredEvents from showHome/showAway
     │   └── components/
     │       ├── layout/
     │       │   ├── Sidebar.tsx       # Fixed 210px left panel, hamburger on mobile
@@ -57,7 +57,7 @@ stats-analyzer/
     │       │   └── SidebarTeamList.tsx # Compact team list in sidebar
     │       ├── player/
     │       │   ├── PlayerHeader.tsx  # Avatar, name, team, position, number
-    │       │   ├── PlayerFilters.tsx # Season/tournament/foul-type toggles
+    │       │   ├── PlayerFilters.tsx # Season/tournament/venue(casa-trasferta)/foul-type toggles
     │       │   ├── StatsOverview.tsx # 3x2 stat cards grid
     │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle
     │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay
@@ -217,6 +217,15 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - MatchCard mirrored perspective: showCommitted filter → show active player's suffered stats (they're the victim); showSuffered → show active player's committed stats; both/neither → show all 4 boxes
 - FieldMap `involvedPlayerIds` filtered by current foul type: committed shows fouled victims, suffered shows foulers; if active player is no longer in the involved set after a filter change, selection resets to main player
 - MatchTimeline has a select/deselect all toggle button that syncs with the current selection state
+
+## Filters
+
+### Venue filter (Casa / Trasferta)
+- State lives in `usePlayerData` as `showHome` / `showAway` (both `true` by default)
+- Rendered in `PlayerFilters` between the Competizioni block and the Tipo falli block, labelled "Sede:"
+- Same "at least one always active" logic as the foul-type toggles: deactivating the last active option activates the other before toggling off
+- In `PlayerPage`, `venueFilteredEvents` is computed via `useMemo` **after** the `useMatchTimeline` destructuring, filtering `filteredEvents` by comparing `event.homeTeam.id` to `resolvedPlayer?.team?.id`; when both filters are active the full list is returned unfiltered
+- `venueFilteredEvents` is passed to `MatchTimeline` (as `events`) and used for `selectedEvents` and `toggleMode` sync; `selectAll` / `deselectAll` from `useMatchTimeline` still operate on the full unfiltered set
 
 ## Workflow Rules
 

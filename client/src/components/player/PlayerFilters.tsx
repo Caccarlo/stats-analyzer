@@ -11,6 +11,10 @@ interface PlayerFiltersProps {
   onShowCommittedChange: (v: boolean) => void;
   showSuffered: boolean;
   onShowSufferedChange: (v: boolean) => void;
+  showHome: boolean;
+  onShowHomeChange: (v: boolean) => void;
+  showAway: boolean;
+  onShowAwayChange: (v: boolean) => void;
   allTournamentsForSeason: { tournamentId: number; tournamentName: string }[];
 }
 
@@ -24,6 +28,10 @@ export default function PlayerFilters({
   onShowCommittedChange,
   showSuffered,
   onShowSufferedChange,
+  showHome,
+  onShowHomeChange,
+  showAway,
+  onShowAwayChange,
   allTournamentsForSeason,
 }: PlayerFiltersProps) {
   const selectedIds = new Set(selectedTournaments.map((t) => t.tournamentId));
@@ -47,6 +55,16 @@ export default function PlayerFilters({
   const handleToggleSuffered = () => {
     if (showSuffered && !showCommitted) onShowCommittedChange(true);
     onShowSufferedChange(!showSuffered);
+  };
+
+  const handleToggleHome = () => {
+    if (showHome && !showAway) onShowAwayChange(true);
+    onShowHomeChange(!showHome);
+  };
+
+  const handleToggleAway = () => {
+    if (showAway && !showHome) onShowHomeChange(true);
+    onShowAwayChange(!showAway);
   };
 
   return (
@@ -87,6 +105,33 @@ export default function PlayerFilters({
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* Sede */}
+      <div>
+        <label className="text-text-muted text-sm mb-2 block">Sede:</label>
+        <div className="flex gap-2">
+          <button
+            onClick={handleToggleHome}
+            className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+              showHome
+                ? 'bg-neon/15 border-neon text-neon'
+                : 'bg-surface border-border text-text-muted hover:border-border-hover'
+            }`}
+          >
+            {showHome ? '✓ ' : ''}Casa
+          </button>
+          <button
+            onClick={handleToggleAway}
+            className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+              showAway
+                ? 'bg-neon/15 border-neon text-neon'
+                : 'bg-surface border-border text-text-muted hover:border-border-hover'
+            }`}
+          >
+            {showAway ? '✓ ' : ''}Trasferta
+          </button>
         </div>
       </div>
 

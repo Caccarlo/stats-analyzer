@@ -138,7 +138,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   // Sincronizza toggleMode con la selezione effettiva:
   // - tutte selezionate → passa a 'deselect'
   // - nessuna selezionata → passa a 'select'
-  // - selezione parziale → lascia invariato (l'utente ha selezionato/deselezionato manualmente)
+  // - selezione parziale → lascia invariato
   useEffect(() => {
     if (filteredEvents.length === 0) return;
     if (selectedEventIds.size === filteredEvents.length) {
@@ -146,7 +146,6 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     } else if (selectedEventIds.size === 0) {
       setToggleMode('select');
     }
-    // Parziale: nessuna modifica al toggleMode
   }, [selectedEventIds, filteredEvents]);
 
   const handleToggleAll = useCallback(() => {
@@ -263,6 +262,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                         detailsMap={detailsMap}
                         filteredEvents={filteredEvents}
                         onDeselect={deselectMatch}
+                        cardCount={cardCount}
                       />
                     </SyncedCardSlot>
                   ))}

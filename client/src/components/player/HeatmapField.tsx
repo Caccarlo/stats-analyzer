@@ -6,20 +6,29 @@ interface HeatmapFieldProps {
   eventId: number;
   playerId: number;
   isHome: boolean;
+  orientation?: 'portrait' | 'landscape';
+  maxWidth?: number; // dynamic: sempre metà della larghezza del FieldMap
 }
 
+// Dimensioni campo portrait
 const FIELD_W = 680;
 const FIELD_H = 1050;
+// Dimensioni campo landscape (rotazione 90° CW)
+const FIELD_L_W = 1050;
+const FIELD_L_H = 680;
 
-function toScreen(
-  px: number,
-  py: number,
-  isHome: boolean
-): { x: number; y: number } {
+function toScreen(px: number, py: number, isHome: boolean): { x: number; y: number } {
   if (isHome) {
     return { x: (py / 100) * FIELD_W, y: (px / 100) * FIELD_H };
   }
   return { x: (1 - py / 100) * FIELD_W, y: (1 - px / 100) * FIELD_H };
+}
+
+function toScreenLandscape(px: number, py: number, isHome: boolean): { x: number; y: number } {
+  if (isHome) {
+    return { x: (px / 100) * FIELD_L_W, y: (1 - py / 100) * FIELD_L_H };
+  }
+  return { x: (1 - px / 100) * FIELD_L_W, y: (py / 100) * FIELD_L_H };
 }
 
 function drawField(ctx: CanvasRenderingContext2D, w: number, h: number) {
@@ -32,23 +41,42 @@ function drawField(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.strokeStyle = '#2a5535';
   ctx.lineWidth = 2 * sx;
 
-  // Bordo campo
   ctx.strokeRect(10 * sx, 10 * sy, 660 * sx, 1030 * sy);
-  // Linea di centrocampo
   ctx.beginPath();
   ctx.moveTo(10 * sx, 525 * sy);
   ctx.lineTo(670 * sx, 525 * sy);
   ctx.stroke();
-  // Cerchio di centrocampo
   ctx.beginPath();
   ctx.arc(340 * sx, 525 * sy, 91.5 * sx, 0, Math.PI * 2);
   ctx.stroke();
-  // Area di rigore superiore
   ctx.strokeRect(138 * sx, 10 * sy, 404 * sx, 165 * sy);
   ctx.strokeRect(218 * sx, 10 * sy, 244 * sx, 55 * sy);
-  // Area di rigore inferiore
   ctx.strokeRect(138 * sx, 875 * sy, 404 * sx, 165 * sy);
   ctx.strokeRect(218 * sx, 985 * sy, 244 * sx, 55 * sy);
+}
+
+function drawFieldLandscape(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  const sx = w / FIELD_L_W;
+  const sy = h / FIELD_L_H;
+
+  ctx.fillStyle = '#1a3320';
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = '#2a5535';
+  ctx.lineWidth = 2 * sx;
+
+  ctx.strokeRect(10 * sx, 10 * sy, 1030 * sx, 660 * sy);
+  ctx.beginPath();
+  ctx.moveTo(525 * sx, 10 * sy);
+  ctx.lineTo(525 * sx, 670 * sy);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(525 * sx, 340 * sy, 91.5 * sx, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeRect(10 * sx, 138 * sy, 165 * sx, 404 * sy);
+  ctx.strokeRect(10 * sx, 218 * sy, 55 * sx, 244 * sy);
+  ctx.strokeRect(875 * sx, 138 * sy, 165 * sx, 404 * sy);
+  ctx.strokeRect(985 * sx, 218 * sy, 55 * sx, 244 * sy);
 }
 
 function drawHeatmap(
@@ -56,22 +84,27 @@ function drawHeatmap(
   points: HeatmapPoint[],
   w: number,
   h: number,
-  isHome: boolean
+  isHome: boolean,
+  orientation: 'portrait' | 'landscape',
 ) {
   if (points.length === 0) return;
 
-  const sx = w / FIELD_W;
-  const sy = h / FIELD_H;
+  const fw = orientation === 'landscape' ? FIELD_L_W : FIELD_W;
+  const fh = orientation === 'landscape' ? FIELD_L_H : FIELD_H;
+  const sx = w / fw;
+  const sy = h / fh;
   const radius = 60 * Math.max(sx, sy);
 
-  // Disegna punti su canvas offscreen in scala di grigi
   const offscreen = document.createElement('canvas');
   offscreen.width = w;
   offscreen.height = h;
   const offCtx = offscreen.getContext('2d')!;
 
   for (const p of points) {
-    const screen = toScreen(p.x, p.y, isHome);
+    const screen =
+      orientation === 'landscape'
+        ? toScreenLandscape(p.x, p.y, isHome)
+        : toScreen(p.x, p.y, isHome);
     const cx = screen.x * sx;
     const cy = screen.y * sy;
 
@@ -82,16 +115,14 @@ function drawHeatmap(
     offCtx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
   }
 
-  // Leggi intensita e applica colormap
   const imageData = offCtx.getImageData(0, 0, w, h);
   const data = imageData.data;
 
   for (let i = 0; i < data.length; i += 4) {
-    const alpha = data[i + 3]; // intensita accumulata nel canale alpha
+    const alpha = data[i + 3];
     if (alpha === 0) continue;
 
-    const t = Math.min(alpha / 180, 1); // normalizza
-    // Colormap: verde -> giallo -> rosso
+    const t = Math.min(alpha / 180, 1);
     let r: number, g: number, b: number;
     if (t < 0.5) {
       const s = t * 2;
@@ -111,13 +142,18 @@ function drawHeatmap(
   }
 
   offCtx.putImageData(imageData, 0, 0);
-
   ctx.globalAlpha = 0.7;
   ctx.drawImage(offscreen, 0, 0);
   ctx.globalAlpha = 1.0;
 }
 
-export default function HeatmapField({ eventId, playerId, isHome }: HeatmapFieldProps) {
+export default function HeatmapField({
+  eventId,
+  playerId,
+  isHome,
+  orientation = 'portrait',
+  maxWidth,
+}: HeatmapFieldProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [points, setPoints] = useState<HeatmapPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,29 +176,51 @@ export default function HeatmapField({ eventId, playerId, isHome }: HeatmapField
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.round(rect.width * dpr);
-    const h = Math.round(rect.height * dpr);
+    function redraw() {
+      const rect = canvas!.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.round(rect.width * dpr);
+      const h = Math.round(rect.height * dpr);
+      if (w === 0 || h === 0) return;
 
-    canvas.width = w;
-    canvas.height = h;
+      canvas!.width = w;
+      canvas!.height = h;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+      const ctx = canvas!.getContext('2d');
+      if (!ctx) return;
 
-    drawField(ctx, w, h);
-    if (!loading) {
-      drawHeatmap(ctx, points, w, h, isHome);
+      if (orientation === 'landscape') {
+        drawFieldLandscape(ctx, w, h);
+      } else {
+        drawField(ctx, w, h);
+      }
+
+      if (!loading) {
+        drawHeatmap(ctx, points, w, h, isHome, orientation);
+      }
     }
-  }, [points, loading, isHome]);
+
+    redraw();
+    const ro = new ResizeObserver(redraw);
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, [points, loading, isHome, orientation]);
+
+  const isLandscape = orientation === 'landscape';
+  // Fallback se maxWidth non è ancora misurato: stesse dimensioni fisse precedenti
+  const defaultMaxWidth = isLandscape ? 200 : 119;
+  const effectiveMaxWidth = maxWidth ?? defaultMaxWidth;
+  const aspectRatio = isLandscape ? '105/68' : '68/105';
 
   return (
-    <div className="relative w-full max-w-[119px]" style={{ aspectRatio: '68/105' }}>
+    <div
+      className="relative w-full"
+      style={{ maxWidth: `${effectiveMaxWidth}px`, aspectRatio }}
+    >
       <canvas
         ref={canvasRef}
         className="w-full h-full rounded-lg border border-field-lines"
-        style={{ aspectRatio: '68/105' }}
+        style={{ aspectRatio }}
       />
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center">

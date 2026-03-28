@@ -12,6 +12,8 @@ export interface UseMatchTimelineResult {
   loadingEvents: boolean;
   toggleMatch: (eventId: number) => void;
   deselectMatch: (eventId: number) => void;
+  selectAll: () => void;
+  deselectAll: () => void;
 }
 
 export function useMatchTimeline(
@@ -198,6 +200,14 @@ export function useMatchTimeline(
     });
   }, []);
 
+  const selectAll = useCallback(() => {
+    setSelectedEventIds(new Set(filteredEvents.map((e) => e.id)));
+  }, [filteredEvents]);
+
+  const deselectAll = useCallback(() => {
+    setSelectedEventIds(new Set());
+  }, []);
+
   return {
     filteredEvents,
     selectedEventIds,
@@ -206,5 +216,7 @@ export function useMatchTimeline(
     loadingEvents,
     toggleMatch,
     deselectMatch,
+    selectAll,
+    deselectAll,
   };
 }

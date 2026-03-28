@@ -9,6 +9,8 @@ interface MatchTimelineProps {
   showCommitted: boolean;
   showSuffered: boolean;
   onToggleMatch: (eventId: number) => void;
+  toggleMode: 'select' | 'deselect';
+  onToggleAll: () => void;
 }
 
 function abbreviateTournament(name: string): string {
@@ -40,14 +42,42 @@ export default function MatchTimeline({
   showCommitted,
   showSuffered,
   onToggleMatch,
+  toggleMode,
+  onToggleAll,
 }: MatchTimelineProps) {
   if (events.length === 0) return null;
 
   return (
     <div>
-      <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-3">
-        Timeline partite ({events.length})
-      </h3>
+      {/* Header: titolo + toggle seleziona/deseleziona tutte */}
+      <div className="flex items-center gap-3 mb-3">
+        <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
+          Timeline partite ({events.length})
+        </h3>
+        <button
+          onClick={onToggleAll}
+          className="flex items-center gap-2 group"
+          aria-label={toggleMode === 'select' ? 'Seleziona tutte le partite' : 'Deseleziona tutte le partite'}
+        >
+          {/* Toggle pill */}
+          <div
+            className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${
+              toggleMode === 'deselect' ? 'bg-neon' : 'bg-border group-hover:bg-border/80'
+            }`}
+          >
+            <div
+              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform duration-200 ${
+                toggleMode === 'deselect' ? 'translate-x-4' : 'translate-x-0.5'
+              }`}
+            />
+          </div>
+          {/* Label */}
+          <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">
+            {toggleMode === 'select' ? 'Seleziona tutte' : 'Deseleziona tutte'}
+          </span>
+        </button>
+      </div>
+
       <div className="overflow-x-auto pb-2">
         <div className="flex gap-2">
           {events.map((event) => {

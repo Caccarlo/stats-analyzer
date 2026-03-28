@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
 import { useMatchTimeline } from '@/hooks/useMatchTimeline';
 import { useSplitCardSync } from '@/hooks/useSplitCardSync';
@@ -111,6 +111,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     loadingEvents,
     toggleMatch,
     deselectMatch,
+    selectAll,
+    deselectAll,
   } = useMatchTimeline(playerId, selectedTournamentIds, validSeasonIds);
 
   // Selected events sorted chronologically (most recent first, same as filteredEvents order)
@@ -129,6 +131,33 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       : cardCount === 2
         ? 'w-full md:w-[calc(50%-4px)]'
         : 'w-full md:w-[calc(33.333%-6px)]';
+
+  // ── Toggle mode: 'select' = il tasto seleziona tutte, 'deselect' = deseleziona tutte ──
+  const [toggleMode, setToggleMode] = useState<'select' | 'deselect'>('select');
+
+  // Sincronizza toggleMode con la selezione effettiva:
+  // - tutte selezionate → passa a 'deselect'
+  // - nessuna selezionata → passa a 'select'
+  // - selezione parziale → lascia invariato (l'utente ha selezionato/deselezionato manualmente)
+  useEffect(() => {
+    if (filteredEvents.length === 0) return;
+    if (selectedEventIds.size === filteredEvents.length) {
+      setToggleMode('deselect');
+    } else if (selectedEventIds.size === 0) {
+      setToggleMode('select');
+    }
+    // Parziale: nessuna modifica al toggleMode
+  }, [selectedEventIds, filteredEvents]);
+
+  const handleToggleAll = useCallback(() => {
+    if (toggleMode === 'select') {
+      selectAll();
+      setToggleMode('deselect');
+    } else {
+      deselectAll();
+      setToggleMode('select');
+    }
+  }, [toggleMode, selectAll, deselectAll]);
 
   // Placeholder player per il header (usa dati completi se disponibili)
   const displayPlayer: Player = resolvedPlayer ?? {
@@ -208,6 +237,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                 showCommitted={showCommitted}
                 showSuffered={showSuffered}
                 onToggleMatch={toggleMatch}
+                toggleMode={toggleMode}
+                onToggleAll={handleToggleAll}
               />
 
               {/* Selected match cards */}

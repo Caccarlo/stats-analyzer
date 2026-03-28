@@ -71,6 +71,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowCommitted,
     showSuffered,
     setShowSuffered,
+    showHome,
+    setShowHome,
+    showAway,
+    setShowAway,
     stats,
     loading,
     error,
@@ -115,9 +119,22 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     deselectAll,
   } = useMatchTimeline(playerId, selectedTournamentIds, validSeasonIds);
 
+  // Filtro casa/trasferta — playerTeamId ricavato dal team corrente del giocatore
+  const venueFilteredEvents = useMemo(() => {
+    if (showHome && showAway) return filteredEvents;
+    const teamId = resolvedPlayer?.team?.id;
+    if (!teamId) return filteredEvents;
+    return filteredEvents.filter((e) => {
+      const isHome = e.homeTeam.id === teamId;
+      if (showHome && isHome) return true;
+      if (showAway && !isHome) return true;
+      return false;
+    });
+  }, [filteredEvents, showHome, showAway, resolvedPlayer?.team?.id]);
+
   // Selected events sorted chronologically (most recent first, same as filteredEvents order)
   const selectedEvents = useMemo(
-    () => filteredEvents.filter((e) => selectedEventIds.has(e.id)),
+    () => venueFilteredEvents.filter((e) => selectedEventIds.has(e.id)),
     [filteredEvents, selectedEventIds],
   );
 
@@ -140,8 +157,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   // - nessuna selezionata → passa a 'select'
   // - selezione parziale → lascia invariato
   useEffect(() => {
-    if (filteredEvents.length === 0) return;
-    if (selectedEventIds.size === filteredEvents.length) {
+    if (venueFilteredEvents.length === 0) return;
+    if (selectedEventIds.size === venueFilteredEvents.length) {
       setToggleMode('deselect');
     } else if (selectedEventIds.size === 0) {
       setToggleMode('select');
@@ -187,6 +204,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onShowCommittedChange={setShowCommitted}
             showSuffered={showSuffered}
             onShowSufferedChange={setShowSuffered}
+            showHome={showHome}
+            onShowHomeChange={setShowHome}
+            showAway={showAway}
+            onShowAwayChange={setShowAway}
             allTournamentsForSeason={allTournamentsForSeason}
           />
         </div>
@@ -229,7 +250,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
           ) : (
             <>
               <MatchTimeline
-                events={filteredEvents}
+                events={venueFilteredEvents}
                 selectedEventIds={selectedEventIds}
                 detailsMap={detailsMap}
                 detailsLoadedIds={detailsLoadedIds}

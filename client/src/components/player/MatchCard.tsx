@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import type { MatchEvent, Player, FoulMatchup, PlayerPosition } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
@@ -16,7 +16,10 @@ interface MatchCardProps {
   detailsMap: Map<number, CachedMatchDetails>;
   filteredEvents: MatchEvent[];
   onDeselect: (eventId: number) => void;
+  cardCount: number;
 }
+
+type CardLayout = 'single' | 'double' | 'multi';
 
 export default function MatchCard({
   event,
@@ -28,18 +31,32 @@ export default function MatchCard({
   detailsMap,
   filteredEvents,
   onDeselect,
+  cardCount,
 }: MatchCardProps) {
   const { openSplitPlayer, swapSplitAndOpenPlayer, selectPlayer } = useNavigation();
 
   const [activePlayerId, setActivePlayerId] = useState(playerId);
 
+  // ── Ref per misurare la larghezza reale del FieldMap ──
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const [fieldWidth, setFieldWidth] = useState(0);
+
   useEffect(() => {
     setActivePlayerId(playerId);
   }, [playerId]);
 
-  // Deriva details direttamente dalla map
-  const details = detailsMap.get(event.id);
+  // ── ResizeObserver: aggiorna fieldWidth ogni volta che il campo cambia dimensione ──
+  useEffect(() => {
+    const el = fieldRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      setFieldWidth(entries[0].contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
+  const details = detailsMap.get(event.id);
   const fouls = details?.fouls ?? [];
   const positions = details?.positions ?? null;
   const substituteInMinute = details?.substituteInMinute;
@@ -70,11 +87,14 @@ export default function MatchCard({
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
+  const layoutMode: CardLayout =
+    cardCount === 1 ? 'single' : cardCount === 2 ? 'double' : 'multi';
+
   const buildNavContext = () => {
     if (!event.tournament?.uniqueTournament) return undefined;
     const leagueId = event.tournament.uniqueTournament.id;
     const leagueName = event.tournament.uniqueTournament.name;
-    const country = COUNTRIES.find(c => c.leagues.some(l => l.id === leagueId));
+    const country = COUNTRIES.find((c) => c.leagues.some((l) => l.id === leagueId));
     return {
       leagueId,
       leagueName,
@@ -102,7 +122,6 @@ export default function MatchCard({
     return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
   };
 
-  // Giocatore attivo (per foto e nome sopra heatmap)
   const activePlayer = useMemo(() => {
     if (!positions) return null;
     return (
@@ -112,7 +131,6 @@ export default function MatchCard({
     );
   }, [positions, activePlayerId]);
 
-  // Medie falli del giocatore attivo su tutte le partite filtrate caricate
   const activePlayerStats = useMemo(() => {
     let committed = 0;
     let suffered = 0;
@@ -149,11 +167,16 @@ export default function MatchCard({
           {f.playerFouling ? (
             <>
               da{' '}
-              <button onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)} className="text-neon hover:underline">
+              <button
+                onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)}
+                className="text-neon hover:underline"
+              >
                 {abbreviateName(f.playerFouling.name)}
               </button>
             </>
-          ) : 'punizione conquistata'}
+          ) : (
+            'punizione conquistata'
+          )}
           {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
         </span>
       ) : (
@@ -162,11 +185,16 @@ export default function MatchCard({
           {f.playerFouled ? (
             <>
               su{' '}
-              <button onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)} className="text-neon hover:underline">
+              <button
+                onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)}
+                className="text-neon hover:underline"
+              >
                 {abbreviateName(f.playerFouled.name)}
               </button>
             </>
-          ) : 'fallo commesso'}
+          ) : (
+            'fallo commesso'
+          )}
           {f.zoneText && <span className="text-text-muted"> {f.zoneText}</span>}
         </span>
       )}
@@ -174,6 +202,175 @@ export default function MatchCard({
   );
 
   const showTwoColumns = showCommitted && showSuffered;
+
+  // ── Avatar + nome giocatore attivo ──
+  const playerNameRow = activePlayer ? (
+    <div className="flex items-center gap-2 justify-center">
+      <img
+        src={`https://api.sofascore.com/api/v1/player/${activePlayerId}/image`}
+        alt={activePlayer.name}
+        className="w-7 h-7 rounded-full object-cover bg-surface-2"
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.display = 'none';
+        }}
+      />
+      <span className="text-sm text-text-primary font-medium truncate max-w-[100px]">
+        {abbreviateName(activePlayer.name)}
+      </span>
+    </div>
+  ) : null;
+
+  // ── Stat boxes: griglia adattiva (2 col per single/multi, 1 col per double) ──
+  const renderStatBoxes = (cols: 1 | 2) => {
+    const colClass = cols === 1 ? 'grid-cols-1' : 'grid-cols-2';
+    return (
+      <div className={`grid ${colClass} gap-1 w-fit flex-shrink-0`}>
+        {(showSuffered || (!showCommitted && !showSuffered)) && (
+          <>
+            <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+              <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./p</p>
+              <p className="text-negative text-xs font-bold">—</p>
+            </div>
+            <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+              <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./90</p>
+              <p className="text-negative text-xs font-bold">—</p>
+            </div>
+          </>
+        )}
+        {(showCommitted || (!showCommitted && !showSuffered)) && (
+          <>
+            <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+              <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./p</p>
+              <p className="text-neon text-xs font-bold">—</p>
+            </div>
+            <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+              <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./90</p>
+              <p className="text-neon text-xs font-bold">—</p>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // ── La heatmap sarà sempre metà della larghezza reale del campo ──
+  const heatmapMaxWidth = fieldWidth > 0 ? Math.round(fieldWidth / 2) : undefined;
+
+  // ── Sezione posizioni: layout dipende da cardCount ──
+  const renderPositionsSection = () => {
+    if (!positions) return null;
+
+    // ── SINGLE: campo landscape, FieldMap centrato H+V, stats 2x2 a sinistra, heatmap centrata ──
+    if (layoutMode === 'single') {
+      return (
+        <div className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
+          {/* Colonna sinistra: FieldMap centrato orizzontalmente e verticalmente */}
+          <div className="flex items-center justify-center">
+            <div ref={fieldRef} className="w-full max-w-[367px]">
+              <FieldMap
+                homePositions={positions.home}
+                awayPositions={positions.away}
+                selectedPlayerId={playerId}
+                activePlayerId={activePlayerId}
+                involvedPlayerIds={involvedPlayerIds}
+                onActivePlayerChange={setActivePlayerId}
+                orientation="landscape"
+              />
+            </div>
+          </div>
+
+          {/* Colonna destra: nome in alto, poi riga flex con stats (sinistra) + heatmap (centro) */}
+          <div className="flex flex-col items-center gap-2">
+            {playerNameRow}
+            <div className="flex-1 flex items-center w-full gap-2">
+              {renderStatBoxes(2)}
+              <div className="flex-1 flex items-center justify-center">
+                <HeatmapField
+                  eventId={event.id}
+                  playerId={activePlayerId}
+                  isHome={activeIsHome}
+                  orientation="landscape"
+                  maxWidth={heatmapMaxWidth}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── DOUBLE: campo portrait, FieldMap centrato H+V, stats 1-colonna a sinistra, heatmap centrata ──
+    if (layoutMode === 'double') {
+      return (
+        <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
+          {/* Colonna sinistra: FieldMap centrato orizzontalmente e verticalmente */}
+          <div className="flex items-center justify-center">
+            <div ref={fieldRef} className="w-full max-w-[238px]">
+              <FieldMap
+                homePositions={positions.home}
+                awayPositions={positions.away}
+                selectedPlayerId={playerId}
+                activePlayerId={activePlayerId}
+                involvedPlayerIds={involvedPlayerIds}
+                onActivePlayerChange={setActivePlayerId}
+              />
+            </div>
+          </div>
+
+          {/* Colonna destra: nome in alto, poi riga flex con stats (1-col, sinistra) + heatmap (centro) */}
+          <div className="flex flex-col items-center gap-2">
+            {playerNameRow}
+            <div className="flex-1 flex items-center w-full gap-2">
+              {renderStatBoxes(1)}
+              <div className="flex-1 flex items-center justify-center">
+                <HeatmapField
+                  eventId={event.id}
+                  playerId={activePlayerId}
+                  isHome={activeIsHome}
+                  maxWidth={heatmapMaxWidth}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── MULTI (3+): campo portrait, FieldMap centrato H+V, stats 2x2 a sinistra, heatmap centrata ──
+    return (
+      <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
+        {/* Colonna sinistra: FieldMap centrato orizzontalmente e verticalmente */}
+        <div className="flex items-center justify-center">
+          <div ref={fieldRef} className="w-full max-w-[238px]">
+            <FieldMap
+              homePositions={positions.home}
+              awayPositions={positions.away}
+              selectedPlayerId={playerId}
+              activePlayerId={activePlayerId}
+              involvedPlayerIds={involvedPlayerIds}
+              onActivePlayerChange={setActivePlayerId}
+            />
+          </div>
+        </div>
+
+        {/* Colonna destra: nome in alto, poi riga flex con stats 2x2 (sinistra) + heatmap (centro) */}
+        <div className="flex flex-col items-center gap-2">
+          {playerNameRow}
+          <div className="flex-1 flex items-center w-full gap-2">
+            {renderStatBoxes(2)}
+            <div className="flex-1 flex items-center justify-center">
+              <HeatmapField
+                eventId={event.id}
+                playerId={activePlayerId}
+                isHome={activeIsHome}
+                maxWidth={heatmapMaxWidth}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col">
@@ -195,9 +392,7 @@ export default function MatchCard({
         </div>
         <div className="text-xs text-text-muted text-right flex-shrink-0 mx-2">
           <p>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</p>
-          {substituteOutMinute != null && (
-            <p>Uscito al {substituteOutMinute}'</p>
-          )}
+          {substituteOutMinute != null && <p>Uscito al {substituteOutMinute}'</p>}
         </div>
         <button
           onClick={() => onDeselect(event.id)}
@@ -219,78 +414,13 @@ export default function MatchCard({
           </div>
         ) : (
           <>
+            {/* Sezione campi — layout adattivo */}
             {positions ? (
-              <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
-                {/* Colonna sinistra: FieldMap */}
-                <div className="flex justify-center">
-                  <FieldMap
-                    homePositions={positions.home}
-                    awayPositions={positions.away}
-                    selectedPlayerId={playerId}
-                    activePlayerId={activePlayerId}
-                    involvedPlayerIds={involvedPlayerIds}
-                    onActivePlayerChange={setActivePlayerId}
-                  />
-                </div>
-                {/* Colonna destra: giocatore attivo + medie + heatmap */}
-                <div className="relative flex items-center justify-center">
-                  {/* Testo in alto, allineato al top del FieldMap */}
-                  <div className="absolute top-0 left-0 right-0 flex flex-col items-center gap-1">
-                    {activePlayer && (
-                      <div className="flex items-center gap-2 w-full justify-center">
-                        <img
-                          src={`https://api.sofascore.com/api/v1/player/${activePlayerId}/image`}
-                          alt={activePlayer.name}
-                          className="w-7 h-7 rounded-full object-cover bg-surface-2"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                        <span className="text-sm text-text-primary font-medium truncate max-w-[100px]">
-                          {abbreviateName(activePlayer.name)}
-                        </span>
-                      </div>
-                    )}
-                    <div className="w-full grid grid-cols-2 gap-1 px-10 mt-1">
-                      {(showSuffered || (!showCommitted && !showSuffered)) && (
-                        <>
-                          <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between">
-                            <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./p</p>
-                            <p className="text-negative text-xs font-bold">—</p>
-                          </div>
-                          <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between">
-                            <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./90</p>
-                            <p className="text-negative text-xs font-bold">—</p>
-                          </div>
-                        </>
-                      )}
-                      {(showCommitted || (!showCommitted && !showSuffered)) && (
-                        <>
-                          <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between">
-                            <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./p</p>
-                            <p className="text-neon text-xs font-bold">—</p>
-                          </div>
-                          <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between">
-                            <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./90</p>
-                            <p className="text-neon text-xs font-bold">—</p>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Heatmap centrata verticalmente */}
-                  <HeatmapField
-                    eventId={event.id}
-                    playerId={activePlayerId}
-                    isHome={activeIsHome}
-                  />
-                </div>
-              </div>
+              renderPositionsSection()
             ) : (
               <div className="text-xs text-text-secondary mb-3 text-center">
                 <span>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</span>
-                {substituteOutMinute != null && (
-                  <span> · Uscito al {substituteOutMinute}'</span>
-                )}
+                {substituteOutMinute != null && <span> · Uscito al {substituteOutMinute}'</span>}
               </div>
             )}
 
@@ -303,8 +433,7 @@ export default function MatchCard({
                   </p>
                   {committedFouls.length > 0
                     ? committedFouls.map(renderFoul)
-                    : <p className="text-text-muted text-sm">Nessuno</p>
-                  }
+                    : <p className="text-text-muted text-sm">Nessuno</p>}
                 </div>
                 <div className="flex flex-col items-center text-center">
                   <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
@@ -312,8 +441,7 @@ export default function MatchCard({
                   </p>
                   {sufferedFouls.length > 0
                     ? sufferedFouls.map(renderFoul)
-                    : <p className="text-text-muted text-sm">Nessuno</p>
-                  }
+                    : <p className="text-text-muted text-sm">Nessuno</p>}
                 </div>
               </div>
             ) : (

@@ -34,8 +34,8 @@ stats-analyzer/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters
-    │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions, exports shared cache + fetchMatchDetails()
-    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state
+    │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions; exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player
+    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state, selectAll/deselectAll
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
     │   │   ├── foulPairing.ts        # Extracts fouls from match comments, pairs them, translates zones
@@ -59,10 +59,10 @@ stats-analyzer/
     │       │   ├── PlayerHeader.tsx  # Avatar, name, team, position, number
     │       │   ├── PlayerFilters.tsx # Season/tournament/foul-type toggles
     │       │   ├── StatsOverview.tsx # 3x2 stat cards grid
-    │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges
-    │       │   ├── MatchCard.tsx     # Always-open match card with foul details + X close button
-    │       │   ├── FieldMap.tsx      # SVG field with player position dots
-    │       │   └── HeatmapField.tsx  # Canvas-based player heatmap on half-size field
+    │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle
+    │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay
+    │       │   ├── FieldMap.tsx      # SVG field with clickable position dots; activePlayerId + involvedPlayerIds filtering
+    │       │   └── HeatmapField.tsx  # Canvas-based player heatmap; maxWidth prop = half of FieldMap width (measured via ResizeObserver)
     │       └── common/
     │           ├── Badge.tsx         # Styled badge (3 variants)
     │           └── PlayerDot.tsx     # SVG circle for field map
@@ -139,7 +139,7 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 | `event/{id}/average-positions` | Player avg positions | useMatchDetails |
 | `player/{id}` | Player info (includes current team) | PlayerPage |
 | `player/{id}/statistics/seasons` | Player tournament list | usePlayerData |
-| `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData |
+| `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData, MatchCard (active player) |
 | `player/{id}/events/last/{page}` | Match history (paginated) | usePlayerData |
 | `event/{id}/player/{id}/heatmap` | Player heatmap points for a match | HeatmapField |
 | `team/{id}/image`, `player/{id}/image`, etc. | Images | via /api/img/ |
@@ -211,6 +211,11 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Match details loaded progressively in background (selected first, then remaining in batches of 3), cached for session
 - Card layout: 1 card = 100%, 2 = 50%, 3+ = 33.33% (flexbox wrap); always 100% on mobile
 - Player who changed team mid-season: separate matches with visual divider showing team name
+- MatchCard layout modes driven by `cardCount`: single (1 card, landscape FieldMap), double (2 cards, portrait FieldMap), multi (3+ cards, portrait FieldMap)
+- MatchCard active player: clicking a dot in FieldMap sets the active player; shows their season averages (aggregated across all selected tournaments) left of heatmap, and their own match foul counts right of heatmap; hidden when active player is the main PlayerPage player
+- MatchCard mirrored perspective: showCommitted filter → show active player's suffered stats (they're the victim); showSuffered → show active player's committed stats; both/neither → show all 4 boxes
+- FieldMap `involvedPlayerIds` filtered by current foul type: committed shows fouled victims, suffered shows foulers; if active player is no longer in the involved set after a filter change, selection resets to main player
+- MatchTimeline has a select/deselect all toggle button that syncs with the current selection state
 
 ## Workflow Rules
 

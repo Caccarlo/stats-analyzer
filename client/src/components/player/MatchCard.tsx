@@ -398,7 +398,7 @@ export default function MatchCard({
 
     if (layoutMode === 'single') {
       return (
-        <div className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
+        <div className="grid grid-cols-2 gap-3 mb-10 items-stretch pt-3">
           {leftCol(false)}
           {rightCol('landscape', 2)}
         </div>
@@ -407,7 +407,7 @@ export default function MatchCard({
 
     if (layoutMode === 'double') {
       return (
-        <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
+        <div className="grid grid-cols-2 gap-3 mb-14 items-stretch pt-3">
           {leftCol(true)}
           {rightCol('portrait', 1)}
         </div>
@@ -419,7 +419,7 @@ export default function MatchCard({
     const multiHalfHeight = Math.round((multiHeatmapWidth * 105 / 68) / 2);
     const NAME_HEIGHT = 28; // altezza riga nome (h-7)
     return (
-      <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
+      <div className="grid grid-cols-2 gap-3 mb-14 items-stretch pt-3">
         {leftCol(true)}
         <div className="relative flex items-center justify-center">
           {/* Nome giocatore attivo: fisso in cima */}
@@ -430,7 +430,7 @@ export default function MatchCard({
           {!activePlayerIsMain && (
             <div
               className="absolute left-0 right-0 pointer-events-none flex items-center justify-center"
-              style={{ top: `${NAME_HEIGHT}px`, bottom: `calc(50% - ${multiHalfHeight}px)` }}
+              style={{ top: `${NAME_HEIGHT}px`, bottom: `calc(50% + ${multiHalfHeight}px)` }}
             >
               <div className="pointer-events-auto">
                 {renderStatBoxes(2)}
@@ -463,7 +463,7 @@ export default function MatchCard({
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col">
       {/* Header */}
-      <div className="flex items-start justify-between px-4 py-3">
+      <div className="flex items-start justify-between px-4 py-6">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <span>{event.tournament?.name}</span>
@@ -494,7 +494,7 @@ export default function MatchCard({
       </div>
 
       {/* Content */}
-      <div className="px-4 pb-4 border-t border-border pt-3 flex-1">
+      <div className="px-4 pb-8 border-t border-border pt-3 flex-1">
         {!details ? (
           <div className="flex items-center gap-2 text-text-muted text-sm">
             <div className="w-3 h-3 border-2 border-neon border-t-transparent rounded-full animate-spin" />

@@ -1,10 +1,17 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import type { MatchEvent, Player, FoulMatchup, PlayerPosition } from '@/types';
+import type { MatchEvent, Player, FoulMatchup, PlayerPosition, PlayerSeasonStats } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
+import { fetchMatchDetails } from '@/hooks/useMatchDetails';
+import { getPlayerSeasonStats } from '@/api/sofascore';
 import { COUNTRIES } from '@/components/navigation/CountryList';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
+
+interface TournamentFilter {
+  tournamentId: number;
+  seasonId: number;
+}
 
 interface MatchCardProps {
   event: MatchEvent;
@@ -14,7 +21,7 @@ interface MatchCardProps {
   showSuffered: boolean;
   panelIndex?: number;
   detailsMap: Map<number, CachedMatchDetails>;
-  filteredEvents: MatchEvent[];
+  selectedTournaments: TournamentFilter[];
   onDeselect: (eventId: number) => void;
   cardCount: number;
 }
@@ -29,7 +36,7 @@ export default function MatchCard({
   showSuffered,
   panelIndex = 0,
   detailsMap,
-  filteredEvents,
+  selectedTournaments,
   onDeselect,
   cardCount,
 }: MatchCardProps) {
@@ -74,16 +81,30 @@ export default function MatchCard({
   const committedFouls = fouls.filter((f) => f.type === 'committed' || f.type === 'handball');
   const sufferedFouls = fouls.filter((f) => f.type === 'suffered');
 
+  const neither = !showCommitted && !showSuffered;
+
   const visibleFouls: FoulMatchup[] = [
     ...(showCommitted ? committedFouls : []),
     ...(showSuffered ? sufferedFouls : []),
   ];
 
+  // Solo i giocatori coinvolti nel tipo di fallo selezionato
   const involvedPlayerIds = new Set<number>();
-  fouls.forEach((f) => {
-    if (f.playerFouled?.id) involvedPlayerIds.add(f.playerFouled.id);
-    if (f.playerFouling?.id) involvedPlayerIds.add(f.playerFouling.id);
-  });
+  if (showCommitted || neither) {
+    committedFouls.forEach((f) => { if (f.playerFouled?.id) involvedPlayerIds.add(f.playerFouled.id); });
+  }
+  if (showSuffered || neither) {
+    sufferedFouls.forEach((f) => { if (f.playerFouling?.id) involvedPlayerIds.add(f.playerFouling.id); });
+  }
+
+  // Resetta la selezione al giocatore principale se il giocatore attivo non è più coinvolto
+  const involvedKey = [...involvedPlayerIds].sort().join(',');
+  useEffect(() => {
+    if (activePlayerId !== playerId && !involvedPlayerIds.has(activePlayerId)) {
+      setActivePlayerId(playerId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [involvedKey, playerId]);
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
@@ -131,27 +152,58 @@ export default function MatchCard({
     );
   }, [positions, activePlayerId]);
 
-  const activePlayerStats = useMemo(() => {
-    let committed = 0;
-    let suffered = 0;
-    let matchCount = 0;
+  const activePlayerIsMain = activePlayerId === playerId;
 
-    for (const ev of filteredEvents) {
-      const d = detailsMap.get(ev.id);
-      if (!d) continue;
-      matchCount++;
-      d.fouls.forEach((f) => {
-        if (f.playerFouling?.id === activePlayerId) committed++;
-        if (f.playerFouled?.id === activePlayerId) suffered++;
-      });
-    }
+  const [activePlayerSeasonStats, setActivePlayerSeasonStats] = useState<PlayerSeasonStats | null>(null);
+  const [activePlayerOwnFouls, setActivePlayerOwnFouls] = useState<{ committed: number; suffered: number } | null>(null);
 
-    return {
-      matchCount,
-      committedPerGame: matchCount > 0 ? committed / matchCount : 0,
-      sufferedPerGame: matchCount > 0 ? suffered / matchCount : 0,
+  // Chiave stabile per i tornei selezionati (evita re-render non necessari)
+  const selectedTournamentsKey = selectedTournaments.map((t) => `${t.tournamentId}:${t.seasonId}`).join(',');
+
+  useEffect(() => {
+    setActivePlayerSeasonStats(null);
+    setActivePlayerOwnFouls(null);
+    if (activePlayerIsMain || selectedTournaments.length === 0) return;
+
+    let cancelled = false;
+
+    // Aggrega le statistiche del giocatore attivo su tutti i tornei selezionati
+    const fetchStats = async () => {
+      const results = await Promise.all(
+        selectedTournaments.map((t) => getPlayerSeasonStats(activePlayerId, t.tournamentId, t.seasonId))
+      );
+      if (cancelled) return;
+      const valid = results.filter((r): r is PlayerSeasonStats => r !== null);
+      if (valid.length === 0) return;
+      const aggregated = valid.reduce<PlayerSeasonStats>(
+        (acc, s) => ({
+          fouls: acc.fouls + s.fouls,
+          wasFouled: acc.wasFouled + s.wasFouled,
+          minutesPlayed: acc.minutesPlayed + s.minutesPlayed,
+          appearances: acc.appearances + s.appearances,
+          matchesStarted: acc.matchesStarted + s.matchesStarted,
+          yellowCards: acc.yellowCards + s.yellowCards,
+          redCards: acc.redCards + s.redCards,
+          rating: 0,
+        }),
+        { fouls: 0, wasFouled: 0, minutesPlayed: 0, appearances: 0, matchesStarted: 0, yellowCards: 0, redCards: 0, rating: 0 }
+      );
+      setActivePlayerSeasonStats(aggregated);
     };
-  }, [activePlayerId, filteredEvents, detailsMap]);
+
+    fetchStats();
+
+    fetchMatchDetails(event.id, activePlayerId)
+      .then((details) => {
+        if (cancelled) return;
+        const committed = details.fouls.filter((f) => f.type === 'committed' || f.type === 'handball').length;
+        const suffered = details.fouls.filter((f) => f.type === 'suffered').length;
+        setActivePlayerOwnFouls({ committed, suffered });
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePlayerId, selectedTournamentsKey, event.id, activePlayerIsMain]);
 
   const renderFoul = (f: FoulMatchup, i: number) => (
     <div key={i} className="text-sm text-text-secondary py-0.5">
@@ -220,38 +272,70 @@ export default function MatchCard({
     </div>
   ) : null;
 
-  // ── Stat boxes: griglia adattiva (2 col per single/multi, 1 col per double) ──
-  const renderStatBoxes = (cols: 1 | 2) => {
-    const colClass = cols === 1 ? 'grid-cols-1' : 'grid-cols-2';
+  // Prospettiva speculare: se il filtro mostra i commessi del giocatore principale,
+  // il giocatore del fieldmap è la vittima → mostriamo i suoi SUBITI (e viceversa)
+  const showActiveSuffered = showCommitted || neither; // il giocatore attivo subisce quando il principale commette
+  const showActiveCommitted = showSuffered || neither; // il giocatore attivo commette quando il principale subisce
+
+  // ── Stat boxes: medie stagionali reali del giocatore attivo (prospettiva speculare) ──
+  const renderStatBoxes = (cols: 1 | 2 = 1) => {
+    const s = activePlayerSeasonStats;
+    const committedPerGame = s && s.appearances > 0 ? (s.fouls / s.appearances).toFixed(2) : '—';
+    const committedPer90 = s && s.minutesPlayed > 0 ? (s.fouls * 90 / s.minutesPlayed).toFixed(2) : '—';
+    const sufferedPerGame = s && s.appearances > 0 ? (s.wasFouled / s.appearances).toFixed(2) : '—';
+    const sufferedPer90 = s && s.minutesPlayed > 0 ? (s.wasFouled * 90 / s.minutesPlayed).toFixed(2) : '—';
+    const colClass = cols === 2 ? 'grid-cols-2' : 'grid-cols-1';
     return (
       <div className={`grid ${colClass} gap-1 w-fit flex-shrink-0`}>
-        {(showSuffered || (!showCommitted && !showSuffered)) && (
+        {showActiveCommitted && (
           <>
             <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./p</p>
-              <p className="text-negative text-xs font-bold">—</p>
+              <p className="text-negative text-xs font-bold">{committedPerGame}</p>
             </div>
             <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./90</p>
-              <p className="text-negative text-xs font-bold">—</p>
+              <p className="text-negative text-xs font-bold">{committedPer90}</p>
             </div>
           </>
         )}
-        {(showCommitted || (!showCommitted && !showSuffered)) && (
+        {showActiveSuffered && (
           <>
             <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./p</p>
-              <p className="text-neon text-xs font-bold">—</p>
+              <p className="text-neon text-xs font-bold">{sufferedPerGame}</p>
             </div>
             <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./90</p>
-              <p className="text-neon text-xs font-bold">—</p>
+              <p className="text-neon text-xs font-bold">{sufferedPer90}</p>
             </div>
           </>
         )}
       </div>
     );
   };
+
+  // ── Conteggio falli reali del giocatore attivo in questa partita (prospettiva speculare) ──
+  const renderMatchFoulCounts = () => (
+    <div className="flex flex-col items-center gap-1 w-fit flex-shrink-0">
+      {showActiveCommitted && (
+        <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+          <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm.</p>
+          <p className="text-negative text-xs font-bold">
+            {activePlayerOwnFouls != null ? activePlayerOwnFouls.committed : '—'}
+          </p>
+        </div>
+      )}
+      {showActiveSuffered && (
+        <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+          <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub.</p>
+          <p className="text-neon text-xs font-bold">
+            {activePlayerOwnFouls != null ? activePlayerOwnFouls.suffered : '—'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 
   // ── La heatmap sarà sempre metà della larghezza reale del campo ──
   const heatmapMaxWidth = fieldWidth > 0 ? Math.round(fieldWidth / 2) : undefined;
@@ -277,62 +361,94 @@ export default function MatchCard({
       </div>
     );
 
-    // ── SINGLE: heatmap centrata nel 100% della colonna; nome absolute top-center; stats 2x2 absolute left V-center ──
+    // Colonna destra: heatmap centrata + overlay assoluto per stats a sx e falli a dx
+    const rightCol = (orientation: 'portrait' | 'landscape', statCols: 1 | 2) => {
+      const isLandscape = orientation === 'landscape';
+      const effectiveHeatmapWidth = heatmapMaxWidth ?? (isLandscape ? 200 : 119);
+
+      return (
+        <div className="relative flex items-center justify-center">
+          {/* Nome giocatore attivo in cima */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2">
+            {playerNameRow}
+          </div>
+          {/* Overlay: [medie | spacer heatmap | falli partita] */}
+          {!activePlayerIsMain && (
+            <div className="absolute inset-0 flex items-center pointer-events-none">
+              <div className="flex-1 flex items-center justify-center pointer-events-auto">
+                {renderStatBoxes(statCols)}
+              </div>
+              <div className="flex-shrink-0" style={{ width: effectiveHeatmapWidth }} />
+              <div className="flex-1 flex items-center justify-center pointer-events-auto">
+                {renderMatchFoulCounts()}
+              </div>
+            </div>
+          )}
+          {/* Heatmap centrata */}
+          <HeatmapField
+            eventId={event.id}
+            playerId={activePlayerId}
+            isHome={activeIsHome}
+            orientation={orientation}
+            maxWidth={heatmapMaxWidth}
+          />
+        </div>
+      );
+    };
+
     if (layoutMode === 'single') {
       return (
         <div className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
           {leftCol(false)}
-          <div className="relative flex items-center justify-center">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2">
-              {playerNameRow}
-            </div>
-            <div className="absolute left-0 top-1/2 -translate-y-1/2">
-              {renderStatBoxes(2)}
-            </div>
-            <HeatmapField
-              eventId={event.id}
-              playerId={activePlayerId}
-              isHome={activeIsHome}
-              orientation="landscape"
-              maxWidth={heatmapMaxWidth}
-            />
-          </div>
+          {rightCol('landscape', 2)}
         </div>
       );
     }
 
-    // ── DOUBLE: stesso schema di single ma campo portrait e stats 1-colonna ──
     if (layoutMode === 'double') {
       return (
         <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
           {leftCol(true)}
-          <div className="relative flex items-center justify-center">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2">
-              {playerNameRow}
-            </div>
-            <div className="absolute left-0 top-1/2 -translate-y-1/2">
-              {renderStatBoxes(1)}
-            </div>
-            <HeatmapField
-              eventId={event.id}
-              playerId={activePlayerId}
-              isHome={activeIsHome}
-              maxWidth={heatmapMaxWidth}
-            />
-          </div>
+          {rightCol('portrait', 1)}
         </div>
       );
     }
 
-    // ── MULTI (3+): heatmap centrata nel 100% della colonna; nome e stats 2x2 absolute top centrate H ──
+    // ── MULTI (3+): medie centrate tra nome e bordo superiore heatmap, falli centrati sotto ──
+    const multiHeatmapWidth = heatmapMaxWidth ?? 119;
+    const multiHalfHeight = Math.round((multiHeatmapWidth * 105 / 68) / 2);
+    const NAME_HEIGHT = 28; // altezza riga nome (h-7)
     return (
       <div className="grid grid-cols-2 gap-3 mb-7 items-stretch pt-3">
         {leftCol(true)}
         <div className="relative flex items-center justify-center">
-          <div className="absolute top-0 left-0 right-0 flex flex-col items-center gap-1">
+          {/* Nome giocatore attivo: fisso in cima */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2">
             {playerNameRow}
-            {renderStatBoxes(2)}
           </div>
+          {/* Medie: centrate tra nome (top) e bordo superiore heatmap */}
+          {!activePlayerIsMain && (
+            <div
+              className="absolute left-0 right-0 pointer-events-none flex items-center justify-center"
+              style={{ top: `${NAME_HEIGHT}px`, bottom: `calc(50% - ${multiHalfHeight}px)` }}
+            >
+              <div className="pointer-events-auto">
+                {renderStatBoxes(2)}
+              </div>
+            </div>
+          )}
+          {/* Falli partita: centrati tra bordo inferiore heatmap e fondo colonna */}
+          {!activePlayerIsMain && (
+            <div
+              className="absolute left-0 right-0 pointer-events-none flex items-center justify-center"
+              style={{ top: `calc(50% + ${multiHalfHeight}px)`, bottom: 0 }}
+            >
+              <div className="pointer-events-auto">
+                {renderMatchFoulCounts()}
+              </div>
+            </div>
+          )}
+          {/* Heatmap centrata (elemento di riferimento) */}
           <HeatmapField
             eventId={event.id}
             playerId={activePlayerId}

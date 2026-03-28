@@ -260,7 +260,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                         showSuffered={showSuffered}
                         panelIndex={panelIndex}
                         detailsMap={detailsMap}
-                        filteredEvents={filteredEvents}
+                        selectedTournaments={selectedTournaments}
                         onDeselect={deselectMatch}
                         cardCount={cardCount}
                       />

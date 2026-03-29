@@ -161,6 +161,20 @@ export function useMatchTimeline(
             }
             return next;
           });
+
+          // ── AGGIUNTA QUI ──
+          const notPlayedIds = batchResults
+            .filter(({ result }) => result.didNotPlay)
+            .map(({ eventId }) => eventId);
+
+          if (notPlayedIds.length > 0) {
+            setSelectedEventIds((prev) => {
+              const next = new Set(prev);
+              notPlayedIds.forEach((id) => next.delete(id));
+              return next;
+            });
+          }
+          // ── FINE AGGIUNTA ──
         }
 
         if (i + 3 < eventIds.length) {

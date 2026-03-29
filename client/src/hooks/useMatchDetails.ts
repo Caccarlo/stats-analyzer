@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { FoulMatchup, PlayerPosition, CardInfo } from '@/types';
-import { getMatchComments, getMatchAveragePositions } from '@/api/sofascore';
+import { getMatchComments, getMatchAveragePositions, getMatchLineups } from '@/api/sofascore';
 import { extractFoulsForPlayer, extractSubstitutionInfo, extractCardInfo } from '@/utils/foulPairing';
 
 export interface CachedMatchDetails {
@@ -9,6 +9,7 @@ export interface CachedMatchDetails {
   substituteInMinute?: number;
   substituteOutMinute?: number;
   cardInfo: CardInfo | null;
+  didNotPlay: boolean;
 }
 
 interface MatchDetailsResult extends CachedMatchDetails {
@@ -29,14 +30,27 @@ export async function fetchMatchDetails(
   const cached = matchDetailsCache.get(key);
   if (cached) return cached;
 
-  const [comments, avgPos] = await Promise.all([
+  const [comments, avgPos, lineups] = await Promise.all([
     getMatchComments(eventId),
     getMatchAveragePositions(eventId),
+    getMatchLineups(eventId),
   ]);
 
   const matchFouls = extractFoulsForPlayer(comments, playerId);
   const subInfo = extractSubstitutionInfo(comments, playerId);
   const cardInfo = extractCardInfo(comments, playerId);
+
+  let didNotPlay = false;
+  if (lineups && comments.length > 0) {
+    const allPlayers = [...lineups.home.players, ...lineups.away.players];
+    const inLineup = allPlayers.find((lp) => lp.player.id === playerId);
+    const appearsInComments = comments.some(
+      (c) => c.player?.id === playerId || c.playerIn?.id === playerId || c.playerOut?.id === playerId
+    );
+    if (inLineup && inLineup.substitute === true && !appearsInComments) {
+      didNotPlay = true;
+    }
+  }
 
   const result: CachedMatchDetails = {
     fouls: matchFouls,
@@ -44,6 +58,7 @@ export async function fetchMatchDetails(
     substituteInMinute: subInfo.inMinute,
     substituteOutMinute: subInfo.outMinute,
     cardInfo,
+    didNotPlay,
   };
   matchDetailsCache.set(key, result);
   return result;
@@ -59,6 +74,7 @@ export function useMatchDetails(
   const [subIn, setSubIn] = useState<number | undefined>();
   const [subOut, setSubOut] = useState<number | undefined>();
   const [cardInfo, setCardInfo] = useState<CardInfo | null>(null);
+  const [didNotPlay, setDidNotPlay] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +90,7 @@ export function useMatchDetails(
       setSubIn(cached.substituteInMinute);
       setSubOut(cached.substituteOutMinute);
       setCardInfo(cached.cardInfo);
+      setDidNotPlay(cached.didNotPlay);
       return;
     }
 
@@ -89,6 +106,7 @@ export function useMatchDetails(
         setSubIn(result.substituteInMinute);
         setSubOut(result.substituteOutMinute);
         setCardInfo(result.cardInfo);
+        setDidNotPlay(result.didNotPlay);
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -106,6 +124,7 @@ export function useMatchDetails(
     substituteInMinute: subIn,
     substituteOutMinute: subOut,
     cardInfo,
+    didNotPlay,
     loading,
     error,
   };

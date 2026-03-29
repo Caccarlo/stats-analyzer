@@ -129,7 +129,15 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
   // Filtro casa/trasferta — playerTeamId ricavato dal team corrente del giocatore
   const venueFilteredEvents = useMemo(() => {
-  let events = filteredEvents;
+  // Prima cosa: escludi partite in cui il giocatore era in panchina e non è mai entrato.
+  // Se i dettagli non sono ancora caricati (details undefined), la partita rimane visibile
+  // e verrà rivalutata quando i dettagli arrivano.
+  let events = filteredEvents.filter((e) => {
+    const details = detailsMap.get(e.id);
+    if (!details) return true;
+    return !details.didNotPlay;
+  });
+
   if (!showHome || !showAway) {
     const teamId = resolvedPlayer?.team?.id;
     if (teamId) {

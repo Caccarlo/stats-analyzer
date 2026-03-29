@@ -4,9 +4,10 @@ interface StatsOverviewProps {
   stats: AggregatedStats;
   showCommitted: boolean;
   showSuffered: boolean;
+  showCards: boolean;
 }
 
-export default function StatsOverview({ stats, showCommitted, showSuffered }: StatsOverviewProps) {
+export default function StatsOverview({ stats, showCommitted, showSuffered, showCards }: StatsOverviewProps) {
   return (
     <div className="space-y-4">
       {/* Falli commessi */}
@@ -50,15 +51,39 @@ export default function StatsOverview({ stats, showCommitted, showSuffered }: St
           />
         </div>
       )}
+      {showCards && (
+        <div className="grid grid-cols-4 gap-3">
+          <StatCard
+            label="Cartellini gialli"
+            value={stats.totalYellowCards}
+            color="text-yellow-400"
+          />
+          <StatCard
+            label="Cartellini rossi"
+            value={stats.totalRedCards}
+            color="text-negative"
+          />
+          <StatCard
+            label="Gialli / partita"
+            value={stats.avgYellowCardsPerMatch}
+            color="text-yellow-400"
+          />
+          <StatCard
+            label="Rossi / partita"
+            value={stats.avgRedCardsPerMatch}
+            color="text-negative"
+          />
+        </div>
+      )}
     </div>
   );
 }
 
 function StatCard({ label, value, color }: { label: string; value: number | string; color: string }) {
   return (
-    <div className="bg-surface border border-border rounded-lg p-4">
+    <div className="bg-surface border border-border rounded-lg p-1">
       <p className="text-text-muted text-xs uppercase tracking-wide">{label}</p>
-      <p className={`${color} text-2xl font-bold mt-1`}>{value}</p>
+      <p className={`${color} text-lg font-bold mt-1`}>{value}</p>
     </div>
   );
 }

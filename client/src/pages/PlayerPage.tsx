@@ -75,6 +75,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowHome,
     showAway,
     setShowAway,
+    showCards,
+    setShowCards,
     stats,
     loading,
     error,
@@ -204,11 +206,14 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onShowCommittedChange={setShowCommitted}
             showSuffered={showSuffered}
             onShowSufferedChange={setShowSuffered}
+            showCards={showCards}
+            onShowCardsChange={setShowCards}
             showHome={showHome}
             onShowHomeChange={setShowHome}
             showAway={showAway}
             onShowAwayChange={setShowAway}
             allTournamentsForSeason={allTournamentsForSeason}
+            isSplitView={isSplitView}
           />
         </div>
       )}
@@ -235,6 +240,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             stats={stats}
             showCommitted={showCommitted}
             showSuffered={showSuffered}
+            showCards={showCards}
           />
         </div>
       )}

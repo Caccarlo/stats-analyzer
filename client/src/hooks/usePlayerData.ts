@@ -20,11 +20,12 @@ interface PlayerDataResult {
   showCommitted: boolean;
   setShowCommitted: (v: boolean) => void;
   showSuffered: boolean;
+  setShowSuffered: (v: boolean) => void;
   showHome: boolean;
   setShowHome: (v: boolean) => void;
   showAway: boolean;
   setShowAway: (v: boolean) => void;
-  setShowSuffered: (v: boolean) => void;
+  showCards: boolean; setShowCards: (v: boolean) => void;
   stats: AggregatedStats | null;
   statsByTournament: Map<number, PlayerSeasonStats>;
   loading: boolean;
@@ -40,6 +41,7 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
   const [showSuffered, setShowSuffered] = useState(true);
   const [showHome, setShowHome] = useState(true);
   const [showAway, setShowAway] = useState(true);
+  const [showCards, setShowCards] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cache = useRef<Map<string, PlayerSeasonStats>>(new Map());
@@ -173,6 +175,8 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     setShowHome,
     showAway,
     setShowAway,
+    showCards, 
+    setShowCards,
     stats,
     statsByTournament,
     loading,

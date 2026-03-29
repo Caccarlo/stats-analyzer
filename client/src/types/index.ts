@@ -68,6 +68,10 @@ export interface AggregatedStats {
   avgFoulsCommittedPer90: string;
   avgFoulsSufferedPerMatch: string;
   avgFoulsSufferedPer90: string;
+  totalYellowCards: number;
+  totalRedCards: number;
+  avgYellowCardsPerMatch: string;
+  avgRedCardsPerMatch: string;
 }
 
 // === Partite ===

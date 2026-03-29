@@ -15,7 +15,10 @@ interface PlayerFiltersProps {
   onShowHomeChange: (v: boolean) => void;
   showAway: boolean;
   onShowAwayChange: (v: boolean) => void;
+  showCards: boolean;
+  onShowCardsChange: (v: boolean) => void;
   allTournamentsForSeason: { tournamentId: number; tournamentName: string }[];
+  isSplitView?: boolean;
 }
 
 export default function PlayerFilters({
@@ -32,12 +35,14 @@ export default function PlayerFilters({
   onShowHomeChange,
   showAway,
   onShowAwayChange,
+  showCards,
+  onShowCardsChange,
   allTournamentsForSeason,
+  isSplitView = false,
 }: PlayerFiltersProps) {
   const selectedIds = new Set(selectedTournaments.map((t) => t.tournamentId));
 
   const handleToggleTournament = (tournamentId: number) => {
-    // Deactivating the last active tournament: activate the next one first
     if (selectedIds.has(tournamentId) && selectedIds.size === 1) {
       const idx = allTournamentsForSeason.findIndex((t) => t.tournamentId === tournamentId);
       const nextIdx = (idx + 1) % allTournamentsForSeason.length;
@@ -46,56 +51,48 @@ export default function PlayerFilters({
     onToggleTournament(tournamentId);
   };
 
-  const handleToggleCommitted = () => {
-    // Deactivating the last foul type: activate the other first
-    if (showCommitted && !showSuffered) onShowSufferedChange(true);
-    onShowCommittedChange(!showCommitted);
-  };
-
-  const handleToggleSuffered = () => {
-    if (showSuffered && !showCommitted) onShowCommittedChange(true);
-    onShowSufferedChange(!showSuffered);
-  };
+  const venueActiveCount = [showHome, showAway].filter(Boolean).length;
 
   const handleToggleHome = () => {
-    if (showHome && !showAway) onShowAwayChange(true);
+    if (showHome && venueActiveCount === 1) return;
     onShowHomeChange(!showHome);
   };
 
   const handleToggleAway = () => {
-    if (showAway && !showHome) onShowHomeChange(true);
+    if (showAway && venueActiveCount === 1) return;
     onShowAwayChange(!showAway);
   };
 
-  return (
-    <div className="space-y-4">
-      {/* Stagione */}
-      <div className="flex items-center gap-3">
-        <label className="text-text-muted text-sm">Stagione:</label>
-        <select
-          value={selectedSeasonYear}
-          onChange={(e) => onSeasonChange(e.target.value)}
-          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-neon"
-        >
-          {availableSeasonYears.map((year) => (
-            <option key={year} value={year}>
-              {year}
-            </option>
-          ))}
-        </select>
-      </div>
+  const activeCount = [showCommitted, showSuffered, showCards].filter(Boolean).length;
 
-      {/* Competizioni */}
+  const handleToggleCommitted = () => {
+    if (showCommitted && activeCount === 1) return;
+    onShowCommittedChange(!showCommitted);
+  };
+
+  const handleToggleSuffered = () => {
+    if (showSuffered && activeCount === 1) return;
+    onShowSufferedChange(!showSuffered);
+  };
+
+  const handleToggleCards = () => {
+    if (showCards && activeCount === 1) return;
+    onShowCardsChange(!showCards);
+  };
+
+  return (
+    <div className={`grid grid-cols-3 gap-6 ${isSplitView ? 'w-full' : 'w-1/2'}`}>
+      {/* Colonna 1 — Competizioni */}
       <div>
-        <label className="text-text-muted text-sm mb-2 block">Competizioni:</label>
-        <div className="flex flex-wrap gap-2">
+        <label className="text-text-muted text-xs mb-2 block">Competizioni:</label>
+        <div className="flex flex-col gap-2 items-start">
           {allTournamentsForSeason.map((t) => {
             const active = selectedIds.has(t.tournamentId);
             return (
               <button
                 key={t.tournamentId}
                 onClick={() => handleToggleTournament(t.tournamentId)}
-                className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
                   active
                     ? 'bg-neon/15 border-neon text-neon'
                     : 'bg-surface border-border text-text-muted hover:border-border-hover'
@@ -108,40 +105,57 @@ export default function PlayerFilters({
         </div>
       </div>
 
-      {/* Sede */}
-      <div>
-        <label className="text-text-muted text-sm mb-2 block">Sede:</label>
-        <div className="flex gap-2">
-          <button
-            onClick={handleToggleHome}
-            className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
-              showHome
-                ? 'bg-neon/15 border-neon text-neon'
-                : 'bg-surface border-border text-text-muted hover:border-border-hover'
-            }`}
+      {/* Colonna 2 — Sede + Stagione */}
+      <div className="flex flex-col gap-4">
+        <div>
+          <label className="text-text-muted text-xs mb-2 block">Sede:</label>
+          <div className="flex gap-2">
+            <button
+              onClick={handleToggleHome}
+              className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
+                showHome
+                  ? 'bg-neon/15 border-neon text-neon'
+                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
+              }`}
+            >
+              {showHome ? '✓ ' : ''}Casa
+            </button>
+            <button
+              onClick={handleToggleAway}
+              className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
+                showAway
+                  ? 'bg-neon/15 border-neon text-neon'
+                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
+              }`}
+            >
+              {showAway ? '✓ ' : ''}Trasferta
+            </button>
+          </div>
+        </div>
+
+        <div className="w-fit">
+          <label className="text-text-muted text-xs mb-2 block">Stagione:</label>
+          <select
+            value={selectedSeasonYear}
+            onChange={(e) => onSeasonChange(e.target.value)}
+            className="w-fit bg-surface border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-neon"
           >
-            {showHome ? '✓ ' : ''}Casa
-          </button>
-          <button
-            onClick={handleToggleAway}
-            className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
-              showAway
-                ? 'bg-neon/15 border-neon text-neon'
-                : 'bg-surface border-border text-text-muted hover:border-border-hover'
-            }`}
-          >
-            {showAway ? '✓ ' : ''}Trasferta
-          </button>
+            {availableSeasonYears.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Tipo falli */}
+      {/* Colonna 3 — Mostra */}
       <div>
-        <label className="text-text-muted text-sm mb-2 block">Mostra:</label>
-        <div className="flex gap-2">
+        <label className="text-text-muted text-xs mb-2 block">Mostra:</label>
+        <div className="flex flex-col gap-2 items-start">
           <button
             onClick={handleToggleCommitted}
-            className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+            className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
               showCommitted
                 ? 'bg-negative/15 border-negative text-negative'
                 : 'bg-surface border-border text-text-muted hover:border-border-hover'
@@ -151,13 +165,23 @@ export default function PlayerFilters({
           </button>
           <button
             onClick={handleToggleSuffered}
-            className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+            className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
               showSuffered
                 ? 'bg-neon/15 border-neon text-neon'
                 : 'bg-surface border-border text-text-muted hover:border-border-hover'
             }`}
           >
             {showSuffered ? '✓ ' : ''}Falli subiti
+          </button>
+          <button
+            onClick={handleToggleCards}
+            className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
+              showCards
+                ? 'bg-yellow-400/15 border-yellow-400 text-yellow-400'
+                : 'bg-surface border-border text-text-muted hover:border-border-hover'
+            }`}
+          >
+            {showCards ? '✓ ' : ''}Cartellini
           </button>
         </div>
       </div>

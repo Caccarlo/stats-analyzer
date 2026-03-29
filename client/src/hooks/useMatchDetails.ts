@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import type { FoulMatchup, PlayerPosition } from '@/types';
+import type { FoulMatchup, PlayerPosition, CardInfo } from '@/types';
 import { getMatchComments, getMatchAveragePositions } from '@/api/sofascore';
-import { extractFoulsForPlayer, extractSubstitutionInfo } from '@/utils/foulPairing';
+import { extractFoulsForPlayer, extractSubstitutionInfo, extractCardInfo } from '@/utils/foulPairing';
 
 export interface CachedMatchDetails {
   fouls: FoulMatchup[];
   positions: { home: PlayerPosition[]; away: PlayerPosition[] } | null;
   substituteInMinute?: number;
   substituteOutMinute?: number;
+  cardInfo: CardInfo | null;
 }
 
 interface MatchDetailsResult extends CachedMatchDetails {
@@ -35,12 +36,14 @@ export async function fetchMatchDetails(
 
   const matchFouls = extractFoulsForPlayer(comments, playerId);
   const subInfo = extractSubstitutionInfo(comments, playerId);
+  const cardInfo = extractCardInfo(comments, playerId);
 
   const result: CachedMatchDetails = {
     fouls: matchFouls,
     positions: avgPos,
     substituteInMinute: subInfo.inMinute,
     substituteOutMinute: subInfo.outMinute,
+    cardInfo,
   };
   matchDetailsCache.set(key, result);
   return result;
@@ -55,6 +58,7 @@ export function useMatchDetails(
   const [positions, setPositions] = useState<{ home: PlayerPosition[]; away: PlayerPosition[] } | null>(null);
   const [subIn, setSubIn] = useState<number | undefined>();
   const [subOut, setSubOut] = useState<number | undefined>();
+  const [cardInfo, setCardInfo] = useState<CardInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,13 +67,13 @@ export function useMatchDetails(
 
     const key = `${eventId}-${playerId}`;
 
-    // Check cache
     if (matchDetailsCache.has(key)) {
       const cached = matchDetailsCache.get(key)!;
       setFouls(cached.fouls);
       setPositions(cached.positions);
       setSubIn(cached.substituteInMinute);
       setSubOut(cached.substituteOutMinute);
+      setCardInfo(cached.cardInfo);
       return;
     }
 
@@ -84,6 +88,7 @@ export function useMatchDetails(
         setPositions(result.positions);
         setSubIn(result.substituteInMinute);
         setSubOut(result.substituteOutMinute);
+        setCardInfo(result.cardInfo);
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -100,6 +105,7 @@ export function useMatchDetails(
     positions,
     substituteInMinute: subIn,
     substituteOutMinute: subOut,
+    cardInfo,
     loading,
     error,
   };

@@ -33,13 +33,13 @@ stats-analyzer/
     │   ├── context/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
-    │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway)
+    │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards)
     │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions; exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player
     │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state, selectAll/deselectAll
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
     │   │   ├── foulPairing.ts        # Extracts fouls from match comments, pairs them, translates zones
-    │   │   ├── statsCalculator.ts    # Aggregates stats across tournaments (per-match, per-90)
+    │   │   ├── statsCalculator.ts    # Aggregates stats across tournaments (per-match, per-90, yellow/red cards)
     │   │   └── positionMapping.ts    # SofaScore coords -> SVG coords, 13+ formation templates
     │   ├── pages/
     │   │   ├── HomePage.tsx          # Landing with search bar
@@ -57,8 +57,8 @@ stats-analyzer/
     │       │   └── SidebarTeamList.tsx # Compact team list in sidebar
     │       ├── player/
     │       │   ├── PlayerHeader.tsx  # Avatar, name, team, position, number
-    │       │   ├── PlayerFilters.tsx # Season/tournament/venue(casa-trasferta)/foul-type toggles
-    │       │   ├── StatsOverview.tsx # 3x2 stat cards grid
+    │       │   ├── PlayerFilters.tsx # 3-column layout: col1=Competizioni(vertical), col2=Sede+Stagione, col3=Mostra(vertical); isSplitView prop controls w-full vs w-1/2
+    │       │   ├── StatsOverview.tsx # Stat cards grid: committed(3 cols), suffered(3 cols), cards(4 cols when showCards); compact sizing (p-2.5, text-lg)
     │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle
     │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay
     │       │   ├── FieldMap.tsx      # SVG field with clickable position dots; activePlayerId + involvedPlayerIds filtering
@@ -140,7 +140,7 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 | `event/{id}/average-positions` | Player avg positions | useMatchDetails |
 | `player/{id}` | Player info (includes current team) | PlayerPage |
 | `player/{id}/statistics/seasons` | Player tournament list | usePlayerData |
-| `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData, MatchCard (active player) |
+| `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats (includes yellowCards, redCards) | usePlayerData, MatchCard (active player) |
 | `player/{id}/events/last/{page}` | Match history (paginated) | usePlayerData |
 | `event/{id}/player/{id}/heatmap` | Player heatmap points for a match | HeatmapField |
 | `team/{id}/image`, `player/{id}/image`, etc. | Images | via /api/img/ |
@@ -156,9 +156,11 @@ Parses match `comments[]` to extract fouls for a specific player:
 - Substitutions extracted from `type: 'substitution'` comments
 
 ### Stats Calculator (statsCalculator.ts)
-Aggregates across multiple tournaments: sums fouls/minutes/appearances, then calculates:
+Aggregates across multiple tournaments: sums fouls/minutes/appearances/yellowCards/redCards, then calculates:
 - `avgPerMatch = totalFouls / appearances`
 - `avgPer90 = (totalFouls * 90) / minutesPlayed`
+- `avgYellowCardsPerMatch = totalYellowCards / appearances`
+- `avgRedCardsPerMatch = totalRedCards / appearances`
 
 ### Position Mapping (positionMapping.ts)
 - SofaScore coords: `avgX` 0-100 (own goal to opponent), `avgY` 0-100 (right to left)
@@ -186,6 +188,7 @@ Defined in `CountryList.tsx`.
 - Accent: `--color-neon: #4ade80` (green), `--color-negative: #E24B4A` (red)
 - Text: primary `#e0e0e0`, secondary `#8a96a6`, muted `#5a6a7a`
 - Field: bg `#1a3320`, lines `#2a5535`
+- Cards: yellow `text-yellow-400 / bg-yellow-400/15 / border-yellow-400`
 
 ### Responsive Breakpoints
 - Mobile (<768px): sidebar hidden, hamburger overlay, single panel
@@ -204,6 +207,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - All images via `/api/img/` proxy — never direct SofaScore URLs
 - Field always `aspect-ratio: 68/105` — never stretched
 - Foul colors: green (`--color-neon`) = suffered, red (`--color-negative`) = committed
+- Card colors: yellow (`yellow-400`) = yellow card, red (`--color-negative`) = red card
 - Match comments from API are in English — zone text must be translated to Italian
 - Numbers always rounded — no long decimals (use `.toFixed(2)`)
 - Split view only above 1024px width
@@ -217,15 +221,28 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - MatchCard mirrored perspective: showCommitted filter → show active player's suffered stats (they're the victim); showSuffered → show active player's committed stats; both/neither → show all 4 boxes
 - FieldMap `involvedPlayerIds` filtered by current foul type: committed shows fouled victims, suffered shows foulers; if active player is no longer in the involved set after a filter change, selection resets to main player
 - MatchTimeline has a select/deselect all toggle button that syncs with the current selection state
+- Stat cards: compact sizing `p-2.5` padding, `text-lg` value font size, `text-xs` label
 
 ## Filters
 
 ### Venue filter (Casa / Trasferta)
 - State lives in `usePlayerData` as `showHome` / `showAway` (both `true` by default)
-- Rendered in `PlayerFilters` between the Competizioni block and the Tipo falli block, labelled "Sede:"
-- Same "at least one always active" logic as the foul-type toggles: deactivating the last active option activates the other before toggling off
+- Rendered in `PlayerFilters` colonna 2, affiancati, con Stagione sotto
+- "At least one always active" logic: if the active one is the only one active, click is ignored
 - In `PlayerPage`, `venueFilteredEvents` is computed via `useMemo` **after** the `useMatchTimeline` destructuring, filtering `filteredEvents` by comparing `event.homeTeam.id` to `resolvedPlayer?.team?.id`; when both filters are active the full list is returned unfiltered
 - `venueFilteredEvents` is passed to `MatchTimeline` (as `events`) and used for `selectedEvents` and `toggleMode` sync; `selectAll` / `deselectAll` from `useMatchTimeline` still operate on the full unfiltered set
+
+### Mostra filter (Falli commessi / Falli subiti / Cartellini)
+- State lives in `usePlayerData` as `showCommitted` / `showSuffered` (both `true` by default) and `showCards` (`false` by default)
+- Rendered in `PlayerFilters` colonna 3, in verticale
+- "At least one always active" logic: `activeCount = [showCommitted, showSuffered, showCards].filter(Boolean).length` — if the toggle being deactivated is the only active one, click is ignored. Adding future toggles: just add the new value to this array.
+- `showCards` controls visibility of the 4 card stat boxes in `StatsOverview` (gialli totali, rossi totali, media gialli/partita, media rossi/partita) displayed in a `grid-cols-4` row
+
+### PlayerFilters layout
+- 3-column grid (`grid-cols-3 gap-6`)
+- Width: `w-1/2` in full-screen, `w-full` in split view — controlled via `isSplitView` prop passed from `PlayerPage`
+- All buttons and labels use `text-xs` and `px-2 py-1` for compact sizing
+- Colonna 1 and 3 use `items-start` on the flex container so buttons shrink to content width
 
 ## Workflow Rules
 

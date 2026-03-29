@@ -17,6 +17,10 @@ interface PlayerFiltersProps {
   onShowAwayChange: (v: boolean) => void;
   showCards: boolean;
   onShowCardsChange: (v: boolean) => void;
+  committedLine: number;
+  onCommittedLineChange: (v: number) => void;
+  sufferedLine: number;
+  onSufferedLineChange: (v: number) => void;
   allTournamentsForSeason: { tournamentId: number; tournamentName: string }[];
   isSplitView?: boolean;
 }
@@ -37,6 +41,10 @@ export default function PlayerFilters({
   onShowAwayChange,
   showCards,
   onShowCardsChange,
+  committedLine,
+  onCommittedLineChange,
+  sufferedLine,
+  onSufferedLineChange,
   allTournamentsForSeason,
   isSplitView = false,
 }: PlayerFiltersProps) {
@@ -153,26 +161,58 @@ export default function PlayerFilters({
       <div>
         <label className="text-text-muted text-xs mb-2 block">Mostra:</label>
         <div className="flex flex-col gap-2 items-start">
-          <button
-            onClick={handleToggleCommitted}
-            className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
-              showCommitted
-                ? 'bg-negative/15 border-negative text-negative'
-                : 'bg-surface border-border text-text-muted hover:border-border-hover'
-            }`}
-          >
-            {showCommitted ? '✓ ' : ''}Falli commessi
-          </button>
-          <button
-            onClick={handleToggleSuffered}
-            className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
-              showSuffered
-                ? 'bg-neon/15 border-neon text-neon'
-                : 'bg-surface border-border text-text-muted hover:border-border-hover'
-            }`}
-          >
-            {showSuffered ? '✓ ' : ''}Falli subiti
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleToggleCommitted}
+              className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
+                showCommitted
+                  ? 'bg-negative/15 border-negative text-negative'
+                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
+              }`}
+            >
+              {showCommitted ? '✓ ' : ''}Falli commessi
+            </button>
+            <select
+              value={committedLine}
+              onChange={(e) => onCommittedLineChange(Number(e.target.value))}
+              className={`bg-surface border rounded-lg px-2 py-1 text-xs focus:outline-none transition-colors ${
+                showCommitted
+                  ? 'border-border text-text-primary focus:border-neon'
+                  : 'border-border text-text-muted opacity-40 cursor-not-allowed'
+              }`}
+              disabled={!showCommitted}
+            >
+              {[0.5,1.5,2.5,3.5,4.5,5.5].map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleToggleSuffered}
+              className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
+                showSuffered
+                  ? 'bg-neon/15 border-neon text-neon'
+                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
+              }`}
+            >
+              {showSuffered ? '✓ ' : ''}Falli subiti
+            </button>
+            <select
+              value={sufferedLine}
+              onChange={(e) => onSufferedLineChange(Number(e.target.value))}
+              className={`bg-surface border rounded-lg px-2 py-1 text-xs focus:outline-none transition-colors ${
+                showSuffered
+                  ? 'border-border text-text-primary focus:border-neon'
+                  : 'border-border text-text-muted opacity-40 cursor-not-allowed'
+              }`}
+              disabled={!showSuffered}
+            >
+              {[0.5,1.5,2.5,3.5,4.5,5.5].map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
+          </div>
           <button
             onClick={handleToggleCards}
             className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${

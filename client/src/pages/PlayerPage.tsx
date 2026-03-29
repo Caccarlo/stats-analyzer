@@ -77,6 +77,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowAway,
     showCards,
     setShowCards,
+    committedLine,
+    setCommittedLine,
+    sufferedLine,
+    setSufferedLine,
     stats,
     loading,
     error,
@@ -133,6 +137,22 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       return false;
     });
   }, [filteredEvents, showHome, showAway, resolvedPlayer?.team?.id]);
+
+  const committedHitRate = useMemo(() => {
+    const played = venueFilteredEvents.filter((e) => detailsMap.has(e.id));
+    const over = played.filter(
+      (e) => detailsMap.get(e.id)!.fouls.filter((f) => f.type === 'committed').length > committedLine
+    );
+    return { over: over.length, total: played.length };
+  }, [venueFilteredEvents, detailsMap, committedLine]);
+
+  const sufferedHitRate = useMemo(() => {
+    const played = venueFilteredEvents.filter((e) => detailsMap.has(e.id));
+    const over = played.filter(
+      (e) => detailsMap.get(e.id)!.fouls.filter((f) => f.type === 'suffered').length > sufferedLine
+    );
+    return { over: over.length, total: played.length };
+  }, [venueFilteredEvents, detailsMap, sufferedLine]);
 
   // Selected events sorted chronologically (most recent first, same as filteredEvents order)
   const selectedEvents = useMemo(
@@ -213,6 +233,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             showAway={showAway}
             onShowAwayChange={setShowAway}
             allTournamentsForSeason={allTournamentsForSeason}
+            committedLine={committedLine}
+            onCommittedLineChange={setCommittedLine}
+            sufferedLine={sufferedLine}
+            onSufferedLineChange={setSufferedLine}
             isSplitView={isSplitView}
           />
         </div>
@@ -241,6 +265,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             showCommitted={showCommitted}
             showSuffered={showSuffered}
             showCards={showCards}
+            committedLine={committedLine}
+            sufferedLine={sufferedLine}
+            committedHitRate={committedHitRate}
+            sufferedHitRate={sufferedHitRate}
           />
         </div>
       )}

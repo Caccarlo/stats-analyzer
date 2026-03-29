@@ -106,7 +106,7 @@ export default function PlayerFilters({
                     : 'bg-surface border-border text-text-muted hover:border-border-hover'
                 }`}
               >
-                {active ? '✓ ' : ''}{t.tournamentName}
+                {t.tournamentName}
               </button>
             );
           })}
@@ -126,7 +126,7 @@ export default function PlayerFilters({
                   : 'bg-surface border-border text-text-muted hover:border-border-hover'
               }`}
             >
-              {showHome ? '✓ ' : ''}Casa
+              Casa
             </button>
             <button
               onClick={handleToggleAway}
@@ -136,7 +136,7 @@ export default function PlayerFilters({
                   : 'bg-surface border-border text-text-muted hover:border-border-hover'
               }`}
             >
-              {showAway ? '✓ ' : ''}Trasferta
+              Trasferta
             </button>
           </div>
         </div>
@@ -170,7 +170,7 @@ export default function PlayerFilters({
                   : 'bg-surface border-border text-text-muted hover:border-border-hover'
               }`}
             >
-              {showCommitted ? '✓ ' : ''}Falli commessi
+              Falli commessi
             </button>
             <select
               value={committedLine}
@@ -196,7 +196,7 @@ export default function PlayerFilters({
                   : 'bg-surface border-border text-text-muted hover:border-border-hover'
               }`}
             >
-              {showSuffered ? '✓ ' : ''}Falli subiti
+              Falli subiti
             </button>
             <select
               value={sufferedLine}
@@ -221,7 +221,7 @@ export default function PlayerFilters({
                 : 'bg-surface border-border text-text-muted hover:border-border-hover'
             }`}
           >
-            {showCards ? '✓ ' : ''}Cartellini
+            Cartellini
           </button>
         </div>
       </div>

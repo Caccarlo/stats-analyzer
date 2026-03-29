@@ -81,6 +81,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setCommittedLine,
     sufferedLine,
     setSufferedLine,
+    showStartersOnly,
+    setShowStartersOnly,
     stats,
     loading,
     error,
@@ -127,16 +129,27 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
   // Filtro casa/trasferta — playerTeamId ricavato dal team corrente del giocatore
   const venueFilteredEvents = useMemo(() => {
-    if (showHome && showAway) return filteredEvents;
+  let events = filteredEvents;
+  if (!showHome || !showAway) {
     const teamId = resolvedPlayer?.team?.id;
-    if (!teamId) return filteredEvents;
-    return filteredEvents.filter((e) => {
-      const isHome = e.homeTeam.id === teamId;
-      if (showHome && isHome) return true;
-      if (showAway && !isHome) return true;
-      return false;
+    if (teamId) {
+      events = events.filter((e) => {
+        const isHome = e.homeTeam.id === teamId;
+        if (showHome && isHome) return true;
+        if (showAway && !isHome) return true;
+        return false;
+      });
+    }
+  }
+  if (showStartersOnly) {
+    events = events.filter((e) => {
+      const details = detailsMap.get(e.id);
+      if (!details) return false;
+      return details.substituteInMinute === undefined;
     });
-  }, [filteredEvents, showHome, showAway, resolvedPlayer?.team?.id]);
+  }
+  return events;
+}, [filteredEvents, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, detailsMap]);
 
   const committedHitRate = useMemo(() => {
     const played = venueFilteredEvents.filter((e) => detailsMap.has(e.id));
@@ -237,6 +250,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onCommittedLineChange={setCommittedLine}
             sufferedLine={sufferedLine}
             onSufferedLineChange={setSufferedLine}
+            showStartersOnly={showStartersOnly}
+            onShowStartersOnlyChange={setShowStartersOnly}
             isSplitView={isSplitView}
           />
         </div>

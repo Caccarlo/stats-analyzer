@@ -10,14 +10,12 @@ Football/soccer foul analysis web app. Users navigate Countries > Leagues > Team
 | Server | Express 4 (CORS proxy to SofaScore) | 3001 |
 
 No database, no auth, no API keys. All data comes from the public SofaScore API via the Express proxy.
-
 ```bash
 npm run install:all   # first time
 npm start             # runs both client and server via concurrently
 ```
 
 ## Project Structure
-
 ```
 stats-analyzer/
 ├── package.json                     # Monorepo: concurrently runs server + client
@@ -33,7 +31,7 @@ stats-analyzer/
     │   ├── context/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
-    │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards)
+    │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards, committedLine, sufferedLine)
     │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions; exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player
     │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state, selectAll/deselectAll
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
@@ -43,7 +41,7 @@ stats-analyzer/
     │   │   └── positionMapping.ts    # SofaScore coords -> SVG coords, 13+ formation templates
     │   ├── pages/
     │   │   ├── HomePage.tsx          # Landing with search bar
-    │   │   └── PlayerPage.tsx        # Player analysis: stats + timeline + selectable match cards; computes venueFilteredEvents from showHome/showAway
+    │   │   └── PlayerPage.tsx        # Player analysis: stats + timeline + selectable match cards; computes venueFilteredEvents from showHome/showAway; computes committedHitRate and sufferedHitRate
     │   └── components/
     │       ├── layout/
     │       │   ├── Sidebar.tsx       # Fixed 210px left panel, hamburger on mobile
@@ -57,8 +55,8 @@ stats-analyzer/
     │       │   └── SidebarTeamList.tsx # Compact team list in sidebar
     │       ├── player/
     │       │   ├── PlayerHeader.tsx  # Avatar, name, team, position, number
-    │       │   ├── PlayerFilters.tsx # 3-column layout: col1=Competizioni(vertical), col2=Sede+Stagione, col3=Mostra(vertical); isSplitView prop controls w-full vs w-1/2
-    │       │   ├── StatsOverview.tsx # Stat cards grid: committed(3 cols), suffered(3 cols), cards(4 cols when showCards); compact sizing (p-2.5, text-lg)
+    │       │   ├── PlayerFilters.tsx # 3-column layout: col1=Competizioni(vertical), col2=Sede+Stagione, col3=Mostra(vertical) con dropdown Over X.5 affiancati; isSplitView prop controls w-full vs w-1/2
+    │       │   ├── StatsOverview.tsx # Stat cards grid: committed(4 cols), suffered(4 cols), cards(4 cols when showCards); quarto card = HitRateCard
     │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle
     │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay
     │       │   ├── FieldMap.tsx      # SVG field with clickable position dots; activePlayerId + involvedPlayerIds filtering
@@ -69,7 +67,6 @@ stats-analyzer/
 ```
 
 ## Architecture
-
 ```
 Browser (5173) -> React App -> sofascore.ts (client cache 5min + retry x3)
     -> Vite dev proxy /api/* -> Express (3001, server cache: JSON 5min/500 entries, images 30min/200 entries)
@@ -162,6 +159,13 @@ Aggregates across multiple tournaments: sums fouls/minutes/appearances/yellowCar
 - `avgYellowCardsPerMatch = totalYellowCards / appearances`
 - `avgRedCardsPerMatch = totalRedCards / appearances`
 
+### Hit Rate (PlayerPage.tsx)
+Calcolato via `useMemo` su `venueFilteredEvents` (tutte le partite mostrate nella timeline, già filtrate per sede e torneo) intersecato con `detailsMap` (partite con dettagli già caricati progressivamente). Cresce man mano che `useMatchTimeline` carica le partite in background.
+- `committedHitRate` = `{ over, total }` dove `over` = partite con falli commessi > `committedLine`, `total` = partite con dettagli disponibili
+- `sufferedHitRate` = `{ over, total }` dove `over` = partite con falli subiti > `sufferedLine`, `total` = partite con dettagli disponibili
+- Il rapporto `over/total` riflette solo le partite già caricate, non l'intera timeline
+- `FoulMatchup.type === 'committed' | 'suffered'` usato per filtrare i falli per tipo
+
 ### Position Mapping (positionMapping.ts)
 - SofaScore coords: `avgX` 0-100 (own goal to opponent), `avgY` 0-100 (right to left)
 - Home team maps to top half of SVG, away team to bottom half (inverted)
@@ -189,6 +193,7 @@ Defined in `CountryList.tsx`.
 - Text: primary `#e0e0e0`, secondary `#8a96a6`, muted `#5a6a7a`
 - Field: bg `#1a3320`, lines `#2a5535`
 - Cards: yellow `text-yellow-400 / bg-yellow-400/15 / border-yellow-400`
+- Hit rate card: percentuale `text-lg font-bold`, rapporto inline `text-xs font-normal text-text-muted ml-1`, label `text-xs text-text-muted uppercase tracking-wide`
 
 ### Responsive Breakpoints
 - Mobile (<768px): sidebar hidden, hamburger overlay, single panel
@@ -222,6 +227,9 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - FieldMap `involvedPlayerIds` filtered by current foul type: committed shows fouled victims, suffered shows foulers; if active player is no longer in the involved set after a filter change, selection resets to main player
 - MatchTimeline has a select/deselect all toggle button that syncs with the current selection state
 - Stat cards: compact sizing `p-2.5` padding, `text-lg` value font size, `text-xs` label
+- Righe committed/suffered in `StatsOverview`: sempre `grid-cols-4`; quarto card è `HitRateCard` (label "Over X.5", percentuale, rapporto inline)
+- Le righe committed/suffered in `StatsOverview` scompaiono completamente dal DOM se il rispettivo filtro è inattivo — nessuna opacity, condizione `{showCommitted && ...}` / `{showSuffered && ...}`
+- Nessun segno di spunta (✓) sui bottoni filtro
 
 ## Filters
 
@@ -238,11 +246,20 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - "At least one always active" logic: `activeCount = [showCommitted, showSuffered, showCards].filter(Boolean).length` — if the toggle being deactivated is the only active one, click is ignored. Adding future toggles: just add the new value to this array.
 - `showCards` controls visibility of the 4 card stat boxes in `StatsOverview` (gialli totali, rossi totali, media gialli/partita, media rossi/partita) displayed in a `grid-cols-4` row
 
+### Line filter (Over X.5)
+- State: `committedLine` / `sufferedLine` in `usePlayerData` (default `0.5`, range `0.5`→`9.5` step `1`)
+- Rendered in `PlayerFilters` colonna 3, `<select>` affiancato al rispettivo bottone (Falli commessi / Falli subiti)
+- Dropdown sempre visibile; `disabled` + `opacity-40` quando il rispettivo filtro è inattivo
+- Passato a `StatsOverview` per il label "Over X.5" e il calcolo della `HitRateCard`
+- Hit rate calcolato in `PlayerPage` su `venueFilteredEvents` ∩ `detailsMap` (partite con dettagli caricati); cresce progressivamente
+
 ### PlayerFilters layout
 - 3-column grid (`grid-cols-3 gap-6`)
 - Width: `w-1/2` in full-screen, `w-full` in split view — controlled via `isSplitView` prop passed from `PlayerPage`
 - All buttons and labels use `text-xs` and `px-2 py-1` for compact sizing
 - Colonna 1 and 3 use `items-start` on the flex container so buttons shrink to content width
+- Colonna 3: ogni bottone (Falli commessi, Falli subiti) ha affiancato un `<select>` 0.5→9.5 sempre visibile, disabilitato e scurito (`opacity-40`) se il filtro è inattivo
+- Nessun segno di spunta (✓) sui bottoni filtro
 
 ## Workflow Rules
 

@@ -17,6 +17,8 @@ interface PlayerFiltersProps {
   onShowAwayChange: (v: boolean) => void;
   showCards: boolean;
   onShowCardsChange: (v: boolean) => void;
+  showStartersOnly: boolean;
+  onShowStartersOnlyChange: (v: boolean) => void;
   committedLine: number;
   onCommittedLineChange: (v: number) => void;
   sufferedLine: number;
@@ -41,6 +43,8 @@ export default function PlayerFilters({
   onShowAwayChange,
   showCards,
   onShowCardsChange,
+  showStartersOnly,
+  onShowStartersOnlyChange,
   committedLine,
   onCommittedLineChange,
   sufferedLine,
@@ -112,7 +116,6 @@ export default function PlayerFilters({
           })}
         </div>
       </div>
-
       {/* Colonna 2 — Sede + Stagione */}
       <div className="flex flex-col gap-4">
         <div>
@@ -140,23 +143,33 @@ export default function PlayerFilters({
             </button>
           </div>
         </div>
-
-        <div className="w-fit">
+        <div>
           <label className="text-text-muted text-xs mb-2 block">Stagione:</label>
-          <select
-            value={selectedSeasonYear}
-            onChange={(e) => onSeasonChange(e.target.value)}
-            className="w-fit bg-surface border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-neon"
-          >
-            {availableSeasonYears.map((year) => (
-              <option key={year} value={year}>
-                {year}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedSeasonYear}
+              onChange={(e) => onSeasonChange(e.target.value)}
+              className="w-fit bg-surface border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-neon"
+            >
+              {availableSeasonYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => onShowStartersOnlyChange(!showStartersOnly)}
+              className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
+                showStartersOnly
+                  ? 'bg-neon/15 border-neon text-neon'
+                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
+              }`}
+            >
+              Titolare
+            </button>
+          </div>
         </div>
       </div>
-
       {/* Colonna 3 — Mostra */}
       <div>
         <label className="text-text-muted text-xs mb-2 block">Mostra:</label>

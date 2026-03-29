@@ -25,7 +25,10 @@ interface PlayerDataResult {
   setShowHome: (v: boolean) => void;
   showAway: boolean;
   setShowAway: (v: boolean) => void;
-  showCards: boolean; setShowCards: (v: boolean) => void;
+  showCards: boolean; 
+  setShowCards: (v: boolean) => void;
+  showStartersOnly: boolean;
+  setShowStartersOnly: (v: boolean) => void;
   committedLine: number;
   setCommittedLine: (v: number) => void;
   sufferedLine: number;
@@ -46,6 +49,7 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
   const [showHome, setShowHome] = useState(true);
   const [showAway, setShowAway] = useState(true);
   const [showCards, setShowCards] = useState(false);
+  const [showStartersOnly, setShowStartersOnly] = useState(false);
   const [committedLine, setCommittedLine] = useState(0.5);
   const [sufferedLine, setSufferedLine] = useState(0.5);
   const [loading, setLoading] = useState(false);
@@ -183,6 +187,8 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     setShowAway,
     showCards, 
     setShowCards,
+    showStartersOnly,
+    setShowStartersOnly,
     committedLine,
     setCommittedLine,
     sufferedLine,

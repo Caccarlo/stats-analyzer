@@ -10,6 +10,7 @@ export interface CachedMatchDetails {
   substituteOutMinute?: number;
   cardInfo: CardInfo | null;
   didNotPlay: boolean;
+  jerseyMap: Map<number, string>;
 }
 
 interface MatchDetailsResult extends CachedMatchDetails {
@@ -36,6 +37,13 @@ export async function fetchMatchDetails(
     getMatchLineups(eventId),
   ]);
 
+  const jerseyMap = new Map<number, string>();
+  if (lineups) {
+    [...lineups.home.players, ...lineups.away.players].forEach((lp) => {
+      if (lp.player.jerseyNumber) jerseyMap.set(lp.player.id, lp.player.jerseyNumber);
+    });
+  }
+
   const matchFouls = extractFoulsForPlayer(comments, playerId);
   const subInfo = extractSubstitutionInfo(comments, playerId);
   const cardInfo = extractCardInfo(comments, playerId);
@@ -59,6 +67,7 @@ export async function fetchMatchDetails(
     substituteOutMinute: subInfo.outMinute,
     cardInfo,
     didNotPlay,
+    jerseyMap,
   };
   matchDetailsCache.set(key, result);
   return result;

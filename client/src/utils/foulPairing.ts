@@ -1,4 +1,4 @@
-import type { MatchComment, FoulMatchup } from '@/types';
+import type { MatchComment, FoulMatchup, CardInfo } from '@/types';
 
 const ZONE_TRANSLATIONS: Record<string, string> = {
   'in the defensive half': 'propria metà',
@@ -17,7 +17,6 @@ function translateZone(text: string): string {
 }
 
 function extractMinute(text: string, fallbackTime?: number): number | undefined {
-  // Prova a estrarre il minuto dal testo del commento (es. "45' +2")
   const match = text.match(/(\d+)'/);
   if (match) return parseInt(match[1], 10);
   return fallbackTime;
@@ -34,7 +33,6 @@ export function extractFoulsForPlayer(
 
     // CASO 1: Il giocatore ha COMMESSO un fallo (freeKickLost)
     if (comment.type === 'freeKickLost' && comment.player?.id === playerId) {
-      // Fallo di mano → nessuna vittima
       if (comment.text.toLowerCase().includes('handball')) {
         results.push({
           type: 'handball',
@@ -45,7 +43,6 @@ export function extractFoulsForPlayer(
         continue;
       }
 
-      // Cercare la vittima: controllare idx-1 E idx+1
       const prev = i > 0 ? comments[i - 1] : null;
       const next = i < comments.length - 1 ? comments[i + 1] : null;
       let victim = null;
@@ -112,4 +109,34 @@ export function extractSubstitutionInfo(
   }
 
   return { inMinute, outMinute };
+}
+
+export function extractCardInfo(
+  comments: MatchComment[],
+  playerId: number
+): CardInfo | null {
+  let hasYellow = false;
+  let yellowMinute: number | undefined;
+  let hasRed = false;
+  let redMinute: number | undefined;
+  let isDirectRed = false;
+
+  for (const comment of comments) {
+    if (comment.player?.id !== playerId) continue;
+
+    if (comment.type === 'yellowCard') {
+      hasYellow = true;
+      yellowMinute = extractMinute(comment.text, comment.time);
+    }
+    if (comment.type === 'redCard') {
+      hasRed = true;
+      redMinute = extractMinute(comment.text, comment.time);
+      isDirectRed = !hasYellow;
+    }
+  }
+
+  if (hasYellow && hasRed) return { type: 'yellowRed', minute: redMinute };
+  if (hasRed && isDirectRed) return { type: 'red', minute: redMinute };
+  if (hasYellow) return { type: 'yellow', minute: yellowMinute };
+  return null;
 }

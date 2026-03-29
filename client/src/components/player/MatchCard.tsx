@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import type { MatchEvent, Player, FoulMatchup, PlayerPosition, PlayerSeasonStats } from '@/types';
+import type { MatchEvent, Player, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails } from '@/hooks/useMatchDetails';
 import { getPlayerSeasonStats } from '@/api/sofascore';
@@ -28,6 +28,40 @@ interface MatchCardProps {
 
 type CardLayout = 'single' | 'double' | 'multi';
 
+const CardIcon = ({ type }: { type: CardType }) => {
+  if (type === 'yellow') {
+    return (
+      <div
+        className="w-3.5 rounded-sm flex-shrink-0"
+        style={{ height: '18px', backgroundColor: '#facc15' }}
+        title="Cartellino giallo"
+      />
+    );
+  }
+  if (type === 'red') {
+    return (
+      <div
+        className="w-3.5 rounded-sm flex-shrink-0"
+        style={{ height: '18px', backgroundColor: '#ef4444' }}
+        title="Cartellino rosso"
+      />
+    );
+  }
+  // yellowRed: giallo in basso a sinistra, rosso in alto a destra
+  return (
+    <div className="relative flex-shrink-0" style={{ width: '22px', height: '20px' }} title="Doppio cartellino">
+      <div
+        className="absolute rounded-sm"
+        style={{ width: '14px', height: '18px', backgroundColor: '#facc15', bottom: 0, left: 0 }}
+      />
+      <div
+        className="absolute rounded-sm"
+        style={{ width: '14px', height: '18px', backgroundColor: '#ef4444', top: 0, right: 0 }}
+      />
+    </div>
+  );
+};
+
 export default function MatchCard({
   event,
   playerId,
@@ -44,7 +78,6 @@ export default function MatchCard({
 
   const [activePlayerId, setActivePlayerId] = useState(playerId);
 
-  // ── Ref per misurare la larghezza reale del FieldMap ──
   const fieldRef = useRef<HTMLDivElement>(null);
   const [fieldWidth, setFieldWidth] = useState(0);
 
@@ -52,7 +85,6 @@ export default function MatchCard({
     setActivePlayerId(playerId);
   }, [playerId]);
 
-  // ── ResizeObserver: aggiorna fieldWidth ogni volta che il campo cambia dimensione ──
   useEffect(() => {
     const el = fieldRef.current;
     if (!el) return;
@@ -68,6 +100,7 @@ export default function MatchCard({
   const positions = details?.positions ?? null;
   const substituteInMinute = details?.substituteInMinute;
   const substituteOutMinute = details?.substituteOutMinute;
+  const cardInfo = details?.cardInfo ?? null;
 
   const isHome = event.homeTeam.id === playerTeamId;
 
@@ -88,7 +121,6 @@ export default function MatchCard({
     ...(showSuffered ? sufferedFouls : []),
   ];
 
-  // Solo i giocatori coinvolti nel tipo di fallo selezionato
   const involvedPlayerIds = new Set<number>();
   if (showCommitted || neither) {
     committedFouls.forEach((f) => { if (f.playerFouled?.id) involvedPlayerIds.add(f.playerFouled.id); });
@@ -97,7 +129,6 @@ export default function MatchCard({
     sufferedFouls.forEach((f) => { if (f.playerFouling?.id) involvedPlayerIds.add(f.playerFouling.id); });
   }
 
-  // Resetta la selezione al giocatore principale se il giocatore attivo non è più coinvolto
   const involvedKey = [...involvedPlayerIds].sort().join(',');
   useEffect(() => {
     if (activePlayerId !== playerId && !involvedPlayerIds.has(activePlayerId)) {
@@ -157,7 +188,6 @@ export default function MatchCard({
   const [activePlayerSeasonStats, setActivePlayerSeasonStats] = useState<PlayerSeasonStats | null>(null);
   const [activePlayerOwnFouls, setActivePlayerOwnFouls] = useState<{ committed: number; suffered: number } | null>(null);
 
-  // Chiave stabile per i tornei selezionati (evita re-render non necessari)
   const selectedTournamentsKey = selectedTournaments.map((t) => `${t.tournamentId}:${t.seasonId}`).join(',');
 
   useEffect(() => {
@@ -167,7 +197,6 @@ export default function MatchCard({
 
     let cancelled = false;
 
-    // Aggrega le statistiche del giocatore attivo su tutti i tornei selezionati
     const fetchStats = async () => {
       const results = await Promise.all(
         selectedTournaments.map((t) => getPlayerSeasonStats(activePlayerId, t.tournamentId, t.seasonId))
@@ -255,7 +284,6 @@ export default function MatchCard({
 
   const showTwoColumns = showCommitted && showSuffered;
 
-  // ── Avatar + nome giocatore attivo ──
   const playerNameRow = activePlayer ? (
     <div className="flex items-center gap-2 justify-center">
       <img
@@ -272,12 +300,9 @@ export default function MatchCard({
     </div>
   ) : null;
 
-  // Prospettiva speculare: se il filtro mostra i commessi del giocatore principale,
-  // il giocatore del fieldmap è la vittima → mostriamo i suoi SUBITI (e viceversa)
-  const showActiveSuffered = showCommitted || neither; // il giocatore attivo subisce quando il principale commette
-  const showActiveCommitted = showSuffered || neither; // il giocatore attivo commette quando il principale subisce
+  const showActiveSuffered = showCommitted || neither;
+  const showActiveCommitted = showSuffered || neither;
 
-  // ── Stat boxes: medie stagionali reali del giocatore attivo (prospettiva speculare) ──
   const renderStatBoxes = (cols: 1 | 2 = 1) => {
     const s = activePlayerSeasonStats;
     const committedPerGame = s && s.appearances > 0 ? (s.fouls / s.appearances).toFixed(2) : '—';
@@ -315,7 +340,6 @@ export default function MatchCard({
     );
   };
 
-  // ── Conteggio falli reali del giocatore attivo in questa partita (prospettiva speculare) ──
   const renderMatchFoulCounts = () => (
     <div className="flex flex-col items-center gap-1 w-fit flex-shrink-0">
       {showActiveCommitted && (
@@ -337,14 +361,11 @@ export default function MatchCard({
     </div>
   );
 
-  // ── La heatmap sarà sempre metà della larghezza reale del campo ──
   const heatmapMaxWidth = fieldWidth > 0 ? Math.round(fieldWidth / 2) : undefined;
 
-  // ── Sezione posizioni: layout dipende da cardCount ──
   const renderPositionsSection = () => {
     if (!positions) return null;
 
-    // Colonna sinistra comune ai 3 modi (portrait o landscape)
     const leftCol = (portrait: boolean) => (
       <div className="flex items-center justify-center">
         <div ref={fieldRef} className={`w-full ${portrait ? 'max-w-[238px]' : 'max-w-[367px]'}`}>
@@ -361,18 +382,15 @@ export default function MatchCard({
       </div>
     );
 
-    // Colonna destra: heatmap centrata + overlay assoluto per stats a sx e falli a dx
     const rightCol = (orientation: 'portrait' | 'landscape', statCols: 1 | 2) => {
       const isLandscape = orientation === 'landscape';
       const effectiveHeatmapWidth = heatmapMaxWidth ?? (isLandscape ? 200 : 119);
 
       return (
         <div className="relative flex items-center justify-center">
-          {/* Nome giocatore attivo in cima */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2">
             {playerNameRow}
           </div>
-          {/* Overlay: [medie | spacer heatmap | falli partita] */}
           {!activePlayerIsMain && (
             <div className="absolute inset-0 flex items-center pointer-events-none">
               <div className="flex-1 flex items-center justify-center pointer-events-auto">
@@ -384,7 +402,6 @@ export default function MatchCard({
               </div>
             </div>
           )}
-          {/* Heatmap centrata */}
           <HeatmapField
             eventId={event.id}
             playerId={activePlayerId}
@@ -414,19 +431,16 @@ export default function MatchCard({
       );
     }
 
-    // ── MULTI (3+): medie centrate tra nome e bordo superiore heatmap, falli centrati sotto ──
     const multiHeatmapWidth = heatmapMaxWidth ?? 119;
     const multiHalfHeight = Math.round((multiHeatmapWidth * 105 / 68) / 2);
-    const NAME_HEIGHT = 28; // altezza riga nome (h-7)
+    const NAME_HEIGHT = 28;
     return (
       <div className="grid grid-cols-2 gap-3 mb-14 items-stretch pt-3">
         {leftCol(true)}
         <div className="relative flex items-center justify-center">
-          {/* Nome giocatore attivo: fisso in cima */}
           <div className="absolute top-0 left-1/2 -translate-x-1/2">
             {playerNameRow}
           </div>
-          {/* Medie: centrate tra nome (top) e bordo superiore heatmap */}
           {!activePlayerIsMain && (
             <div
               className="absolute left-0 right-0 pointer-events-none flex items-center justify-center"
@@ -437,7 +451,6 @@ export default function MatchCard({
               </div>
             </div>
           )}
-          {/* Falli partita: centrati tra bordo inferiore heatmap e fondo colonna */}
           {!activePlayerIsMain && (
             <div
               className="absolute left-0 right-0 pointer-events-none flex items-center justify-center"
@@ -448,7 +461,6 @@ export default function MatchCard({
               </div>
             </div>
           )}
-          {/* Heatmap centrata (elemento di riferimento) */}
           <HeatmapField
             eventId={event.id}
             playerId={activePlayerId}
@@ -482,6 +494,11 @@ export default function MatchCard({
           <p>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</p>
           {substituteOutMinute != null && <p>Uscito al {substituteOutMinute}'</p>}
         </div>
+        {cardInfo && (
+          <div className="flex-shrink-0 flex items-center mr-2">
+            <CardIcon type={cardInfo.type} />
+          </div>
+        )}
         <button
           onClick={() => onDeselect(event.id)}
           className="flex-shrink-0 p-1 text-text-muted hover:text-text-primary transition-colors"
@@ -502,7 +519,6 @@ export default function MatchCard({
           </div>
         ) : (
           <>
-            {/* Sezione campi — layout adattivo */}
             {positions ? (
               renderPositionsSection()
             ) : (
@@ -512,7 +528,6 @@ export default function MatchCard({
               </div>
             )}
 
-            {/* Falli */}
             {showTwoColumns ? (
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col items-center text-center">

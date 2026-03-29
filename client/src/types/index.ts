@@ -112,6 +112,15 @@ export interface FoulMatchup {
   rawText: string;
 }
 
+// === Cartellini ===
+
+export type CardType = 'yellow' | 'red' | 'yellowRed';
+
+export interface CardInfo {
+  type: CardType;
+  minute?: number;
+}
+
 // === Posizioni campo ===
 
 export interface PlayerPosition {

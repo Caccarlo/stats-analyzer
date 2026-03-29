@@ -15,7 +15,6 @@ interface MatchTimelineProps {
 
 function abbreviateTournament(name: string): string {
   if (!name) return '';
-  // Common abbreviations
   const words = name.split(/\s+/);
   if (words.length === 1) return words[0].substring(0, 3).toUpperCase();
   return words.map((w) => w[0]?.toUpperCase() ?? '').join('.');
@@ -24,7 +23,7 @@ function abbreviateTournament(name: string): string {
 function getFoulCounts(
   details: CachedMatchDetails | undefined,
 ): { committed: number; suffered: number } | null {
-  if (!details) return null; // not loaded yet
+  if (!details) return null;
   let committed = 0;
   let suffered = 0;
   for (const f of details.fouls) {
@@ -59,7 +58,6 @@ export default function MatchTimeline({
           className="flex items-center gap-2 group"
           aria-label={toggleMode === 'select' ? 'Seleziona tutte le partite' : 'Deseleziona tutte le partite'}
         >
-          {/* Toggle pill */}
           <div
             className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${
               toggleMode === 'deselect' ? 'bg-neon' : 'bg-border group-hover:bg-border/80'
@@ -71,7 +69,6 @@ export default function MatchTimeline({
               }`}
             />
           </div>
-          {/* Label */}
           <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">
             {toggleMode === 'select' ? 'Seleziona tutte' : 'Deseleziona tutte'}
           </span>
@@ -85,6 +82,7 @@ export default function MatchTimeline({
             const details = detailsMap.get(event.id);
             const isLoaded = detailsLoadedIds.has(event.id);
             const counts = getFoulCounts(details);
+            const cardInfo = details?.cardInfo ?? null;
 
             const homeCode = event.homeTeam.nameCode ?? event.homeTeam.shortName ?? event.homeTeam.name.substring(0, 3).toUpperCase();
             const awayCode = event.awayTeam.nameCode ?? event.awayTeam.shortName ?? event.awayTeam.name.substring(0, 3).toUpperCase();
@@ -95,12 +93,44 @@ export default function MatchTimeline({
               <button
                 key={event.id}
                 onClick={() => onToggleMatch(event.id)}
-                className={`flex-shrink-0 flex flex-col items-center justify-center px-3 py-2 rounded-lg border text-center transition-colors cursor-pointer min-w-[100px] ${
+                className={`relative flex-shrink-0 flex flex-col items-center justify-center px-3 py-2 rounded-lg border text-center transition-colors cursor-pointer min-w-[100px] ${
                   isSelected
                     ? 'border-neon bg-neon/5'
                     : 'border-border bg-surface hover:bg-surface-hover'
                 }`}
               >
+                {/* Icona cartellino in alto a destra */}
+                {cardInfo && (
+                  <div className="absolute top-1.5 right-1.5">
+                    {cardInfo.type === 'yellow' && (
+                      <div
+                        className="rounded-sm"
+                        style={{ width: '10px', height: '14px', backgroundColor: '#facc15' }}
+                        title="Cartellino giallo"
+                      />
+                    )}
+                    {cardInfo.type === 'red' && (
+                      <div
+                        className="rounded-sm"
+                        style={{ width: '10px', height: '14px', backgroundColor: '#ef4444' }}
+                        title="Cartellino rosso"
+                      />
+                    )}
+                    {cardInfo.type === 'yellowRed' && (
+                      <div className="relative" style={{ width: '16px', height: '16px' }} title="Doppio cartellino">
+                        <div
+                          className="absolute rounded-sm"
+                          style={{ width: '10px', height: '14px', backgroundColor: '#facc15', bottom: 0, left: 0 }}
+                        />
+                        <div
+                          className="absolute rounded-sm"
+                          style={{ width: '10px', height: '14px', backgroundColor: '#ef4444', top: 0, right: 0 }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Row 1: Tournament + Round */}
                 <span className="text-[10px] text-text-muted leading-tight truncate max-w-full">
                   {tournamentAbbr}

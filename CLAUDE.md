@@ -32,7 +32,7 @@ stats-analyzer/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine)
-    │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions + lineups; exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player; CachedMatchDetails includes didNotPlay flag
+    │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions + lineups; exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player; CachedMatchDetails includes didNotPlay flag and jerseyMap (Map<number, string> playerId→jerseyNumber built from lineups)
     │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state, selectAll/deselectAll; auto-deselects didNotPlay matches when details load
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
@@ -58,7 +58,7 @@ stats-analyzer/
     │       │   ├── PlayerFilters.tsx # 3-column layout: col1=Competizioni(vertical), col2=Sede+Stagione+Titolare, col3=Mostra(vertical) con dropdown Over X.5 affiancati; isSplitView prop controls w-full vs w-1/2
     │       │   ├── StatsOverview.tsx # Stat cards grid: committed(4 cols), suffered(4 cols), cards(4 cols when showCards); quarto card = HitRateCard
     │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle
-    │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay
+    │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay; opponent team name in header is clickable (opens split/swap); active opponent player name is clickable (opens split/swap); foul comments show jersey number after player name outside the clickable button; all clickable elements use text-text-primary hover:text-neon except foul comment player buttons which are text-neon
     │       │   ├── FieldMap.tsx      # SVG field with clickable position dots; activePlayerId + involvedPlayerIds filtering
     │       │   └── HeatmapField.tsx  # Canvas-based player heatmap; maxWidth prop = half of FieldMap width (measured via ResizeObserver), fallback 119px portrait / 200px landscape
     │       └── common/
@@ -112,6 +112,8 @@ PanelState = {
 - "+" button rendered in `App.tsx` (centered via `left-1/2`) when viewing team or player full-screen: opens split with home view (country selection) for independent navigation
 - Clicking player in TeamView: if no split open, opens split with that player; if split already open (two teams), navigates in-place in the same panel
 - Clicking foul-involved player in MatchCard: from left panel opens split on right; from right panel swaps (current player → left, new player → right)
+- Clicking opponent team name in MatchCard header: from left panel opens split on right; from right panel swaps (current panel → left, new team → right)
+- Clicking active opponent player name in MatchCard (above heatmap): same split/swap logic as foul-involved player click
 - Clicking opponent team in TeamView/MatchCard: swaps panels or opens team in split
 - Each panel navigates independently
 - Right panel back button shows contextual labels at each hierarchy level (league name, country name, "Paesi"); hidden only when panel 0 is team view and panel 1 player is from the same team
@@ -132,7 +134,7 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 | `unique-tournament/{id}/season/{id}/standings/total` | Teams from standings | TeamGrid |
 | `team/{id}/players` | Team roster | TeamView |
 | `team/{id}/events/next/0` | Next match | TeamView |
-| `event/{id}/lineups` | Formation + players; used in fetchMatchDetails to detect didNotPlay | TeamView, useMatchDetails |
+| `event/{id}/lineups` | Formation + players; used in fetchMatchDetails to detect didNotPlay and build jerseyMap | TeamView, useMatchDetails |
 | `event/{id}/comments` | Match chronicle (fouls) | useMatchDetails |
 | `event/{id}/average-positions` | Player avg positions | useMatchDetails |
 | `player/{id}` | Player info (includes current team) | PlayerPage |
@@ -168,6 +170,12 @@ Rilevato in `fetchMatchDetails` durante il caricamento dei dettagli partita:
   3. Il giocatore è nella lista lineups con `substitute: true` e non appare in nessun commento come `player`, `playerIn` o `playerOut`
 - Se le lineups non sono disponibili o i commenti sono vuoti, `didNotPlay` resta `false` (falso negativo preferibile a falso positivo)
 - Le partite `didNotPlay` vengono escluse da `venueFilteredEvents` in `PlayerPage` e auto-deselezionate in `useMatchTimeline` non appena i dettagli vengono caricati
+
+### Jersey Map (useMatchDetails.ts)
+Costruita in `fetchMatchDetails` dopo il caricamento delle lineups:
+- `jerseyMap: Map<number, string>` — mappa `playerId → jerseyNumber`
+- Popolata iterando su `[...lineups.home.players, ...lineups.away.players]`
+- Salvata in `CachedMatchDetails` e usata in `MatchCard` per mostrare il numero di maglia nei commenti dei falli
 
 ### Hit Rate (PlayerPage.tsx)
 Calcolato via `useMemo` su `venueFilteredEvents` (tutte le partite mostrate nella timeline, già filtrate per sede, torneo, impiego e didNotPlay) intersecato con `detailsMap` (partite con dettagli già caricati progressivamente). Cresce man mano che `useMatchTimeline` carica le partite in background.
@@ -241,6 +249,8 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Le righe committed/suffered in `StatsOverview` scompaiono completamente dal DOM se il rispettivo filtro è inattivo — nessuna opacity, condizione `{showCommitted && ...}` / `{showSuffered && ...}`
 - Nessun segno di spunta (✓) sui bottoni filtro
 - Partite in cui il giocatore era in panchina senza mai entrare (`didNotPlay: true`) vengono escluse completamente dalla timeline e da tutti i calcoli
+- MatchCard: nome squadra avversaria nell'header e nome giocatore avversario attivo (sopra heatmap) sono cliccabili con `text-text-primary hover:text-neon hover:underline transition-colors`; i bottoni nei commenti falli restano `text-neon` fisso
+- MatchCard: nei commenti falli, il numero di maglia del giocatore coinvolto appare tra parentesi dopo il nome, fuori dal `<button>` cliccabile, in `text-text-muted`
 
 ## Filters
 

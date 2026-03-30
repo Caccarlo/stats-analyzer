@@ -32,8 +32,8 @@ stats-analyzer/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine)
-    │   │   ├── useMatchDetails.ts    # Fetches match fouls + positions + lineups; exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player; CachedMatchDetails includes didNotPlay flag and jerseyMap (Map<number, string> playerId→jerseyNumber built from lineups)
-    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading, selection state, selectAll/deselectAll; auto-deselects didNotPlay matches when details load
+    │   │   ├── useMatchDetails.ts    # Fetches match fouls + lineups only (no average-positions); exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player; CachedMatchDetails includes didNotPlay flag and jerseyMap (Map<number, string> playerId→jerseyNumber built from lineups)
+    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading (batch 5, delay 200ms), selection state, selectAll/deselectAll; auto-deselects didNotPlay matches when details load
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
     │   │   ├── foulPairing.ts        # Extracts fouls from match comments, pairs them, translates zones
@@ -41,7 +41,7 @@ stats-analyzer/
     │   │   └── positionMapping.ts    # SofaScore coords -> SVG coords, 13+ formation templates
     │   ├── pages/
     │   │   ├── HomePage.tsx          # Landing with search bar
-    │   │   └── PlayerPage.tsx        # Player analysis: stats + timeline + selectable match cards; computes venueFilteredEvents from showHome/showAway/showStartersOnly/didNotPlay; computes committedHitRate and sufferedHitRate
+    │   │   └── PlayerPage.tsx        # Player analysis: derivedStats (computed from detailsMap) + timeline + selectable match cards; computes venueFilteredEvents from showHome/showAway/showStartersOnly/didNotPlay; all stats (totals, averages, hit rates) derived from venueFilteredEvents ∩ detailsMap progressively
     │   └── components/
     │       ├── layout/
     │       │   ├── Sidebar.tsx       # Fixed 210px left panel, hamburger on mobile
@@ -58,7 +58,7 @@ stats-analyzer/
     │       │   ├── PlayerFilters.tsx # 3-column layout: col1=Competizioni(vertical), col2=Sede+Stagione+Titolare, col3=Mostra(vertical) con dropdown Over X.5 affiancati; isSplitView prop controls w-full vs w-1/2
     │       │   ├── StatsOverview.tsx # Stat cards grid: committed(4 cols), suffered(4 cols), cards(4 cols when showCards); quarto card = HitRateCard
     │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle
-    │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay; opponent team name in header is clickable (opens split/swap); active opponent player name is clickable (opens split/swap); foul comments show jersey number after player name outside the clickable button; all clickable elements use text-text-primary hover:text-neon except foul comment player buttons which are text-neon
+    │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay; opponent team name in header is clickable (opens split/swap); active opponent player name is clickable (opens split/swap); foul comments show jersey number after player name outside the clickable button; all clickable elements use text-text-primary hover:text-neon except foul comment player buttons which are text-neon; average-positions loaded on-demand via getMatchAveragePositions when card is opened
     │       │   ├── FieldMap.tsx      # SVG field with clickable position dots; activePlayerId + involvedPlayerIds filtering
     │       │   └── HeatmapField.tsx  # Canvas-based player heatmap; maxWidth prop = half of FieldMap width (measured via ResizeObserver), fallback 119px portrait / 200px landscape
     │       └── common/
@@ -136,10 +136,10 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 | `team/{id}/events/next/0` | Next match | TeamView |
 | `event/{id}/lineups` | Formation + players; used in fetchMatchDetails to detect didNotPlay and build jerseyMap | TeamView, useMatchDetails |
 | `event/{id}/comments` | Match chronicle (fouls) | useMatchDetails |
-| `event/{id}/average-positions` | Player avg positions | useMatchDetails |
+| `event/{id}/average-positions` | Player avg positions | MatchCard (on-demand, only when card is opened) |
 | `player/{id}` | Player info (includes current team) | PlayerPage |
 | `player/{id}/statistics/seasons` | Player tournament list | usePlayerData |
-| `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats (includes yellowCards, redCards) | usePlayerData, MatchCard (active player) |
+| `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData (no longer used for StatsOverview display) |
 | `player/{id}/events/last/{page}` | Match history (paginated) | usePlayerData |
 | `event/{id}/player/{id}/heatmap` | Player heatmap points for a match | HeatmapField |
 | `team/{id}/image`, `player/{id}/image`, etc. | Images | via /api/img/ |
@@ -155,15 +155,28 @@ Parses match `comments[]` to extract fouls for a specific player:
 - Substitutions extracted from `type: 'substitution'` comments
 
 ### Stats Calculator (statsCalculator.ts)
-Aggregates across multiple tournaments: sums fouls/minutes/appearances/yellowCards/redCards, then calculates:
-- `avgPerMatch = totalFouls / appearances`
-- `avgPer90 = (totalFouls * 90) / minutesPlayed`
-- `avgYellowCardsPerMatch = totalYellowCards / appearances`
-- `avgRedCardsPerMatch = totalRedCards / appearances`
+Still exists but no longer used for StatsOverview display. All displayed stats are now derived from `detailsMap` in `PlayerPage` via `derivedStats` useMemo.
+
+### Derived Stats (PlayerPage.tsx)
+All statistics shown in `StatsOverview` are computed via a single `derivedStats` useMemo over `venueFilteredEvents ∩ detailsMap` (partite con dettagli già caricati). Grows progressively as `useMatchTimeline` loads match details in background. Responds immediately to all active filters (tournament, venue, starter, didNotPlay).
+
+Per ogni partita caricata:
+- `fouls` → committed (type 'committed' | 'handball') e suffered (type 'suffered')
+- `cardInfo` → yellow / red / yellowRed
+- Minuti giocati calcolati da `substituteInMinute` / `substituteOutMinute`:
+  - Titolare senza uscire: 90 min
+  - Titolare uscito al X': X min
+  - Subentrante al X' senza uscire: 90 - X min
+  - Subentrante al X' uscito al Y': Y - X min
+
+Output di `derivedStats`:
+- `stats: AggregatedStats` — totalFoulsCommitted, totalFoulsSuffered, totalMinutesPlayed, totalAppearances, avgFoulsCommittedPerMatch, avgFoulsCommittedPer90, avgFoulsSufferedPerMatch, avgFoulsSufferedPer90, totalYellowCards, totalRedCards, avgYellowCardsPerMatch, avgRedCardsPerMatch
+- `committedHitRate: { over, total }` — partite con falli commessi > committedLine
+- `sufferedHitRate: { over, total }` — partite con falli subiti > sufferedLine
 
 ### Did Not Play Detection (useMatchDetails.ts)
 Rilevato in `fetchMatchDetails` durante il caricamento dei dettagli partita:
-- Vengono caricati in parallelo commenti, posizioni medie e lineups (`getMatchLineups`)
+- Vengono caricati in parallelo commenti e lineups (`getMatchLineups`) — average-positions NON viene caricata qui
 - Un giocatore è classificato `didNotPlay: true` se tutte e tre le condizioni sono vere:
   1. Le lineups sono disponibili (`lineups !== null`)
   2. I commenti della partita non sono vuoti (`comments.length > 0`) — garantisce che l'API abbia risposto con dati reali
@@ -177,12 +190,13 @@ Costruita in `fetchMatchDetails` dopo il caricamento delle lineups:
 - Popolata iterando su `[...lineups.home.players, ...lineups.away.players]`
 - Salvata in `CachedMatchDetails` e usata in `MatchCard` per mostrare il numero di maglia nei commenti dei falli
 
+### Average Positions (MatchCard.tsx)
+Caricata on-demand tramite `getMatchAveragePositions(event.id)` dentro un `useEffect` in `MatchCard`, solo quando la card viene renderizzata. Non più caricata nel loop progressivo di `useMatchTimeline`. Stato locale `positions` in `MatchCard` (useState), inizialmente `null`, popolato al primo render della card.
+
 ### Hit Rate (PlayerPage.tsx)
-Calcolato via `useMemo` su `venueFilteredEvents` (tutte le partite mostrate nella timeline, già filtrate per sede, torneo, impiego e didNotPlay) intersecato con `detailsMap` (partite con dettagli già caricati progressivamente). Cresce man mano che `useMatchTimeline` carica le partite in background.
-- `committedHitRate` = `{ over, total }` dove `over` = partite con falli commessi > `committedLine`, `total` = partite con dettagli disponibili
-- `sufferedHitRate` = `{ over, total }` dove `over` = partite con falli subiti > `sufferedLine`, `total` = partite con dettagli disponibili
-- Il rapporto `over/total` riflette solo le partite già caricate, non l'intera timeline
-- `FoulMatchup.type === 'committed' | 'suffered'` usato per filtrare i falli per tipo
+Parte di `derivedStats` (vedi sopra). Calcolato su `venueFilteredEvents ∩ detailsMap`. Cresce progressivamente.
+- `committedHitRate` = `{ over, total }` dove `over` = partite con falli commessi > `committedLine`
+- `sufferedHitRate` = `{ over, total }` dove `over` = partite con falli subiti > `sufferedLine`
 
 ### Position Mapping (positionMapping.ts)
 - SofaScore coords: `avgX` 0-100 (own goal to opponent), `avgY` 0-100 (right to left)
@@ -236,7 +250,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Split view only above 1024px width
 - Match timeline: horizontal scrollable bar with all matches, foul count badges loaded progressively
 - Match cards: always open (not expandable), selectable via timeline; most recent 3 pre-selected on desktop, 1 on mobile
-- Match details loaded progressively in background (selected first, then remaining in batches of 3), cached for session
+- Match details loaded progressively in background (batch of 5, 200ms delay between batches), cached for session; average-positions loaded on-demand in MatchCard only
 - Card layout: 1 card = 100%, 2 = `calc(50%-4px)`, 3+ = `calc(33.333%-6px)` (flexbox wrap, gap-compensated); 100% below `md:` (768px) and in split view
 - Player who changed team mid-season: separate matches with visual divider showing team name
 - MatchCard layout modes driven by `cardCount`: single (1 card, landscape FieldMap), double (2 cards, portrait FieldMap), multi (3+ cards, portrait FieldMap)
@@ -251,22 +265,23 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Partite in cui il giocatore era in panchina senza mai entrare (`didNotPlay: true`) vengono escluse completamente dalla timeline e da tutti i calcoli
 - MatchCard: nome squadra avversaria nell'header e nome giocatore avversario attivo (sopra heatmap) sono cliccabili con `text-text-primary hover:text-neon hover:underline transition-colors`; i bottoni nei commenti falli restano `text-neon` fisso
 - MatchCard: nei commenti falli, il numero di maglia del giocatore coinvolto appare tra parentesi dopo il nome, fuori dal `<button>` cliccabile, in `text-text-muted`
+- StatsOverview è condizionato a `derivedStats !== null` (non a `stats` dall'API); non c'è più spinner di caricamento statistiche separato — i dati appaiono quando le prime partite sono caricate
 
 ## Filters
 
 ### Venue filter (Casa / Trasferta)
 - State lives in `usePlayerData` as `showHome` / `showAway` (both `true` by default)
 - Rendered in `PlayerFilters` colonna 2, affiancati, con Stagione sotto
-- "At least one always active" logic: if the active one is the only one active, click is ignored
-- In `PlayerPage`, `venueFilteredEvents` is computed via `useMemo` **after** the `useMatchTimeline` destructuring, filtering `filteredEvents` by comparing `event.homeTeam.id` to `resolvedPlayer?.team?.id`; when both filters are active the full list is returned unfiltered
-- `venueFilteredEvents` is passed to `MatchTimeline` (as `events`) and used for `selectedEvents` and `toggleMode` sync; `selectAll` / `deselectAll` from `useMatchTimeline` still operate on the full unfiltered set
+- Toggle logic: se si disattiva l'unico filtro attivo, l'altro viene attivato automaticamente prima (nessun click ignorato)
+- In `PlayerPage`, `venueFilteredEvents` is computed via `useMemo` filtering `filteredEvents` by comparing `event.homeTeam.id` to `resolvedPlayer?.team?.id`
+- `venueFilteredEvents` is passed to `MatchTimeline` (as `events`) and used for `selectedEvents`, `toggleMode` sync, and `derivedStats` calculation
 
 ### Starter filter (Titolare)
 - State lives in `usePlayerData` as `showStartersOnly` (`false` by default)
 - Rendered in `PlayerFilters` colonna 2, come bottone affiancato a destra del `<select>` della stagione, sulla stessa riga
 - Disattivo al caricamento; quando attivo mostra solo le partite in cui il giocatore è partito titolare (non dalla panchina)
-- Logica: una partita è "da titolare" se `CachedMatchDetails.substituteInMinute === undefined` (il giocatore non è entrato da sostituto)
-- Filtro applicato in `PlayerPage` dentro `venueFilteredEvents` useMemo, dopo il filtro sede e dopo il filtro didNotPlay; partite senza dettagli ancora caricati vengono escluse (`return false` se `details` è undefined) — cresce progressivamente come la hit rate
+- Logica: una partita è "da titolare" se `CachedMatchDetails.substituteInMinute === undefined`
+- Filtro applicato in `PlayerPage` dentro `venueFilteredEvents` useMemo, dopo il filtro sede e dopo il filtro didNotPlay; partite senza dettagli ancora caricati vengono escluse (`return false` se `details` è undefined) — cresce progressivamente
 - Dipendenze del `useMemo`: `filteredEvents`, `showHome`, `showAway`, `resolvedPlayer?.team?.id`, `showStartersOnly`, `detailsMap`
 - Nessuna chiamata API aggiuntiva: il dato è già presente in `CachedMatchDetails` tramite `extractSubstitutionInfo` in `useMatchDetails`
 
@@ -280,15 +295,15 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 ### Mostra filter (Falli commessi / Falli subiti / Cartellini)
 - State lives in `usePlayerData` as `showCommitted` / `showSuffered` (both `true` by default) and `showCards` (`false` by default)
 - Rendered in `PlayerFilters` colonna 3, in verticale
-- "At least one always active" logic: `activeCount = [showCommitted, showSuffered, showCards].filter(Boolean).length` — if the toggle being deactivated is the only active one, click is ignored. Adding future toggles: just add the new value to this array.
-- `showCards` controls visibility of the 4 card stat boxes in `StatsOverview` (gialli totali, rossi totali, media gialli/partita, media rossi/partita) displayed in a `grid-cols-4` row
+- Toggle logic: se si disattiva l'unico filtro attivo, il successivo nell'array `[committed, suffered, cards]` viene attivato automaticamente (con wrap circolare); nessun click ignorato
+- `showCards` controls visibility of the 4 card stat boxes in `StatsOverview`
 
 ### Line filter (Over X.5)
 - State: `committedLine` / `sufferedLine` in `usePlayerData` (default `0.5`, range `0.5`→`9.5` step `1`)
-- Rendered in `PlayerFilters` colonna 3, `<select>` affiancato al rispettivo bottone (Falli commessi / Falli subiti)
+- Rendered in `PlayerFilters` colonna 3, `<select>` affiancato al rispettivo bottone
 - Dropdown sempre visibile; `disabled` + `opacity-40` quando il rispettivo filtro è inattivo
 - Passato a `StatsOverview` per il label "Over X.5" e il calcolo della `HitRateCard`
-- Hit rate calcolato in `PlayerPage` su `venueFilteredEvents` ∩ `detailsMap` (partite con dettagli caricati); cresce progressivamente
+- Hit rate calcolato in `derivedStats` su `venueFilteredEvents ∩ detailsMap`
 
 ### PlayerFilters layout
 - 3-column grid (`grid-cols-3 gap-6`)
@@ -298,6 +313,12 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Colonna 2: bottoni Casa/Trasferta affiancati; sotto, sulla stessa riga, il `<select>` stagione e il bottone Titolare affiancati
 - Colonna 3: ogni bottone (Falli commessi, Falli subiti) ha affiancato un `<select>` 0.5→9.5 sempre visibile, disabilitato e scurito (`opacity-40`) se il filtro è inattivo
 - Nessun segno di spunta (✓) sui bottoni filtro
+
+### Filter toggle behavior (all filters)
+- **Campionati**: se si disattiva l'unico campionato attivo, il successivo nella lista viene attivato automaticamente prima del toggle
+- **Casa/Trasferta**: se si disattiva l'unico attivo, l'altro viene attivato automaticamente
+- **Falli commessi/subiti/Cartellini**: se si disattiva l'unico attivo, il successivo nell'array (con wrap circolare) viene attivato automaticamente
+- Nessun filtro viene mai bloccato — il click non viene mai ignorato
 
 ## Workflow Rules
 

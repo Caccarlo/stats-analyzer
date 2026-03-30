@@ -63,34 +63,35 @@ export default function PlayerFilters({
     onToggleTournament(tournamentId);
   };
 
-  const venueActiveCount = [showHome, showAway].filter(Boolean).length;
-
   const handleToggleHome = () => {
-    if (showHome && venueActiveCount === 1) return;
+    if (showHome && !showAway) {
+      onShowAwayChange(true);
+    }
     onShowHomeChange(!showHome);
   };
 
   const handleToggleAway = () => {
-    if (showAway && venueActiveCount === 1) return;
+    if (showAway && !showHome) {
+      onShowHomeChange(true);
+    }
     onShowAwayChange(!showAway);
   };
 
-  const activeCount = [showCommitted, showSuffered, showCards].filter(Boolean).length;
+  const showFilters = [showCommitted, showSuffered, showCards];
+  const showSetters = [onShowCommittedChange, onShowSufferedChange, onShowCardsChange];
+  const activeCount = showFilters.filter(Boolean).length;
 
-  const handleToggleCommitted = () => {
-    if (showCommitted && activeCount === 1) return;
-    onShowCommittedChange(!showCommitted);
+  const handleToggleShow = (idx: number) => {
+    if (showFilters[idx] && activeCount === 1) {
+      const nextIdx = (idx + 1) % showFilters.length;
+      showSetters[nextIdx](true);
+    }
+    showSetters[idx](!showFilters[idx]);
   };
 
-  const handleToggleSuffered = () => {
-    if (showSuffered && activeCount === 1) return;
-    onShowSufferedChange(!showSuffered);
-  };
-
-  const handleToggleCards = () => {
-    if (showCards && activeCount === 1) return;
-    onShowCardsChange(!showCards);
-  };
+  const handleToggleCommitted = () => handleToggleShow(0);
+  const handleToggleSuffered = () => handleToggleShow(1);
+  const handleToggleCards = () => handleToggleShow(2);
 
   return (
     <div className={`grid grid-cols-3 gap-6 ${isSplitView ? 'w-full' : 'w-1/2'}`}>

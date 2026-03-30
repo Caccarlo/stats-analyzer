@@ -83,9 +83,6 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setSufferedLine,
     showStartersOnly,
     setShowStartersOnly,
-    stats,
-    loading,
-    error,
   } = usePlayerData(playerId);
 
   // Tutti i tornei disponibili per la stagione selezionata (per i filtri)
@@ -159,21 +156,61 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   return events;
 }, [filteredEvents, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, detailsMap]);
 
-  const committedHitRate = useMemo(() => {
+  const derivedStats = useMemo(() => {
     const played = venueFilteredEvents.filter((e) => detailsMap.has(e.id));
-    const over = played.filter(
-      (e) => detailsMap.get(e.id)!.fouls.filter((f) => f.type === 'committed').length > committedLine
-    );
-    return { over: over.length, total: played.length };
-  }, [venueFilteredEvents, detailsMap, committedLine]);
+    if (played.length === 0) return null;
 
-  const sufferedHitRate = useMemo(() => {
-    const played = venueFilteredEvents.filter((e) => detailsMap.has(e.id));
-    const over = played.filter(
-      (e) => detailsMap.get(e.id)!.fouls.filter((f) => f.type === 'suffered').length > sufferedLine
-    );
-    return { over: over.length, total: played.length };
-  }, [venueFilteredEvents, detailsMap, sufferedLine]);
+    let totalCommitted = 0;
+    let totalSuffered = 0;
+    let totalMinutes = 0;
+    let totalYellow = 0;
+    let totalRed = 0;
+    let committedOver = 0;
+    let sufferedOver = 0;
+
+    for (const e of played) {
+      const d = detailsMap.get(e.id)!;
+
+      const committed = d.fouls.filter((f) => f.type === 'committed' || f.type === 'handball').length;
+      const suffered = d.fouls.filter((f) => f.type === 'suffered').length;
+      totalCommitted += committed;
+      totalSuffered += suffered;
+
+      if (d.cardInfo?.type === 'yellow') totalYellow++;
+      else if (d.cardInfo?.type === 'red') totalRed++;
+      else if (d.cardInfo?.type === 'yellowRed') { totalYellow++; totalRed++; }
+
+      if (committed > committedLine) committedOver++;
+      if (suffered > sufferedLine) sufferedOver++;
+
+      const inMin = d.substituteInMinute;
+      const outMin = d.substituteOutMinute;
+      if (inMin == null && outMin == null) totalMinutes += 90;
+      else if (inMin == null && outMin != null) totalMinutes += outMin;
+      else if (inMin != null && outMin == null) totalMinutes += Math.max(0, 90 - inMin);
+      else totalMinutes += Math.max(0, outMin! - inMin!);
+    }
+
+    const appearances = played.length;
+    return {
+      stats: {
+        totalFoulsCommitted: totalCommitted,
+        totalFoulsSuffered: totalSuffered,
+        totalMinutesPlayed: totalMinutes,
+        totalAppearances: appearances,
+        avgFoulsCommittedPerMatch: appearances > 0 ? (totalCommitted / appearances).toFixed(2) : '—',
+        avgFoulsCommittedPer90: totalMinutes > 0 ? (totalCommitted * 90 / totalMinutes).toFixed(2) : '—',
+        avgFoulsSufferedPerMatch: appearances > 0 ? (totalSuffered / appearances).toFixed(2) : '—',
+        avgFoulsSufferedPer90: totalMinutes > 0 ? (totalSuffered * 90 / totalMinutes).toFixed(2) : '—',
+        totalYellowCards: totalYellow,
+        totalRedCards: totalRed,
+        avgYellowCardsPerMatch: appearances > 0 ? (totalYellow / appearances).toFixed(2) : '—',
+        avgRedCardsPerMatch: appearances > 0 ? (totalRed / appearances).toFixed(2) : '—',
+      },
+      committedHitRate: { over: committedOver, total: appearances },
+      sufferedHitRate: { over: sufferedOver, total: appearances },
+    };
+  }, [venueFilteredEvents, detailsMap, committedLine, sufferedLine]);
 
   // Selected events sorted chronologically (most recent first, same as filteredEvents order)
   const selectedEvents = useMemo(
@@ -265,39 +302,23 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         </div>
       )}
 
-      {/* Loading stats */}
-      {loading && (
-        <div className="mt-6 flex items-center gap-2 text-text-muted">
-          <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
-          Caricamento statistiche...
-        </div>
-      )}
-
-      {/* Error */}
-      {error && (
-        <div className="mt-6 text-negative text-sm">
-          Errore: {error}
-        </div>
-      )}
-
       {/* Stats overview */}
-      {stats && (
+      {derivedStats && (
         <div className="mt-6">
           <StatsOverview
-            stats={stats}
+            stats={derivedStats.stats}
             showCommitted={showCommitted}
             showSuffered={showSuffered}
             showCards={showCards}
             committedLine={committedLine}
             sufferedLine={sufferedLine}
-            committedHitRate={committedHitRate}
-            sufferedHitRate={sufferedHitRate}
+            committedHitRate={derivedStats.committedHitRate}
+            sufferedHitRate={derivedStats.sufferedHitRate}
           />
         </div>
       )}
 
       {/* Timeline partite */}
-      {!loading && (
         <div className="mt-8">
           {loadingEvents ? (
             <div className="flex items-center gap-2 text-text-muted">
@@ -349,7 +370,6 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             </>
           )}
         </div>
-      )}
     </div>
   );
 }

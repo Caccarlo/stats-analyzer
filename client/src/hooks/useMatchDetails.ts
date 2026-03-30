@@ -31,11 +31,11 @@ export async function fetchMatchDetails(
   const cached = matchDetailsCache.get(key);
   if (cached) return cached;
 
-  const [comments, avgPos, lineups] = await Promise.all([
+  const [comments, lineups] = await Promise.all([
     getMatchComments(eventId),
-    getMatchAveragePositions(eventId),
     getMatchLineups(eventId),
   ]);
+  const avgPos = null;
 
   const jerseyMap = new Map<number, string>();
   if (lineups) {

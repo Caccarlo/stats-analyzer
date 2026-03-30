@@ -3,7 +3,7 @@ import { useNavigation } from '@/context/NavigationContext';
 import type { MatchEvent, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails } from '@/hooks/useMatchDetails';
-import { getPlayerSeasonStats } from '@/api/sofascore';
+import { getPlayerSeasonStats, getMatchAveragePositions } from '@/api/sofascore';
 import { COUNTRIES } from '@/components/navigation/CountryList';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
@@ -96,8 +96,19 @@ export default function MatchCard({
   }, []);
 
   const details = detailsMap.get(event.id);
+  const [positions, setPositions] = useState<{ home: PlayerPosition[]; away: PlayerPosition[] } | null>(null);
+
+  useEffect(() => {
+    if (!details) return;
+    if (details.positions) {
+      setPositions(details.positions);
+      return;
+    }
+    getMatchAveragePositions(event.id).then((pos) => {
+      if (pos) setPositions(pos);
+    });
+  }, [details, event.id]);
   const fouls = details?.fouls ?? [];
-  const positions = details?.positions ?? null;
   const substituteInMinute = details?.substituteInMinute;
   const substituteOutMinute = details?.substituteOutMinute;
   const cardInfo = details?.cardInfo ?? null;

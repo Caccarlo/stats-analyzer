@@ -125,9 +125,9 @@ export function useMatchTimeline(
     async function loadAllDetails() {
       const eventIds = filteredEvents.map((e) => e.id);
 
-      for (let i = 0; i < eventIds.length; i += 3) {
+      for (let i = 0; i < eventIds.length; i += 5) {
         if (cancelled) return;
-        const batch = eventIds.slice(i, i + 3);
+        const batch = eventIds.slice(i, i + 5);
         const batchResults: { eventId: number; result: CachedMatchDetails }[] = [];
 
         await Promise.all(
@@ -177,7 +177,7 @@ export function useMatchTimeline(
           // ── FINE AGGIUNTA ──
         }
 
-        if (i + 3 < eventIds.length) {
+        if (i + 5 < eventIds.length) {
           await new Promise((r) => setTimeout(r, 300));
         }
       }

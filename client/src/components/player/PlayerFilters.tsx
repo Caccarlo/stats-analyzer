@@ -1,10 +1,13 @@
 import type { TournamentSeason } from '@/types';
+import type { SelectedPeriod } from '@/hooks/usePlayerData';
+
+const LAST_N_OPTIONS: Array<5 | 10 | 15 | 20 | 30> = [5, 10, 15, 20, 30];
 
 interface PlayerFiltersProps {
   tournamentSeasons: TournamentSeason[];
   availableSeasonYears: string[];
-  selectedSeasonYear: string;
-  onSeasonChange: (year: string) => void;
+  selectedPeriod: SelectedPeriod;
+  onPeriodChange: (p: SelectedPeriod) => void;
   selectedTournaments: { tournamentId: number; tournamentName: string }[];
   onToggleTournament: (tournamentId: number) => void;
   showCommitted: boolean;
@@ -29,8 +32,8 @@ interface PlayerFiltersProps {
 
 export default function PlayerFilters({
   availableSeasonYears,
-  selectedSeasonYear,
-  onSeasonChange,
+  selectedPeriod,
+  onPeriodChange,
   selectedTournaments,
   onToggleTournament,
   showCommitted,
@@ -54,6 +57,22 @@ export default function PlayerFilters({
 }: PlayerFiltersProps) {
   const selectedIds = new Set(selectedTournaments.map((t) => t.tournamentId));
 
+  // Serialize SelectedPeriod to/from a string for the HTML <select>
+  const periodValue =
+    selectedPeriod.type === 'last'
+      ? `last:${selectedPeriod.count}`
+      : `season:${selectedPeriod.year}`;
+
+  const handlePeriodChange = (value: string) => {
+    if (value.startsWith('last:')) {
+      const count = parseInt(value.split(':')[1]) as 5 | 10 | 15 | 20 | 30;
+      onPeriodChange({ type: 'last', count });
+    } else {
+      const year = value.replace('season:', '');
+      onPeriodChange({ type: 'season', year });
+    }
+  };
+
   const handleToggleTournament = (tournamentId: number) => {
     if (selectedIds.has(tournamentId) && selectedIds.size === 1) {
       const idx = allTournamentsForSeason.findIndex((t) => t.tournamentId === tournamentId);
@@ -64,16 +83,12 @@ export default function PlayerFilters({
   };
 
   const handleToggleHome = () => {
-    if (showHome && !showAway) {
-      onShowAwayChange(true);
-    }
+    if (showHome && !showAway) onShowAwayChange(true);
     onShowHomeChange(!showHome);
   };
 
   const handleToggleAway = () => {
-    if (showAway && !showHome) {
-      onShowHomeChange(true);
-    }
+    if (showAway && !showHome) onShowHomeChange(true);
     onShowAwayChange(!showAway);
   };
 
@@ -88,10 +103,6 @@ export default function PlayerFilters({
     }
     showSetters[idx](!showFilters[idx]);
   };
-
-  const handleToggleCommitted = () => handleToggleShow(0);
-  const handleToggleSuffered = () => handleToggleShow(1);
-  const handleToggleCards = () => handleToggleShow(2);
 
   return (
     <div className={`grid grid-cols-3 gap-6 ${isSplitView ? 'w-full' : 'w-1/2'}`}>
@@ -117,7 +128,8 @@ export default function PlayerFilters({
           })}
         </div>
       </div>
-      {/* Colonna 2 — Sede + Stagione */}
+
+      {/* Colonna 2 — Sede + Periodo */}
       <div className="flex flex-col gap-4">
         <div>
           <label className="text-text-muted text-xs mb-2 block">Sede:</label>
@@ -145,18 +157,29 @@ export default function PlayerFilters({
           </div>
         </div>
         <div>
-          <label className="text-text-muted text-xs mb-2 block">Stagione:</label>
+          <label className="text-text-muted text-xs mb-2 block">Periodo:</label>
           <div className="flex items-center gap-2">
             <select
-              value={selectedSeasonYear}
-              onChange={(e) => onSeasonChange(e.target.value)}
+              value={periodValue}
+              onChange={(e) => handlePeriodChange(e.target.value)}
               className="w-fit bg-surface border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-neon"
             >
-              {availableSeasonYears.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
+              <optgroup label="Ultime partite">
+                {LAST_N_OPTIONS.map((n) => (
+                  <option key={n} value={`last:${n}`}>
+                    Ultime {n}
+                  </option>
+                ))}
+              </optgroup>
+              {availableSeasonYears.length > 0 && (
+                <optgroup label="Stagione">
+                  {availableSeasonYears.map((year) => (
+                    <option key={year} value={`season:${year}`}>
+                      {year}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
             <button
               onClick={() => onShowStartersOnlyChange(!showStartersOnly)}
@@ -171,13 +194,14 @@ export default function PlayerFilters({
           </div>
         </div>
       </div>
+
       {/* Colonna 3 — Mostra */}
       <div>
         <label className="text-text-muted text-xs mb-2 block">Mostra:</label>
         <div className="flex flex-col gap-2 items-start">
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={handleToggleCommitted}
+              onClick={() => handleToggleShow(0)}
               className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
                 showCommitted
                   ? 'bg-negative/15 border-negative text-negative'
@@ -189,21 +213,21 @@ export default function PlayerFilters({
             <select
               value={committedLine}
               onChange={(e) => onCommittedLineChange(Number(e.target.value))}
+              disabled={!showCommitted}
               className={`bg-surface border rounded-lg px-2 py-1 text-xs focus:outline-none transition-colors ${
                 showCommitted
                   ? 'border-border text-text-primary focus:border-neon'
                   : 'border-border text-text-muted opacity-40 cursor-not-allowed'
               }`}
-              disabled={!showCommitted}
             >
-              {[0.5,1.5,2.5,3.5,4.5,5.5].map((v) => (
+              {[0.5, 1.5, 2.5, 3.5, 4.5, 5.5].map((v) => (
                 <option key={v} value={v}>{v}</option>
               ))}
             </select>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={handleToggleSuffered}
+              onClick={() => handleToggleShow(1)}
               className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
                 showSuffered
                   ? 'bg-neon/15 border-neon text-neon'
@@ -215,20 +239,20 @@ export default function PlayerFilters({
             <select
               value={sufferedLine}
               onChange={(e) => onSufferedLineChange(Number(e.target.value))}
+              disabled={!showSuffered}
               className={`bg-surface border rounded-lg px-2 py-1 text-xs focus:outline-none transition-colors ${
                 showSuffered
                   ? 'border-border text-text-primary focus:border-neon'
                   : 'border-border text-text-muted opacity-40 cursor-not-allowed'
               }`}
-              disabled={!showSuffered}
             >
-              {[0.5,1.5,2.5,3.5,4.5,5.5].map((v) => (
+              {[0.5, 1.5, 2.5, 3.5, 4.5, 5.5].map((v) => (
                 <option key={v} value={v}>{v}</option>
               ))}
             </select>
           </div>
           <button
-            onClick={handleToggleCards}
+            onClick={() => handleToggleShow(2)}
             className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
               showCards
                 ? 'bg-yellow-400/15 border-yellow-400 text-yellow-400'

@@ -1,10 +1,10 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
 import { useMatchTimeline } from '@/hooks/useMatchTimeline';
 import { useSplitCardSync } from '@/hooks/useSplitCardSync';
 import { useNavigation } from '@/context/NavigationContext';
 import { getPlayerInfo } from '@/api/sofascore';
-import type { Player, MatchEvent } from '@/types';
+import type { Player } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
@@ -12,7 +12,7 @@ import StatsOverview from '@/components/player/StatsOverview';
 import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
 
-// Wrapper component for cross-panel card height sync (hooks can't be called in .map())
+// Wrapper for cross-panel card height sync (hooks can't be called in .map())
 function SyncedCardSlot({
   panelIndex,
   cardIndex,
@@ -46,7 +46,6 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   const { state, navigateTo } = useNavigation();
   const [resolvedPlayer, setResolvedPlayer] = useState<Player | undefined>(playerData);
 
-  // Fetch full player data (including team) and update panel state
   useEffect(() => {
     let cancelled = false;
     getPlayerInfo(playerId).then((info) => {
@@ -63,8 +62,9 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   const {
     tournamentSeasons,
     availableSeasonYears,
-    selectedSeasonYear,
-    setSelectedSeasonYear,
+    selectedPeriod,
+    setSelectedPeriod,
+    currentSeasonYear,
     selectedTournaments,
     toggleTournament,
     showCommitted,
@@ -85,10 +85,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowStartersOnly,
   } = usePlayerData(playerId);
 
-  // Tutti i tornei disponibili per la stagione selezionata (per i filtri)
+  // All tournaments available for the current season year (used by filter UI)
   const allTournamentsForSeason = tournamentSeasons
     .map((ts) => {
-      const season = ts.seasons.find((s) => s.year === selectedSeasonYear);
+      const season = ts.seasons.find((s) => s.year === currentSeasonYear);
       if (!season) return null;
       return {
         tournamentId: ts.uniqueTournament.id,
@@ -99,65 +99,140 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  // Tournament IDs set for filtering
   const selectedTournamentIds = useMemo(
     () => new Set(selectedTournaments.map((t) => t.tournamentId)),
     [selectedTournaments],
   );
 
-  // All season IDs for the current season year (used to know when to stop loading pages)
+  // Season IDs for the current season — tells useMatchTimeline which events to load
   const validSeasonIds = useMemo(
     () => new Set(allTournamentsForSeason.map((t) => t.seasonId)),
     [allTournamentsForSeason],
   );
 
-  // Timeline hook
   const {
-    filteredEvents,
-    selectedEventIds,
+    allEvents,
     detailsMap,
     detailsLoadedIds,
     loadingEvents,
-    toggleMatch,
-    deselectMatch,
-    selectAll,
-    deselectAll,
-  } = useMatchTimeline(playerId, selectedTournamentIds, validSeasonIds);
+    initialDetailsLoaded,
+  } = useMatchTimeline(playerId, validSeasonIds);
 
-  // Filtro casa/trasferta — playerTeamId ricavato dal team corrente del giocatore
-  const venueFilteredEvents = useMemo(() => {
-  // Prima cosa: escludi partite in cui il giocatore era in panchina e non è mai entrato.
-  // Se i dettagli non sono ancora caricati (details undefined), la partita rimane visibile
-  // e verrà rivalutata quando i dettagli arrivano.
-  let events = filteredEvents.filter((e) => {
-    const details = detailsMap.get(e.id);
-    if (!details) return true;
-    return !details.didNotPlay;
-  });
+  // ── Display events: all filters applied on top of allEvents ──
+  // This is pure derivation — changing any filter never touches the background loader.
+  const displayEvents = useMemo(() => {
+    // 1. Tournament filter
+    let events = selectedTournamentIds.size === 0
+      ? allEvents
+      : allEvents.filter((e) => selectedTournamentIds.has(e.tournament?.uniqueTournament?.id));
 
-  if (!showHome || !showAway) {
-    const teamId = resolvedPlayer?.team?.id;
-    if (teamId) {
-      events = events.filter((e) => {
-        const isHome = e.homeTeam.id === teamId;
-        if (showHome && isHome) return true;
-        if (showAway && !isHome) return true;
-        return false;
-      });
+    // 2. Period: "last N" slices the already-tournament-filtered list (behavior B)
+    if (selectedPeriod.type === 'last') {
+      events = events.slice(0, selectedPeriod.count);
     }
-  }
-  if (showStartersOnly) {
+
+    // 3. Exclude matches where player was on the bench and never came on
     events = events.filter((e) => {
       const details = detailsMap.get(e.id);
-      if (!details) return false;
-      return details.substituteInMinute === undefined;
+      if (!details) return true; // keep until details confirm didNotPlay
+      return !details.didNotPlay;
     });
-  }
-  return events;
-}, [filteredEvents, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, detailsMap]);
 
+    // 4. Venue filter
+    if (!showHome || !showAway) {
+      const teamId = resolvedPlayer?.team?.id;
+      if (teamId) {
+        events = events.filter((e) => {
+          const isHome = e.homeTeam.id === teamId;
+          if (showHome && isHome) return true;
+          if (showAway && !isHome) return true;
+          return false;
+        });
+      }
+    }
+
+    // 5. Starter filter (excluded if details not yet loaded → grows progressively)
+    if (showStartersOnly) {
+      events = events.filter((e) => {
+        const details = detailsMap.get(e.id);
+        if (!details) return false;
+        return details.substituteInMinute === undefined;
+      });
+    }
+
+    return events;
+  }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly]);
+
+  // ── Selection state (moved here from useMatchTimeline) ──
+  const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
+
+  // Pre-selection key: once per player+season combo (not per period change)
+  const preSelectedKeyRef = useRef('');
+
+  useEffect(() => {
+    const seasonKey = [...validSeasonIds].sort().join(',');
+    const key = `${playerId}-${seasonKey}`;
+    if (preSelectedKeyRef.current === key) return;
+    if (displayEvents.length === 0 || !initialDetailsLoaded) return;
+    preSelectedKeyRef.current = key;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const count = isMobile ? 1 : 3;
+    setSelectedEventIds(new Set(displayEvents.slice(0, count).map((e) => e.id)));
+  }, [displayEvents, initialDetailsLoaded, playerId, validSeasonIds]);
+
+  // Prune selection when displayEvents shrinks (e.g. filter change removes events)
+  useEffect(() => {
+    const validIds = new Set(displayEvents.map((e) => e.id));
+    setSelectedEventIds((prev) => {
+      const pruned = new Set([...prev].filter((id) => validIds.has(id)));
+      if (pruned.size === prev.size) return prev;
+      return pruned;
+    });
+  }, [displayEvents]);
+
+  // Auto-deselect didNotPlay matches as their details arrive
+  useEffect(() => {
+    const notPlayedIds = [...detailsMap.entries()]
+      .filter(([, d]) => d.didNotPlay)
+      .map(([id]) => id);
+    if (notPlayedIds.length === 0) return;
+    setSelectedEventIds((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      notPlayedIds.forEach((id) => {
+        if (next.has(id)) { next.delete(id); changed = true; }
+      });
+      return changed ? next : prev;
+    });
+  }, [detailsMap]);
+
+  const toggleMatch = useCallback((eventId: number) => {
+    setSelectedEventIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(eventId)) next.delete(eventId); else next.add(eventId);
+      return next;
+    });
+  }, []);
+
+  const deselectMatch = useCallback((eventId: number) => {
+    setSelectedEventIds((prev) => {
+      const next = new Set(prev);
+      next.delete(eventId);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedEventIds(new Set(displayEvents.map((e) => e.id)));
+  }, [displayEvents]);
+
+  const deselectAll = useCallback(() => {
+    setSelectedEventIds(new Set());
+  }, []);
+
+  // ── Derived stats from displayEvents ──
   const derivedStats = useMemo(() => {
-    const played = venueFilteredEvents.filter((e) => detailsMap.has(e.id));
+    const played = displayEvents.filter((e) => detailsMap.has(e.id));
     if (played.length === 0) return null;
 
     let totalCommitted = 0;
@@ -170,7 +245,6 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
     for (const e of played) {
       const d = detailsMap.get(e.id)!;
-
       const committed = d.fouls.filter((f) => f.type === 'committed' || f.type === 'handball').length;
       const suffered = d.fouls.filter((f) => f.type === 'suffered').length;
       totalCommitted += committed;
@@ -210,15 +284,14 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       committedHitRate: { over: committedOver, total: appearances },
       sufferedHitRate: { over: sufferedOver, total: appearances },
     };
-  }, [venueFilteredEvents, detailsMap, committedLine, sufferedLine]);
+  }, [displayEvents, detailsMap, committedLine, sufferedLine]);
 
-  // Selected events sorted chronologically (most recent first, same as filteredEvents order)
+  // Events shown as MatchCards
   const selectedEvents = useMemo(
-    () => venueFilteredEvents.filter((e) => selectedEventIds.has(e.id)),
-    [filteredEvents, selectedEventIds],
+    () => displayEvents.filter((e) => selectedEventIds.has(e.id)),
+    [displayEvents, selectedEventIds],
   );
 
-  // Card width class based on count — always full width in split view
   const isSplitView = state.panels.length > 1;
   const cardCount = selectedEvents.length;
   const cardWidthClass = isSplitView
@@ -229,21 +302,17 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         ? 'w-full md:w-[calc(50%-4px)]'
         : 'w-full md:w-[calc(33.333%-6px)]';
 
-  // ── Toggle mode: 'select' = il tasto seleziona tutte, 'deselect' = deseleziona tutte ──
+  // Toggle mode for select/deselect all
   const [toggleMode, setToggleMode] = useState<'select' | 'deselect'>('select');
 
-  // Sincronizza toggleMode con la selezione effettiva:
-  // - tutte selezionate → passa a 'deselect'
-  // - nessuna selezionata → passa a 'select'
-  // - selezione parziale → lascia invariato
   useEffect(() => {
-    if (venueFilteredEvents.length === 0) return;
-    if (selectedEventIds.size === venueFilteredEvents.length) {
+    if (displayEvents.length === 0) return;
+    if (selectedEventIds.size === displayEvents.length) {
       setToggleMode('deselect');
     } else if (selectedEventIds.size === 0) {
       setToggleMode('select');
     }
-  }, [selectedEventIds, filteredEvents]);
+  }, [selectedEventIds, displayEvents]);
 
   const handleToggleAll = useCallback(() => {
     if (toggleMode === 'select') {
@@ -255,7 +324,17 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     }
   }, [toggleMode, selectAll, deselectAll]);
 
-  // Placeholder player per il header (usa dati completi se disponibili)
+  // ── Full-page loader: only on the very first visit (never on filter/season changes) ──
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  useEffect(() => {
+    if (initialDetailsLoaded && !initialLoadComplete) {
+      setInitialLoadComplete(true);
+    }
+  }, [initialDetailsLoaded]);
+
+  // ── Timeline spinner: shown when some visible events still lack details ──
+  const hasTimelineSpinner = displayEvents.some((e) => !detailsMap.has(e.id));
+
   const displayPlayer: Player = resolvedPlayer ?? {
     id: playerId,
     name: `Giocatore #${playerId}`,
@@ -263,9 +342,24 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     position: '',
   };
 
+  // First visit: show header + full-page loader
+  if (!initialLoadComplete) {
+    return (
+      <div className="min-w-0">
+        <div className="pb-4 border-b border-border">
+          <PlayerHeader player={displayPlayer} />
+        </div>
+        <div className="flex items-center gap-2 text-text-muted mt-8">
+          <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+          Caricamento partite...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0">
-      {/* Header giocatore */}
+      {/* Header */}
       <div className="pb-4 border-b border-border">
         <PlayerHeader player={displayPlayer} />
       </div>
@@ -276,8 +370,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
           <PlayerFilters
             tournamentSeasons={tournamentSeasons}
             availableSeasonYears={availableSeasonYears}
-            selectedSeasonYear={selectedSeasonYear}
-            onSeasonChange={setSelectedSeasonYear}
+            selectedPeriod={selectedPeriod}
+            onPeriodChange={setSelectedPeriod}
             selectedTournaments={selectedTournaments}
             onToggleTournament={toggleTournament}
             showCommitted={showCommitted}
@@ -318,58 +412,59 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         </div>
       )}
 
-      {/* Timeline partite */}
-        <div className="mt-8">
-          {loadingEvents ? (
-            <div className="flex items-center gap-2 text-text-muted">
-              <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
-              Caricamento partite...
-            </div>
-          ) : (
-            <>
-              <MatchTimeline
-                events={venueFilteredEvents}
-                selectedEventIds={selectedEventIds}
-                detailsMap={detailsMap}
-                detailsLoadedIds={detailsLoadedIds}
-                showCommitted={showCommitted}
-                showSuffered={showSuffered}
-                onToggleMatch={toggleMatch}
-                toggleMode={toggleMode}
-                onToggleAll={handleToggleAll}
-              />
+      {/* Timeline */}
+      <div className="mt-8">
+        {loadingEvents ? (
+          // Season change in progress: pages still loading
+          <div className="flex items-center gap-2 text-text-muted">
+            <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+            Caricamento partite...
+          </div>
+        ) : (
+          <>
+            <MatchTimeline
+              events={displayEvents}
+              selectedEventIds={selectedEventIds}
+              detailsMap={detailsMap}
+              detailsLoadedIds={detailsLoadedIds}
+              showCommitted={showCommitted}
+              showSuffered={showSuffered}
+              onToggleMatch={toggleMatch}
+              toggleMode={toggleMode}
+              onToggleAll={handleToggleAll}
+              isBackgroundLoading={hasTimelineSpinner}
+            />
 
-              {/* Selected match cards */}
-              {selectedEvents.length > 0 && (
-                <div className="flex flex-wrap items-stretch gap-2 mt-6">
-                  {selectedEvents.map((event, index) => (
-                    <SyncedCardSlot
-                      key={event.id}
+            {selectedEvents.length > 0 && (
+              <div className="flex flex-wrap items-stretch gap-2 mt-6">
+                {selectedEvents.map((event, index) => (
+                  <SyncedCardSlot
+                    key={event.id}
+                    panelIndex={panelIndex}
+                    cardIndex={index}
+                    isSplitView={isSplitView}
+                    details={detailsMap.get(event.id)}
+                    className={`${cardWidthClass} flex`}
+                  >
+                    <MatchCard
+                      event={event}
+                      playerId={playerId}
+                      playerTeamId={resolvedPlayer?.team?.id}
+                      showCommitted={showCommitted}
+                      showSuffered={showSuffered}
                       panelIndex={panelIndex}
-                      cardIndex={index}
-                      isSplitView={isSplitView}
-                      details={detailsMap.get(event.id)}
-                      className={`${cardWidthClass} flex`}
-                    >
-                      <MatchCard
-                        event={event}
-                        playerId={playerId}
-                        playerTeamId={resolvedPlayer?.team?.id}
-                        showCommitted={showCommitted}
-                        showSuffered={showSuffered}
-                        panelIndex={panelIndex}
-                        detailsMap={detailsMap}
-                        selectedTournaments={selectedTournaments}
-                        onDeselect={deselectMatch}
-                        cardCount={cardCount}
-                      />
-                    </SyncedCardSlot>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+                      detailsMap={detailsMap}
+                      selectedTournaments={selectedTournaments}
+                      onDeselect={deselectMatch}
+                      cardCount={cardCount}
+                    />
+                  </SyncedCardSlot>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

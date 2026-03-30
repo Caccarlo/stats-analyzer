@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { TournamentSeason, PlayerSeasonStats, AggregatedStats, Season } from '@/types';
+import type { TournamentSeason, PlayerSeasonStats, AggregatedStats } from '@/types';
 import { getPlayerSeasons, getPlayerSeasonStats } from '@/api/sofascore';
 import { calculateStats } from '@/utils/statsCalculator';
+
+export type SelectedPeriod =
+  | { type: 'last'; count: 5 | 10 | 15 | 20 | 30 }
+  | { type: 'season'; year: string };
 
 interface SelectedTournament {
   tournamentId: number;
@@ -13,8 +17,9 @@ interface SelectedTournament {
 interface PlayerDataResult {
   tournamentSeasons: TournamentSeason[];
   availableSeasonYears: string[];
-  selectedSeasonYear: string;
-  setSelectedSeasonYear: (year: string) => void;
+  selectedPeriod: SelectedPeriod;
+  setSelectedPeriod: (p: SelectedPeriod) => void;
+  currentSeasonYear: string;
   selectedTournaments: SelectedTournament[];
   toggleTournament: (tournamentId: number) => void;
   showCommitted: boolean;
@@ -25,7 +30,7 @@ interface PlayerDataResult {
   setShowHome: (v: boolean) => void;
   showAway: boolean;
   setShowAway: (v: boolean) => void;
-  showCards: boolean; 
+  showCards: boolean;
   setShowCards: (v: boolean) => void;
   showStartersOnly: boolean;
   setShowStartersOnly: (v: boolean) => void;
@@ -41,7 +46,7 @@ interface PlayerDataResult {
 
 export function usePlayerData(playerId: number | null): PlayerDataResult {
   const [tournamentSeasons, setTournamentSeasons] = useState<TournamentSeason[]>([]);
-  const [selectedSeasonYear, setSelectedSeasonYear] = useState('');
+  const [selectedPeriod, setSelectedPeriod] = useState<SelectedPeriod>({ type: 'last', count: 5 });
   const [enabledTournaments, setEnabledTournaments] = useState<Set<number>>(new Set());
   const [statsByTournament, setStatsByTournament] = useState<Map<number, PlayerSeasonStats>>(new Map());
   const [showCommitted, setShowCommitted] = useState(true);
@@ -56,7 +61,33 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
   const [error, setError] = useState<string | null>(null);
   const cache = useRef<Map<string, PlayerSeasonStats>>(new Map());
 
-  // Carica stagioni del giocatore
+  // All season years available for this player, sorted descending
+  const availableSeasonYears = Array.from(
+    new Set(tournamentSeasons.flatMap((ts) => ts.seasons.map((s) => s.year)))
+  ).sort().reverse();
+
+  // The season year to use for tournament/season lookups.
+  // When period is 'last', we always use the most recent available season.
+  const currentSeasonYear =
+    selectedPeriod.type === 'season'
+      ? selectedPeriod.year
+      : availableSeasonYears[0] ?? '';
+
+  // Tournaments available for the current season year
+  const tournamentsForSeason = tournamentSeasons
+    .map((ts) => {
+      const season = ts.seasons.find((s) => s.year === currentSeasonYear);
+      if (!season) return null;
+      return {
+        tournamentId: ts.uniqueTournament.id,
+        tournamentName: ts.uniqueTournament.name,
+        seasonId: season.id,
+        seasonName: season.name,
+      };
+    })
+    .filter((x): x is SelectedTournament => x !== null);
+
+  // Load player seasons
   useEffect(() => {
     if (!playerId) return;
 
@@ -68,15 +99,7 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
       .then((ts) => {
         if (cancelled) return;
         setTournamentSeasons(ts);
-
-        // Trova tutte le stagioni disponibili (per anno)
-        const years = new Set<string>();
-        ts.forEach((t) => t.seasons.forEach((s) => years.add(s.year)));
-        const sorted = Array.from(years).sort().reverse();
-
-        if (sorted.length > 0 && !selectedSeasonYear) {
-          setSelectedSeasonYear(sorted[0]);
-        }
+        // No need to auto-set selectedPeriod: default 'last:5' uses availableSeasonYears[0] automatically
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -88,26 +111,12 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     return () => { cancelled = true; };
   }, [playerId]);
 
-  // Calcola quali tornei sono disponibili per la stagione selezionata
-  const tournamentsForSeason = tournamentSeasons
-    .map((ts) => {
-      const season = ts.seasons.find((s) => s.year === selectedSeasonYear);
-      if (!season) return null;
-      return {
-        tournamentId: ts.uniqueTournament.id,
-        tournamentName: ts.uniqueTournament.name,
-        seasonId: season.id,
-        seasonName: season.name,
-      };
-    })
-    .filter((x): x is SelectedTournament => x !== null);
-
-  // Quando cambia la stagione, abilita tutti i tornei
+  // When season changes, enable all tournaments for that season
   useEffect(() => {
     setEnabledTournaments(new Set(tournamentsForSeason.map((t) => t.tournamentId)));
-  }, [selectedSeasonYear, tournamentSeasons.length]);
+  }, [currentSeasonYear, tournamentSeasons.length]);
 
-  // Carica stats per ogni torneo della stagione
+  // Load stats for each tournament in the current season
   useEffect(() => {
     if (!playerId || tournamentsForSeason.length === 0) return;
 
@@ -141,9 +150,9 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
       });
 
     return () => { cancelled = true; };
-  }, [playerId, selectedSeasonYear, tournamentsForSeason.length]);
+  }, [playerId, currentSeasonYear, tournamentsForSeason.length]);
 
-  // Calcola stats aggregate (solo tornei abilitati)
+  // Aggregate stats (only enabled tournaments)
   const enabledStats = Array.from(statsByTournament.entries())
     .filter(([tid]) => enabledTournaments.has(tid))
     .map(([, s]) => s);
@@ -162,10 +171,6 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     });
   }, []);
 
-  const availableSeasonYears = Array.from(
-    new Set(tournamentSeasons.flatMap((ts) => ts.seasons.map((s) => s.year)))
-  ).sort().reverse();
-
   const selectedTournaments = tournamentsForSeason.filter((t) =>
     enabledTournaments.has(t.tournamentId)
   );
@@ -173,8 +178,9 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
   return {
     tournamentSeasons,
     availableSeasonYears,
-    selectedSeasonYear,
-    setSelectedSeasonYear,
+    selectedPeriod,
+    setSelectedPeriod,
+    currentSeasonYear,
     selectedTournaments,
     toggleTournament,
     showCommitted,
@@ -185,7 +191,7 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     setShowHome,
     showAway,
     setShowAway,
-    showCards, 
+    showCards,
     setShowCards,
     showStartersOnly,
     setShowStartersOnly,

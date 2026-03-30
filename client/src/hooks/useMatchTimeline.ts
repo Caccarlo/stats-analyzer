@@ -1,51 +1,40 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { getPlayerEvents } from '@/api/sofascore';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import type { MatchEvent } from '@/types';
 
 export interface UseMatchTimelineResult {
-  filteredEvents: MatchEvent[];
-  selectedEventIds: Set<number>;
+  allEvents: MatchEvent[];
   detailsMap: Map<number, CachedMatchDetails>;
   detailsLoadedIds: Set<number>;
   loadingEvents: boolean;
-  toggleMatch: (eventId: number) => void;
-  deselectMatch: (eventId: number) => void;
-  selectAll: () => void;
-  deselectAll: () => void;
+  initialDetailsLoaded: boolean;
 }
 
 export function useMatchTimeline(
   playerId: number,
-  selectedTournamentIds: Set<number>,
   validSeasonIds: Set<number>,
 ): UseMatchTimelineResult {
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
-  const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
   const [loadingEvents, setLoadingEvents] = useState(true);
 
-  // Use ref for tracking loaded details to avoid stale closures
+  // Ref to track which event details have already been fetched (avoids duplicate requests)
   const loadedIdsRef = useRef<Set<number>>(new Set());
-  const preSelectedRef = useRef(false);
 
-  // Serialize validSeasonIds for stable dependency comparison
   const seasonIdsKey = useMemo(
     () => [...validSeasonIds].sort().join(','),
     [validSeasonIds],
   );
 
-  // ── Load event pages, stopping once past the current season ──
+  // ── Load event pages for the current season only ──
   useEffect(() => {
-    // Don't load until we know which seasons are valid
     if (validSeasonIds.size === 0) return;
 
     let cancelled = false;
-    preSelectedRef.current = false;
     loadedIdsRef.current = new Set();
     setAllEvents([]);
-    setSelectedEventIds(new Set());
     setDetailsMap(new Map());
     setLoadingEvents(true);
 
@@ -53,20 +42,26 @@ export function useMatchTimeline(
       let page = 0;
       let accumulated: MatchEvent[] = [];
       let hasMore = true;
+      // Track whether we've found relevant events yet.
+      // Only stop early AFTER we've found some and then a page has none —
+      // this fixes the bug where 24/25 events were never reached because
+      // the first pages (all 25/26) triggered an early stop.
+      let foundRelevant = false;
 
       while (hasMore && !cancelled) {
         try {
           const { events: pageEvents, hasNextPage } = await getPlayerEvents(playerId, page);
           if (cancelled) return;
 
-          // Keep only completed matches from valid seasons
           const relevant = pageEvents.filter(
             (e) => e.status?.code === 100 && validSeasonIds.has(e.season?.id),
           );
           accumulated = [...accumulated, ...relevant];
 
-          // If this page had events but none matched our season, we've gone past it — stop
-          if (pageEvents.length > 0 && relevant.length === 0) break;
+          if (relevant.length > 0) foundRelevant = true;
+
+          // Stop only after we've found season events and then a page has none
+          if (foundRelevant && pageEvents.length > 0 && relevant.length === 0) break;
 
           hasMore = hasNextPage;
           page++;
@@ -76,7 +71,6 @@ export function useMatchTimeline(
       }
 
       if (!cancelled) {
-        // Sort descending by date (most recent first)
         accumulated.sort((a, b) => b.startTimestamp - a.startTimestamp);
         setAllEvents(accumulated);
         setLoadingEvents(false);
@@ -87,43 +81,16 @@ export function useMatchTimeline(
     return () => { cancelled = true; };
   }, [playerId, seasonIdsKey]);
 
-  // ── Filtered events by selected tournaments (derived) ──
-  const filteredEvents = useMemo(() => {
-    if (selectedTournamentIds.size === 0) return allEvents;
-    return allEvents.filter((e) =>
-      selectedTournamentIds.has(e.tournament?.uniqueTournament?.id),
-    );
-  }, [allEvents, selectedTournamentIds]);
-
-  // ── Pre-select last N matches after initial load ──
-  useEffect(() => {
-    if (preSelectedRef.current || filteredEvents.length === 0 || loadingEvents) return;
-    preSelectedRef.current = true;
-
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const count = isMobile ? 1 : 3;
-    const initialIds = new Set(filteredEvents.slice(0, count).map((e) => e.id));
-    setSelectedEventIds(initialIds);
-  }, [filteredEvents, loadingEvents]);
-
-  // ── Prune selection when filters remove events ──
-  useEffect(() => {
-    const validIds = new Set(filteredEvents.map((e) => e.id));
-    setSelectedEventIds((prev) => {
-      const pruned = new Set([...prev].filter((id) => validIds.has(id)));
-      if (pruned.size === prev.size) return prev;
-      return pruned;
-    });
-  }, [filteredEvents]);
-
   // ── Progressive detail loading ──
+  // Critically: this runs on allEvents, NEVER on the filtered/display subset.
+  // This means filter changes in PlayerPage never interrupt or restart this loop.
   useEffect(() => {
-    if (filteredEvents.length === 0) return;
+    if (allEvents.length === 0) return;
 
     let cancelled = false;
 
     async function loadAllDetails() {
-      const eventIds = filteredEvents.map((e) => e.id);
+      const eventIds = allEvents.map((e) => e.id);
 
       for (let i = 0; i < eventIds.length; i += 5) {
         if (cancelled) return;
@@ -161,20 +128,6 @@ export function useMatchTimeline(
             }
             return next;
           });
-
-          // ── AGGIUNTA QUI ──
-          const notPlayedIds = batchResults
-            .filter(({ result }) => result.didNotPlay)
-            .map(({ eventId }) => eventId);
-
-          if (notPlayedIds.length > 0) {
-            setSelectedEventIds((prev) => {
-              const next = new Set(prev);
-              notPlayedIds.forEach((id) => next.delete(id));
-              return next;
-            });
-          }
-          // ── FINE AGGIUNTA ──
         }
 
         if (i + 5 < eventIds.length) {
@@ -185,52 +138,26 @@ export function useMatchTimeline(
 
     loadAllDetails();
     return () => { cancelled = true; };
-  }, [filteredEvents, playerId]);
+  }, [allEvents, playerId]);
 
-  // ── Derived: loaded IDs set for rendering ──
+  // ── Derived ──
   const detailsLoadedIds = useMemo(
     () => new Set(detailsMap.keys()),
     [detailsMap],
   );
 
-  // ── Actions ──
-  const toggleMatch = useCallback((eventId: number) => {
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventId)) {
-        next.delete(eventId);
-      } else {
-        next.add(eventId);
-      }
-      return next;
-    });
-  }, []);
-
-  const deselectMatch = useCallback((eventId: number) => {
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      next.delete(eventId);
-      return next;
-    });
-  }, []);
-
-  const selectAll = useCallback(() => {
-    setSelectedEventIds(new Set(filteredEvents.map((e) => e.id)));
-  }, [filteredEvents]);
-
-  const deselectAll = useCallback(() => {
-    setSelectedEventIds(new Set());
-  }, []);
+  // True once the first 5 events (or all events if fewer than 5) have their details loaded.
+  // Used by PlayerPage to know when to dismiss the full-page loader on first visit.
+  const initialDetailsLoaded = useMemo(() => {
+    const first5 = allEvents.slice(0, 5);
+    return first5.length > 0 && first5.every((e) => detailsMap.has(e.id));
+  }, [allEvents, detailsMap]);
 
   return {
-    filteredEvents,
-    selectedEventIds,
+    allEvents,
     detailsMap,
     detailsLoadedIds,
     loadingEvents,
-    toggleMatch,
-    deselectMatch,
-    selectAll,
-    deselectAll,
+    initialDetailsLoaded,
   };
 }

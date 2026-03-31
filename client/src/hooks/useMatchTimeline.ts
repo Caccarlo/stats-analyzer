@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { getPlayerTournamentSeasonEvents } from '@/api/sofascore';
+import { getPlayerEvents } from '@/api/sofascore';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import type { MatchEvent } from '@/types';
@@ -30,20 +30,20 @@ export function useMatchTimeline(
   // Ref to track which event details have already been fetched (avoids duplicate requests)
   const loadedIdsRef = useRef<Set<number>>(new Set());
 
-  const tournamentsKey = useMemo(
-    () =>
-      tournamentsForSeason
-        .map((t) => `${t.tournamentId}:${t.seasonId}`)
-        .sort()
-        .join(','),
+  // Derive validSeasonIds from tournamentsForSeason for event filtering
+  const validSeasonIds = useMemo(
+    () => new Set(tournamentsForSeason.map((t) => t.seasonId)),
     [tournamentsForSeason],
   );
 
-  // ── Load events for each tournament/season in parallel ──
-  // Uses the per-season endpoint instead of the chronological all-time list,
-  // so old seasons (e.g. 23/24) load in ~1-2 pages instead of 8+ sequential pages.
+  const seasonIdsKey = useMemo(
+    () => [...validSeasonIds].sort().join(','),
+    [validSeasonIds],
+  );
+
+  // ── Load event pages for the current season only ──
   useEffect(() => {
-    if (tournamentsForSeason.length === 0) return;
+    if (validSeasonIds.size === 0) return;
 
     let cancelled = false;
     loadedIdsRef.current = new Set();
@@ -52,46 +52,46 @@ export function useMatchTimeline(
     setFailedIds(new Set());
     setLoadingEvents(true);
 
-    async function loadOneTournament(tournamentId: number, seasonId: number): Promise<MatchEvent[]> {
-      const collected: MatchEvent[] = [];
+    async function loadPages() {
       let page = 0;
+      let accumulated: MatchEvent[] = [];
+      let hasMore = true;
+      // Only stop early AFTER we've found some events and then a page has none —
+      // this prevents stopping too early when first pages belong to a newer season.
+      let foundRelevant = false;
 
-      while (!cancelled) {
+      while (hasMore && !cancelled) {
         try {
-          const { events: pageEvents, hasNextPage } =
-            await getPlayerTournamentSeasonEvents(playerId, tournamentId, seasonId, page);
-          if (cancelled) break;
+          const { events: pageEvents, hasNextPage } = await getPlayerEvents(playerId, page);
+          if (cancelled) return;
 
-          // Only finished matches (status.code === 100)
-          collected.push(...pageEvents.filter((e) => e.status?.code === 100));
+          const relevant = pageEvents.filter(
+            (e) => e.status?.code === 100 && validSeasonIds.has(e.season?.id),
+          );
+          accumulated = [...accumulated, ...relevant];
 
-          if (!hasNextPage) break;
+          if (relevant.length > 0) foundRelevant = true;
+
+          // Stop only after we've found season events and then a page has none
+          if (foundRelevant && pageEvents.length > 0 && relevant.length === 0) break;
+
+          hasMore = hasNextPage;
           page++;
         } catch {
-          break; // Network error — stop this tournament's pagination
+          break;
         }
       }
 
-      return collected;
+      if (!cancelled) {
+        accumulated.sort((a, b) => b.startTimestamp - a.startTimestamp);
+        setAllEvents(accumulated);
+        setLoadingEvents(false);
+      }
     }
 
-    async function loadAll() {
-      const perTournamentResults = await Promise.all(
-        tournamentsForSeason.map((t) => loadOneTournament(t.tournamentId, t.seasonId)),
-      );
-
-      if (cancelled) return;
-
-      const merged = perTournamentResults.flat();
-      merged.sort((a, b) => b.startTimestamp - a.startTimestamp);
-
-      setAllEvents(merged);
-      setLoadingEvents(false);
-    }
-
-    loadAll();
+    loadPages();
     return () => { cancelled = true; };
-  }, [playerId, tournamentsKey]);
+  }, [playerId, seasonIdsKey]);
 
   // ── Progressive detail loading ──
   // Critically: this runs on allEvents, NEVER on the filtered/display subset.
@@ -167,11 +167,12 @@ export function useMatchTimeline(
   );
 
   // True once the first 5 events (or all events if fewer than 5) have their details loaded.
-  // Used by PlayerPage to know when to dismiss the full-page loader on first visit.
+  // Also true when loading is complete but there are no events (player has no matches in season).
   const initialDetailsLoaded = useMemo(() => {
+    if (!loadingEvents && allEvents.length === 0) return true;
     const first5 = allEvents.slice(0, 5);
     return first5.length > 0 && first5.every((e) => detailsMap.has(e.id));
-  }, [allEvents, detailsMap]);
+  }, [allEvents, detailsMap, loadingEvents]);
 
   return {
     allEvents,

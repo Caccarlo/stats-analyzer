@@ -11,7 +11,6 @@ interface MatchTimelineProps {
   onToggleMatch: (eventId: number) => void;
   toggleMode: 'select' | 'deselect';
   onToggleAll: () => void;
-  isBackgroundLoading?: boolean;
 }
 
 function abbreviateTournament(name: string): string {
@@ -44,23 +43,15 @@ export default function MatchTimeline({
   onToggleMatch,
   toggleMode,
   onToggleAll,
-  isBackgroundLoading = false,
 }: MatchTimelineProps) {
   if (events.length === 0) return null;
 
   return (
     <div>
-      {/* Header: titolo + spinner background + toggle seleziona/deseleziona tutte */}
       <div className="flex items-center gap-3 mb-3">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
           Timeline partite ({events.length})
         </h3>
-        {isBackgroundLoading && (
-          <div
-            className="w-3.5 h-3.5 border-2 border-neon border-t-transparent rounded-full animate-spin flex-shrink-0"
-            title="Caricamento dettagli in corso..."
-          />
-        )}
         <button
           onClick={onToggleAll}
           className="flex items-center gap-2 group"

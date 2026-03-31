@@ -17,9 +17,9 @@ export interface UseMatchTimelineResult {
   detailsLoadedIds: Set<number>;
   lineupsLoadedIds: Set<number>;
   loadingEvents: boolean;
-  initialStatsLoaded: boolean;
+  allOfficialStatsLoaded: boolean;
   allLineupsLoaded: boolean;
-  isBackgroundLoading: boolean;
+  recentRichLoaded: boolean;
   requestRichDetails: (eventId: number) => void;
 }
 
@@ -44,10 +44,10 @@ export function useMatchTimeline(
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
   const [loadingEvents, setLoadingEvents] = useState(true);
-  const [initialStatsLoaded, setInitialStatsLoaded] = useState(false);
+  const [allOfficialStatsLoaded, setAllOfficialStatsLoaded] = useState(false);
   const [lineupsLoadedIds, setLineupsLoadedIds] = useState<Set<number>>(new Set());
   const [allLineupsLoaded, setAllLineupsLoaded] = useState(false);
-  const [richLoadedCount, setRichLoadedCount] = useState(0);
+  const [recentRichLoaded, setRecentRichLoaded] = useState(false);
 
   const statsLoadingRef = useRef(false);
   const lineupsLoadingRef = useRef(false);
@@ -70,10 +70,10 @@ export function useMatchTimeline(
     setAllEvents([]);
     setDetailsMap(new Map());
     setLoadingEvents(true);
-    setInitialStatsLoaded(false);
+    setAllOfficialStatsLoaded(false);
     setLineupsLoadedIds(new Set());
     setAllLineupsLoaded(false);
-    setRichLoadedCount(0);
+    setRecentRichLoaded(false);
 
     async function loadPages() {
       let page = 0;
@@ -124,6 +124,11 @@ export function useMatchTimeline(
         setAllEvents(accumulated);
         setDetailsMap(sortedDetails);
         setLoadingEvents(false);
+        if (accumulated.length === 0) {
+          setAllOfficialStatsLoaded(true);
+          setAllLineupsLoaded(true);
+          setRecentRichLoaded(true);
+        }
         // initialStatsLoaded viene settato dal loop officialStats quando il primo batch è pronto
       }
     }
@@ -141,12 +146,10 @@ export function useMatchTimeline(
     statsLoadingRef.current = true;
 
     let cancelled = false;
-    let firstBatchDone = false;
 
     async function loadAllOfficialStats() {
       const BATCH = 8;
       const DELAY = 100;
-      const INITIAL_THRESHOLD = Math.min(5, allEvents.length);
 
       for (let i = 0; i < allEvents.length; i += BATCH) {
         if (cancelled) return;
@@ -196,20 +199,13 @@ export function useMatchTimeline(
           return next;
         });
 
-        // Sblocca la pagina dopo il primo batch (prime INITIAL_THRESHOLD partite)
-        if (!firstBatchDone && i + BATCH >= INITIAL_THRESHOLD) {
-          firstBatchDone = true;
-          if (!cancelled) setInitialStatsLoaded(true);
-        }
-
         if (i + BATCH < allEvents.length) {
           await new Promise((r) => setTimeout(r, DELAY));
         }
       }
 
-      // Assicura che initialStatsLoaded sia true anche per dataset piccoli
-      if (!cancelled && !firstBatchDone) {
-        setInitialStatsLoaded(true);
+      if (!cancelled) {
+        setAllOfficialStatsLoaded(true);
       }
     }
 
@@ -359,11 +355,13 @@ export function useMatchTimeline(
           return next;
         });
 
-        setRichLoadedCount((prev) => prev + batchResults.filter((r) => Object.keys(r.patch).length > 0).length);
-
         if (i + BATCH < richTargets.length) {
           await new Promise((r) => setTimeout(r, DELAY));
         }
+      }
+
+      if (!cancelled) {
+        setRecentRichLoaded(true);
       }
     }
 
@@ -418,17 +416,15 @@ export function useMatchTimeline(
     [detailsMap],
   );
 
-  const isBackgroundLoading = !allLineupsLoaded || richLoadedCount < Math.min(5, allEvents.length);
-
   return {
     allEvents,
     detailsMap,
     detailsLoadedIds,
     lineupsLoadedIds,
     loadingEvents,
-    initialStatsLoaded,
+    allOfficialStatsLoaded,
     allLineupsLoaded,
-    isBackgroundLoading,
+    recentRichLoaded,
     requestRichDetails,
   };
 }

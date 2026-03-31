@@ -46,7 +46,7 @@ interface PlayerDataResult {
 
 export function usePlayerData(playerId: number | null): PlayerDataResult {
   const [tournamentSeasons, setTournamentSeasons] = useState<TournamentSeason[]>([]);
-  const [selectedPeriod, setSelectedPeriod] = useState<SelectedPeriod>({ type: 'last', count: 5 });
+  const [selectedPeriod, setSelectedPeriod] = useState<SelectedPeriod>({ type: 'season', year: '' });
   const [enabledTournaments, setEnabledTournaments] = useState<Set<number>>(new Set());
   const [statsByTournament, setStatsByTournament] = useState<Map<number, PlayerSeasonStats>>(new Map());
   const [showCommitted, setShowCommitted] = useState(true);
@@ -72,6 +72,17 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     selectedPeriod.type === 'season'
       ? selectedPeriod.year
       : availableSeasonYears[0] ?? '';
+
+  useEffect(() => {
+    if (availableSeasonYears.length === 0) return;
+
+    setSelectedPeriod((prev) => {
+      if (prev.type === 'season' && availableSeasonYears.includes(prev.year)) {
+        return prev;
+      }
+      return { type: 'season', year: availableSeasonYears[0] };
+    });
+  }, [availableSeasonYears]);
 
   // Tournaments available for the current season year
   const tournamentsForSeason = tournamentSeasons
@@ -99,7 +110,6 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
       .then((ts) => {
         if (cancelled) return;
         setTournamentSeasons(ts);
-        // No need to auto-set selectedPeriod: default 'last:5' uses availableSeasonYears[0] automatically
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);

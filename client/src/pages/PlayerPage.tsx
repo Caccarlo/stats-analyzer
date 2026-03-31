@@ -125,9 +125,9 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     detailsMap,
     detailsLoadedIds,
     loadingEvents,
-    initialStatsLoaded,
+    allOfficialStatsLoaded,
     allLineupsLoaded,
-    isBackgroundLoading,
+    recentRichLoaded,
     requestRichDetails,
   } = useMatchTimeline(playerId, validSeasonIds);
 
@@ -189,12 +189,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     const seasonKey = [...validSeasonIds].sort().join(',');
     const key = `${playerId}-${seasonKey}`;
     if (preSelectedKeyRef.current === key) return;
-    if (displayEvents.length === 0 || !initialStatsLoaded) return;
+    if (displayEvents.length === 0 || !allOfficialStatsLoaded || !allLineupsLoaded || !recentRichLoaded) return;
     preSelectedKeyRef.current = key;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const count = isMobile ? 1 : 3;
     setSelectedEventIds(new Set(displayEvents.slice(0, count).map((e) => e.id)));
-  }, [displayEvents, initialStatsLoaded, playerId, validSeasonIds]);
+  }, [displayEvents, allOfficialStatsLoaded, allLineupsLoaded, recentRichLoaded, playerId, validSeasonIds]);
 
   // Prune selection when displayEvents shrinks (e.g. filter change removes events)
   useEffect(() => {
@@ -340,37 +340,19 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   }, [toggleMode, selectAll, deselectAll]);
 
   // ── Full-page loader: only on the very first visit (never on filter/season changes) ──
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
-  useEffect(() => {
-    if (initialStatsLoaded && !initialLoadComplete) {
-      setInitialLoadComplete(true);
-    }
-  }, [initialStatsLoaded]);
+  const pageSectionLoading =
+    loadingEvents ||
+    !allOfficialStatsLoaded ||
+    !allLineupsLoaded ||
+    !recentRichLoaded;
 
   // ── Stato di caricamento per filtro Titolare ──
-  const starterFilterLoading = showStartersOnly && !allLineupsLoaded;
-
   const displayPlayer: Player = resolvedPlayer ?? {
     id: playerId,
     name: `Giocatore #${playerId}`,
     slug: '',
     position: '',
   };
-
-  // First visit: show header + full-page loader
-  if (!initialLoadComplete) {
-    return (
-      <div className="min-w-0">
-        <div className="pb-4 border-b border-border">
-          <PlayerHeader player={displayPlayer} />
-        </div>
-        <div className="flex items-center gap-2 text-text-muted mt-8">
-          <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
-          Caricamento partite...
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-w-0">
@@ -412,79 +394,71 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         </div>
       )}
 
-      {/* Stats overview */}
-      {derivedStats && (
-        <div className="mt-6">
-          <StatsOverview
-            stats={derivedStats.stats}
-            showCommitted={showCommitted}
-            showSuffered={showSuffered}
-            showCards={showCards}
-            committedLine={committedLine}
-            sufferedLine={sufferedLine}
-            committedHitRate={derivedStats.committedHitRate}
-            sufferedHitRate={derivedStats.sufferedHitRate}
-          />
-        </div>
-      )}
-
-      {/* Timeline */}
       <div className="mt-8">
-        {loadingEvents ? (
-          // Season change in progress: pages still loading
+        {pageSectionLoading ? (
           <div className="flex items-center gap-2 text-text-muted">
             <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
-            Caricamento partite...
-          </div>
-        ) : starterFilterLoading ? (
-          // Filtro Titolare attivo ma lineups non ancora pronte
-          <div className="flex items-center gap-2 text-text-muted">
-            <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
-            Caricamento formazioni per applicare il filtro Titolare...
+            Caricamento dati giocatore...
           </div>
         ) : (
           <>
-            <MatchTimeline
-              events={displayEvents}
-              selectedEventIds={selectedEventIds}
-              detailsMap={detailsMap}
-              detailsLoadedIds={detailsLoadedIds}
-              showCommitted={showCommitted}
-              showSuffered={showSuffered}
-              onToggleMatch={toggleMatch}
-              toggleMode={toggleMode}
-              onToggleAll={handleToggleAll}
-              isBackgroundLoading={isBackgroundLoading}
-            />
-
-            {selectedEvents.length > 0 && (
-              <div className="flex flex-wrap items-stretch gap-2 mt-6">
-                {selectedEvents.map((event, index) => (
-                  <SyncedCardSlot
-                    key={event.id}
-                    panelIndex={panelIndex}
-                    cardIndex={index}
-                    isSplitView={isSplitView}
-                    details={detailsMap.get(event.id)}
-                    className={`${cardWidthClass} flex`}
-                  >
-                    <MatchCard
-                      event={event}
-                      playerId={playerId}
-                      playerTeamId={resolvedPlayer?.team?.id}
-                      showCommitted={showCommitted}
-                      showSuffered={showSuffered}
-                      panelIndex={panelIndex}
-                      detailsMap={detailsMap}
-                      selectedTournaments={selectedTournaments}
-                      onDeselect={deselectMatch}
-                      cardCount={cardCount}
-                      onRequestRichDetails={requestRichDetails}
-                    />
-                  </SyncedCardSlot>
-                ))}
+            {derivedStats && (
+              <div className="mt-6">
+                <StatsOverview
+                  stats={derivedStats.stats}
+                  showCommitted={showCommitted}
+                  showSuffered={showSuffered}
+                  showCards={showCards}
+                  committedLine={committedLine}
+                  sufferedLine={sufferedLine}
+                  committedHitRate={derivedStats.committedHitRate}
+                  sufferedHitRate={derivedStats.sufferedHitRate}
+                />
               </div>
             )}
+
+            <div className="mt-8">
+              <MatchTimeline
+                events={displayEvents}
+                selectedEventIds={selectedEventIds}
+                detailsMap={detailsMap}
+                detailsLoadedIds={detailsLoadedIds}
+                showCommitted={showCommitted}
+                showSuffered={showSuffered}
+                onToggleMatch={toggleMatch}
+                toggleMode={toggleMode}
+                onToggleAll={handleToggleAll}
+              />
+
+              {selectedEvents.length > 0 && (
+                <div className="flex flex-wrap items-stretch gap-2 mt-6">
+                  {selectedEvents.map((event, index) => (
+                    <SyncedCardSlot
+                      key={event.id}
+                      panelIndex={panelIndex}
+                      cardIndex={index}
+                      isSplitView={isSplitView}
+                      details={detailsMap.get(event.id)}
+                      className={`${cardWidthClass} flex`}
+                    >
+                      <MatchCard
+                        event={event}
+                        playerId={playerId}
+                        playerTeamId={resolvedPlayer?.team?.id}
+                        showCommitted={showCommitted}
+                        showSuffered={showSuffered}
+                        panelIndex={panelIndex}
+                        detailsMap={detailsMap}
+                        selectedTournaments={selectedTournaments}
+                        onDeselect={deselectMatch}
+                        cardCount={cardCount}
+                        onRequestRichDetails={requestRichDetails}
+                      />
+                    </SyncedCardSlot>
+                  ))}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

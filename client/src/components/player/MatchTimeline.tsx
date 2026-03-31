@@ -53,9 +53,7 @@ export default function MatchTimeline({
       {/* Header: titolo + spinner background + toggle seleziona/deseleziona tutte */}
       <div className="flex items-center gap-3 mb-3">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
-          Timeline partite ({isBackgroundLoading
-            ? `${events.filter(e => detailsLoadedIds.has(e.id)).length}/${events.length}`
-            : events.length})
+          Timeline partite ({events.length})
         </h3>
         {isBackgroundLoading && (
           <div

@@ -149,6 +149,148 @@ function mergeWithSeed(cached: CachedMatchDetails, seed?: MatchDetailsSeed): Cac
   };
 }
 
+// ── Fetch solo officialStats per una partita specifica ──
+export async function fetchMatchOfficialStats(
+  eventId: number,
+  playerId: number,
+  seedStats: PlayerMatchStatistics | null,
+): Promise<{
+  officialStats: PlayerMatchStatistics | null;
+  officialStatsStatus: DataAvailability;
+}> {
+  const key = `${eventId}-${playerId}`;
+
+  if (matchPlayerStatsCache.has(key)) {
+    const stats = matchPlayerStatsCache.get(key) ?? null;
+    return {
+      officialStats: stats,
+      officialStatsStatus: stats ? 'loaded' : 'unavailable',
+    };
+  }
+
+  try {
+    const stats = await getPlayerMatchStatistics(eventId, playerId);
+    matchPlayerStatsCache.set(key, stats);
+    const resolved = stats ?? seedStats;
+    return {
+      officialStats: resolved,
+      officialStatsStatus: resolved ? 'loaded' : 'unavailable',
+    };
+  } catch {
+    return {
+      officialStats: seedStats,
+      officialStatsStatus: seedStats ? 'loaded' : 'error',
+    };
+  }
+}
+
+// ── Patch helper: aggiorna parzialmente la cache senza sovrascrivere tutti i campi ──
+export function patchMatchDetailsCache(
+  eventId: number,
+  playerId: number,
+  patch: Partial<CachedMatchDetails>,
+): void {
+  const key = `${eventId}-${playerId}`;
+  const existing = matchDetailsCache.get(key);
+  if (existing) {
+    matchDetailsCache.set(key, { ...existing, ...patch });
+  }
+}
+
+// ── Fetch solo lineups (per filtro Titolare, senza bloccare il caricamento principale) ──
+export async function fetchMatchLineupsOnly(
+  eventId: number,
+  playerId: number,
+  onBench: boolean,
+  officialStats: PlayerMatchStatistics | null,
+): Promise<{
+  lineupsStatus: DataAvailability;
+  jerseyMap: Map<number, string>;
+  didNotPlay: boolean;
+  substituteInMinute: number | undefined;
+}> {
+  if (matchLineupsCache.has(eventId)) {
+    const lineups = matchLineupsCache.get(eventId) ?? null;
+    const lineupsStatus: DataAvailability = lineups ? 'loaded' : 'unavailable';
+    return {
+      lineupsStatus,
+      jerseyMap: buildJerseyMap(lineups),
+      didNotPlay: deriveDidNotPlay(playerId, lineups, onBench, officialStats, undefined),
+      substituteInMinute: undefined,
+    };
+  }
+
+  try {
+    const lineups = await getMatchLineups(eventId);
+    matchLineupsCache.set(eventId, lineups);
+    const lineupsStatus: DataAvailability = lineups ? 'loaded' : 'unavailable';
+    return {
+      lineupsStatus,
+      jerseyMap: buildJerseyMap(lineups),
+      didNotPlay: deriveDidNotPlay(playerId, lineups, onBench, officialStats, undefined),
+      substituteInMinute: undefined,
+    };
+  } catch {
+    return {
+      lineupsStatus: 'error',
+      jerseyMap: new Map(),
+      didNotPlay: onBench && (officialStats?.minutesPlayed == null || officialStats.minutesPlayed === 0),
+      substituteInMinute: undefined,
+    };
+  }
+}
+
+// ── Fetch solo rich data: comments + derivati (fouls, cardInfo, subInfo) ──
+// Non tocca lineups né officialStats.
+export async function fetchMatchRichData(
+  eventId: number,
+  playerId: number,
+  incidents: PlayerEventIncidents | null,
+): Promise<{
+  fouls: FoulMatchup[];
+  commentsStatus: DataAvailability;
+  commentsAvailable: boolean;
+  substituteInMinute: number | undefined;
+  substituteOutMinute: number | undefined;
+  cardInfo: CardInfo | null;
+  cardInfoStatus: DataAvailability;
+}> {
+  let comments: MatchComment[];
+  let commentsStatus: DataAvailability;
+
+  if (matchCommentsCache.has(eventId)) {
+    comments = matchCommentsCache.get(eventId)!;
+    commentsStatus = comments.length > 0 ? 'loaded' : 'unavailable';
+  } else {
+    try {
+      comments = await getMatchComments(eventId);
+      matchCommentsCache.set(eventId, comments);
+      commentsStatus = comments.length > 0 ? 'loaded' : 'unavailable';
+    } catch {
+      comments = [];
+      commentsStatus = 'error';
+    }
+  }
+
+  const fouls = commentsStatus === 'loaded' ? extractFoulsForPlayer(comments, playerId) : [];
+  const subInfo = commentsStatus === 'loaded'
+    ? extractSubstitutionInfo(comments, playerId)
+    : { inMinute: undefined, outMinute: undefined };
+  const commentCardInfo = commentsStatus === 'loaded' ? extractCardInfo(comments, playerId) : null;
+  const cardInfo = deriveCardInfo(incidents, commentCardInfo);
+  const cardInfoStatus = deriveCardStatus(incidents, commentCardInfo, commentsStatus);
+
+  return {
+    fouls,
+    commentsStatus,
+    commentsAvailable: comments.length > 0,
+    substituteInMinute: subInfo.inMinute,
+    substituteOutMinute: subInfo.outMinute,
+    cardInfo,
+    cardInfoStatus,
+  };
+}
+
 export async function fetchMatchDetails(
   eventId: number,
   playerId: number,

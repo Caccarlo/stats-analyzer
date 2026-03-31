@@ -33,7 +33,7 @@ stats-analyzer/
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine, selectedPeriod); exports SelectedPeriod type; currentSeasonYear auto-derived from selectedPeriod (if 'last' uses availableSeasonYears[0])
     │   │   ├── useMatchDetails.ts    # Fetches independent match data sources (official player statistics, comments, lineups) with separate caches/statuses; comments are narrative-only; exports fetchMatchDetails(eventId, playerId)
-    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, seeds per-match official stats/incidents/onBench from player/{id}/events/last/{page}, then progressively enriches allEvents with match details in background
+    │   │   ├── useMatchTimeline.ts   # 4 code dopo events/last: (1) officialStats via event/{id}/player/{id}/statistics (batch 8) → initialStatsLoaded dopo prime 5; (2) lineups (batch 5) → allLineupsLoaded; (3) rich/comments ultime 5; (4) lazy per le altre via requestRichDetails(eventId)
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
     │   │   ├── foulPairing.ts        # Extracts fouls from match comments, pairs them, translates zones
@@ -246,7 +246,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Split view only above 1024px width
 - Match timeline: horizontal scrollable bar with all matches, foul count badges loaded progressively
 - Match cards: always open (not expandable), selectable via timeline; most recent 3 pre-selected on desktop, 1 on mobile
-- Match details loaded progressively in background (batch of 5, 200ms delay between batches) on `allEvents`; cached for session; average-positions loaded on-demand in MatchCard only
+- Match details caricati in 4 code parallele dopo events/last: (1) **officialStats** via `event/{id}/player/{id}/statistics` per tutte le partite (batch 8, 100ms) — `initialStatsLoaded` scatta dopo il primo batch (prime 5); (2) **lineups** per tutte le partite (batch 5, 150ms) → `allLineupsLoaded` abilita filtro Titolare; (3) **rich data** (comments) solo per ultime 5 partite (batch 2, 200ms); (4) per le altre partite, comments caricati lazy al primo render della card selezionata via `onRequestRichDetails`; average-positions on-demand in MatchCard; tutto cached per sessione
 - Card layout: 1 card = 100%, 2 = `calc(50%-4px)`, 3+ = `calc(33.333%-6px)` (flexbox wrap, gap-compensated); 100% below `md:` (768px) and in split view
 - Player who changed team mid-season: separate matches with visual divider showing team name
 - MatchCard layout modes driven by `cardCount`: single (1 card, landscape FieldMap), double (2 cards, portrait FieldMap), multi (3+ cards, portrait FieldMap)
@@ -263,7 +263,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - MatchCard: nome squadra avversaria nell'header e nome giocatore avversario attivo (sopra heatmap) sono cliccabili con `text-text-primary hover:text-neon hover:underline transition-colors`; i bottoni nei commenti falli restano `text-neon` fisso
 - MatchCard: nei commenti falli, il numero di maglia del giocatore coinvolto appare tra parentesi dopo il nome, fuori dal `<button>` cliccabile, in `text-text-muted`
 - StatsOverview è condizionato a `derivedStats !== null`; non c'è spinner di caricamento statistiche separato — i dati appaiono quando le prime partite sono caricate
-- PlayerPage: full-page loader (`initialLoadComplete`) scatta una sola volta al primo caricamento del giocatore; per i cambi di periodo/stagione successivi viene mostrato solo uno spinner nella sezione timeline, non il loader full-page
+- PlayerPage: full-page loader (`initialLoadComplete`) scatta quando `initialStatsLoaded === true` (dopo il primo batch officialStats, prime 5 partite — più veloce della vecchia attesa di stats+comments+lineups); per i cambi di periodo/stagione viene mostrato solo uno spinner nella sezione timeline; se `showStartersOnly && !allLineupsLoaded` viene mostrato un loader contestuale per le formazioni
 
 ## Filters
 
@@ -285,9 +285,10 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Rendered in `PlayerFilters` colonna 2, come bottone affiancato a destra del `<select>` del periodo, sulla stessa riga
 - Disattivo al caricamento; quando attivo mostra solo le partite in cui il giocatore è partito titolare (non dalla panchina)
 - Logica: una partita è "da titolare" se `CachedMatchDetails.substituteInMinute === undefined`
-- Filtro applicato in `PlayerPage` dentro `displayEvents` useMemo, dopo il filtro sede e dopo il filtro didNotPlay; partite senza dettagli ancora caricati vengono escluse (`return false` se `details` è undefined) — cresce progressivamente
-- Dipendenze del `useMemo`: `allEvents`, `showHome`, `showAway`, `resolvedPlayer?.team?.id`, `showStartersOnly`, `detailsMap`, `selectedPeriod`
-- Nessuna chiamata API aggiuntiva: il dato è già presente in `CachedMatchDetails` tramite `extractSubstitutionInfo` in `useMatchDetails`
+- Filtro applicato in `PlayerPage` dentro `displayEvents` useMemo **solo quando `allLineupsLoaded === true`**; se le lineups non sono ancora pronte, `displayEvents` restituisce `[]` per evitare dati parziali
+- Quando `showStartersOnly && !allLineupsLoaded`: PlayerPage mostra un loader contestuale ("Caricamento formazioni...") e nasconde StatsOverview e Timeline
+- Dipendenze del `useMemo`: `allEvents`, `showHome`, `showAway`, `resolvedPlayer?.team?.id`, `showStartersOnly`, `detailsMap`, `selectedPeriod`, `allLineupsLoaded`
+- Le lineups vengono precaricate per tutte le partite in background da `useMatchTimeline` (loop separato, batch 5, 150ms)
 
 ### Did Not Play filter (automatico, non configurabile dall'utente)
 - Non è un filtro esplicito: le partite in cui il giocatore era in panchina senza mai entrare vengono escluse automaticamente

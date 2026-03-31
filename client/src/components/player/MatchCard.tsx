@@ -24,6 +24,7 @@ interface MatchCardProps {
   selectedTournaments: TournamentFilter[];
   onDeselect: (eventId: number) => void;
   cardCount: number;
+  onRequestRichDetails?: (eventId: number) => void;
 }
 
 type CardLayout = 'single' | 'double' | 'multi';
@@ -77,6 +78,7 @@ export default function MatchCard({
   selectedTournaments,
   onDeselect,
   cardCount,
+  onRequestRichDetails,
 }: MatchCardProps) {
   const { openSplitPlayer, swapSplitAndOpenPlayer, openSplitTeam, swapSplitAndOpenTeam, selectPlayer } = useNavigation();
 
@@ -89,6 +91,13 @@ export default function MatchCard({
 
   const fieldRef = useRef<HTMLDivElement>(null);
   const details = detailsMap.get(event.id);
+
+  // Lazy fetch: se la card viene renderizzata e i dati rich non sono ancora stati caricati, li richiede ora
+  useEffect(() => {
+    if (details?.commentsStatus === 'idle') {
+      onRequestRichDetails?.(event.id);
+    }
+  }, [event.id, details?.commentsStatus, onRequestRichDetails]);
 
   useEffect(() => {
     setActivePlayerId(playerId);

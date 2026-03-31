@@ -125,7 +125,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     detailsMap,
     detailsLoadedIds,
     loadingEvents,
-    initialDetailsLoaded,
+    initialStatsLoaded,
+    allLineupsLoaded,
+    isBackgroundLoading,
+    requestRichDetails,
   } = useMatchTimeline(playerId, validSeasonIds);
 
   // ── Display events: all filters applied on top of allEvents ──
@@ -161,19 +164,20 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       }
     }
 
-    // 5. Starter filter (excluded if details not yet loaded → grows progressively)
+    // 5. Starter filter — applicato solo quando tutte le lineups sono caricate
     if (showStartersOnly) {
+      if (!allLineupsLoaded) return []; // non filtrare parzialmente
       events = events.filter((e) => {
         const details = detailsMap.get(e.id);
         if (!details) return false;
-        if (details.substituteInMinute != null) return false;
-        if (details.lineupsStatus === 'loaded') return !details.didNotPlay;
-        return false;
+        if (details.lineupsStatus === 'loaded') return !details.didNotPlay && details.substituteInMinute == null;
+        // lineup unavailable/error: includi solo se officialStats conferma minuti > 0
+        return (details.officialStats?.minutesPlayed ?? 0) > 0 && details.substituteInMinute == null;
       });
     }
 
     return events;
-  }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly]);
+  }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, allLineupsLoaded]);
 
   // ── Selection state (moved here from useMatchTimeline) ──
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
@@ -185,12 +189,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     const seasonKey = [...validSeasonIds].sort().join(',');
     const key = `${playerId}-${seasonKey}`;
     if (preSelectedKeyRef.current === key) return;
-    if (displayEvents.length === 0 || !initialDetailsLoaded) return;
+    if (displayEvents.length === 0 || !initialStatsLoaded) return;
     preSelectedKeyRef.current = key;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const count = isMobile ? 1 : 3;
     setSelectedEventIds(new Set(displayEvents.slice(0, count).map((e) => e.id)));
-  }, [displayEvents, initialDetailsLoaded, playerId, validSeasonIds]);
+  }, [displayEvents, initialStatsLoaded, playerId, validSeasonIds]);
 
   // Prune selection when displayEvents shrinks (e.g. filter change removes events)
   useEffect(() => {
@@ -338,13 +342,13 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   // ── Full-page loader: only on the very first visit (never on filter/season changes) ──
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   useEffect(() => {
-    if (initialDetailsLoaded && !initialLoadComplete) {
+    if (initialStatsLoaded && !initialLoadComplete) {
       setInitialLoadComplete(true);
     }
-  }, [initialDetailsLoaded]);
+  }, [initialStatsLoaded]);
 
-  // ── Timeline spinner: shown when some visible events still lack details ──
-  const hasTimelineSpinner = displayEvents.some((e) => !detailsLoadedIds.has(e.id));
+  // ── Stato di caricamento per filtro Titolare ──
+  const starterFilterLoading = showStartersOnly && !allLineupsLoaded;
 
   const displayPlayer: Player = resolvedPlayer ?? {
     id: playerId,
@@ -431,6 +435,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
             Caricamento partite...
           </div>
+        ) : starterFilterLoading ? (
+          // Filtro Titolare attivo ma lineups non ancora pronte
+          <div className="flex items-center gap-2 text-text-muted">
+            <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+            Caricamento formazioni per applicare il filtro Titolare...
+          </div>
         ) : (
           <>
             <MatchTimeline
@@ -443,7 +453,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
               onToggleMatch={toggleMatch}
               toggleMode={toggleMode}
               onToggleAll={handleToggleAll}
-              isBackgroundLoading={hasTimelineSpinner}
+              isBackgroundLoading={isBackgroundLoading}
             />
 
             {selectedEvents.length > 0 && (
@@ -468,6 +478,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                       selectedTournaments={selectedTournaments}
                       onDeselect={deselectMatch}
                       cardCount={cardCount}
+                      onRequestRichDetails={requestRichDetails}
                     />
                   </SyncedCardSlot>
                 ))}

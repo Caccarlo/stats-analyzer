@@ -1,85 +1,97 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { getPlayerEvents } from '@/api/sofascore';
+import { getPlayerTournamentSeasonEvents } from '@/api/sofascore';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import type { MatchEvent } from '@/types';
+
+export interface TournamentForSeason {
+  tournamentId: number;
+  seasonId: number;
+}
 
 export interface UseMatchTimelineResult {
   allEvents: MatchEvent[];
   detailsMap: Map<number, CachedMatchDetails>;
   detailsLoadedIds: Set<number>;
+  failedIds: Set<number>;
   loadingEvents: boolean;
   initialDetailsLoaded: boolean;
 }
 
 export function useMatchTimeline(
   playerId: number,
-  validSeasonIds: Set<number>,
+  tournamentsForSeason: TournamentForSeason[],
 ): UseMatchTimelineResult {
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
+  const [failedIds, setFailedIds] = useState<Set<number>>(new Set());
   const [loadingEvents, setLoadingEvents] = useState(true);
 
   // Ref to track which event details have already been fetched (avoids duplicate requests)
   const loadedIdsRef = useRef<Set<number>>(new Set());
 
-  const seasonIdsKey = useMemo(
-    () => [...validSeasonIds].sort().join(','),
-    [validSeasonIds],
+  const tournamentsKey = useMemo(
+    () =>
+      tournamentsForSeason
+        .map((t) => `${t.tournamentId}:${t.seasonId}`)
+        .sort()
+        .join(','),
+    [tournamentsForSeason],
   );
 
-  // ── Load event pages for the current season only ──
+  // ── Load events for each tournament/season in parallel ──
+  // Uses the per-season endpoint instead of the chronological all-time list,
+  // so old seasons (e.g. 23/24) load in ~1-2 pages instead of 8+ sequential pages.
   useEffect(() => {
-    if (validSeasonIds.size === 0) return;
+    if (tournamentsForSeason.length === 0) return;
 
     let cancelled = false;
     loadedIdsRef.current = new Set();
     setAllEvents([]);
     setDetailsMap(new Map());
+    setFailedIds(new Set());
     setLoadingEvents(true);
 
-    async function loadPages() {
+    async function loadOneTournament(tournamentId: number, seasonId: number): Promise<MatchEvent[]> {
+      const collected: MatchEvent[] = [];
       let page = 0;
-      let accumulated: MatchEvent[] = [];
-      let hasMore = true;
-      // Track whether we've found relevant events yet.
-      // Only stop early AFTER we've found some and then a page has none —
-      // this fixes the bug where 24/25 events were never reached because
-      // the first pages (all 25/26) triggered an early stop.
-      let foundRelevant = false;
 
-      while (hasMore && !cancelled) {
+      while (!cancelled) {
         try {
-          const { events: pageEvents, hasNextPage } = await getPlayerEvents(playerId, page);
-          if (cancelled) return;
+          const { events: pageEvents, hasNextPage } =
+            await getPlayerTournamentSeasonEvents(playerId, tournamentId, seasonId, page);
+          if (cancelled) break;
 
-          const relevant = pageEvents.filter(
-            (e) => e.status?.code === 100 && validSeasonIds.has(e.season?.id),
-          );
-          accumulated = [...accumulated, ...relevant];
+          // Only finished matches (status.code === 100)
+          collected.push(...pageEvents.filter((e) => e.status?.code === 100));
 
-          if (relevant.length > 0) foundRelevant = true;
-
-          // Stop only after we've found season events and then a page has none
-          if (foundRelevant && pageEvents.length > 0 && relevant.length === 0) break;
-
-          hasMore = hasNextPage;
+          if (!hasNextPage) break;
           page++;
         } catch {
-          break;
+          break; // Network error — stop this tournament's pagination
         }
       }
 
-      if (!cancelled) {
-        accumulated.sort((a, b) => b.startTimestamp - a.startTimestamp);
-        setAllEvents(accumulated);
-        setLoadingEvents(false);
-      }
+      return collected;
     }
 
-    loadPages();
+    async function loadAll() {
+      const perTournamentResults = await Promise.all(
+        tournamentsForSeason.map((t) => loadOneTournament(t.tournamentId, t.seasonId)),
+      );
+
+      if (cancelled) return;
+
+      const merged = perTournamentResults.flat();
+      merged.sort((a, b) => b.startTimestamp - a.startTimestamp);
+
+      setAllEvents(merged);
+      setLoadingEvents(false);
+    }
+
+    loadAll();
     return () => { cancelled = true; };
-  }, [playerId, seasonIdsKey]);
+  }, [playerId, tournamentsKey]);
 
   // ── Progressive detail loading ──
   // Critically: this runs on allEvents, NEVER on the filtered/display subset.
@@ -114,7 +126,15 @@ export function useMatchTimeline(
               if (cancelled) return;
               loadedIdsRef.current.add(eventId);
               batchResults.push({ eventId, result });
-            } catch { /* skip failed */ }
+            } catch {
+              // Mark as loaded so we never retry this event, and flag it as failed for the UI
+              loadedIdsRef.current.add(eventId);
+              setFailedIds((prev) => {
+                const next = new Set(prev);
+                next.add(eventId);
+                return next;
+              });
+            }
           }),
         );
 
@@ -157,6 +177,7 @@ export function useMatchTimeline(
     allEvents,
     detailsMap,
     detailsLoadedIds,
+    failedIds,
     loadingEvents,
     initialDetailsLoaded,
   };

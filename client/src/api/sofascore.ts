@@ -159,6 +159,21 @@ export async function getPlayerEvents(
   };
 }
 
+export async function getPlayerTournamentSeasonEvents(
+  playerId: number,
+  tournamentId: number,
+  seasonId: number,
+  page: number = 0
+): Promise<{ events: MatchEvent[]; hasNextPage: boolean }> {
+  const data = await apiFetch<{ events: MatchEvent[]; hasNextPage: boolean }>(
+    `player/${playerId}/unique-tournament/${tournamentId}/season/${seasonId}/events/last/${page}`
+  );
+  return {
+    events: data.events ?? [],
+    hasNextPage: data.hasNextPage ?? false,
+  };
+}
+
 // === Partita ===
 
 export async function getMatchComments(eventId: number): Promise<MatchComment[]> {

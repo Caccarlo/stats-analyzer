@@ -12,6 +12,16 @@ import StatsOverview from '@/components/player/StatsOverview';
 import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
 
+function getCommittedCount(details: CachedMatchDetails | undefined): number | null {
+  const value = details?.officialStats?.fouls;
+  return typeof value === 'number' ? value : null;
+}
+
+function getSufferedCount(details: CachedMatchDetails | undefined): number | null {
+  const value = details?.officialStats?.wasFouled;
+  return typeof value === 'number' ? value : null;
+}
+
 // Wrapper for cross-panel card height sync (hooks can't be called in .map())
 function SyncedCardSlot({
   panelIndex,
@@ -115,7 +125,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     detailsMap,
     detailsLoadedIds,
     loadingEvents,
-    initialDetailsLoaded,
+    initialStatsLoaded,
+    allLineupsLoaded,
+    isBackgroundLoading,
+    requestRichDetails,
   } = useMatchTimeline(playerId, validSeasonIds);
 
   // ── Display events: all filters applied on top of allEvents ──
@@ -151,17 +164,20 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       }
     }
 
-    // 5. Starter filter (excluded if details not yet loaded → grows progressively)
+    // 5. Starter filter — applicato solo quando tutte le lineups sono caricate
     if (showStartersOnly) {
+      if (!allLineupsLoaded) return []; // non filtrare parzialmente
       events = events.filter((e) => {
         const details = detailsMap.get(e.id);
         if (!details) return false;
-        return details.substituteInMinute === undefined;
+        if (details.lineupsStatus === 'loaded') return !details.didNotPlay && details.substituteInMinute == null;
+        // lineup unavailable/error: includi solo se officialStats conferma minuti > 0
+        return (details.officialStats?.minutesPlayed ?? 0) > 0 && details.substituteInMinute == null;
       });
     }
 
     return events;
-  }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly]);
+  }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, allLineupsLoaded]);
 
   // ── Selection state (moved here from useMatchTimeline) ──
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
@@ -173,12 +189,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     const seasonKey = [...validSeasonIds].sort().join(',');
     const key = `${playerId}-${seasonKey}`;
     if (preSelectedKeyRef.current === key) return;
-    if (displayEvents.length === 0 || !initialDetailsLoaded) return;
+    if (displayEvents.length === 0 || !initialStatsLoaded) return;
     preSelectedKeyRef.current = key;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const count = isMobile ? 1 : 3;
     setSelectedEventIds(new Set(displayEvents.slice(0, count).map((e) => e.id)));
-  }, [displayEvents, initialDetailsLoaded, playerId, validSeasonIds]);
+  }, [displayEvents, initialStatsLoaded, playerId, validSeasonIds]);
 
   // Prune selection when displayEvents shrinks (e.g. filter change removes events)
   useEffect(() => {
@@ -232,7 +248,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
   // ── Derived stats from displayEvents ──
   const derivedStats = useMemo(() => {
-    const played = displayEvents.filter((e) => detailsMap.has(e.id));
+    const played = displayEvents
+      .map((e) => ({ event: e, details: detailsMap.get(e.id) }))
+      .filter((entry) => entry.details?.officialStatsStatus === 'loaded') as Array<{
+        event: (typeof displayEvents)[number];
+        details: CachedMatchDetails;
+      }>;
     if (played.length === 0) return null;
 
     let totalCommitted = 0;
@@ -243,10 +264,9 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     let committedOver = 0;
     let sufferedOver = 0;
 
-    for (const e of played) {
-      const d = detailsMap.get(e.id)!;
-      const committed = d.fouls.filter((f) => f.type === 'committed' || f.type === 'handball').length;
-      const suffered = d.fouls.filter((f) => f.type === 'suffered').length;
+    for (const { details: d } of played) {
+      const committed = getCommittedCount(d) ?? 0;
+      const suffered = getSufferedCount(d) ?? 0;
       totalCommitted += committed;
       totalSuffered += suffered;
 
@@ -257,12 +277,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       if (committed > committedLine) committedOver++;
       if (suffered > sufferedLine) sufferedOver++;
 
-      const inMin = d.substituteInMinute;
-      const outMin = d.substituteOutMinute;
-      if (inMin == null && outMin == null) totalMinutes += 90;
-      else if (inMin == null && outMin != null) totalMinutes += outMin;
-      else if (inMin != null && outMin == null) totalMinutes += Math.max(0, 90 - inMin);
-      else totalMinutes += Math.max(0, outMin! - inMin!);
+      totalMinutes += d.officialStats?.minutesPlayed ?? 0;
     }
 
     const appearances = played.length;
@@ -327,13 +342,13 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   // ── Full-page loader: only on the very first visit (never on filter/season changes) ──
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   useEffect(() => {
-    if (initialDetailsLoaded && !initialLoadComplete) {
+    if (initialStatsLoaded && !initialLoadComplete) {
       setInitialLoadComplete(true);
     }
-  }, [initialDetailsLoaded]);
+  }, [initialStatsLoaded]);
 
-  // ── Timeline spinner: shown when some visible events still lack details ──
-  const hasTimelineSpinner = displayEvents.some((e) => !detailsMap.has(e.id));
+  // ── Stato di caricamento per filtro Titolare ──
+  const starterFilterLoading = showStartersOnly && !allLineupsLoaded;
 
   const displayPlayer: Player = resolvedPlayer ?? {
     id: playerId,
@@ -420,6 +435,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
             Caricamento partite...
           </div>
+        ) : starterFilterLoading ? (
+          // Filtro Titolare attivo ma lineups non ancora pronte
+          <div className="flex items-center gap-2 text-text-muted">
+            <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+            Caricamento formazioni per applicare il filtro Titolare...
+          </div>
         ) : (
           <>
             <MatchTimeline
@@ -432,7 +453,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
               onToggleMatch={toggleMatch}
               toggleMode={toggleMode}
               onToggleAll={handleToggleAll}
-              isBackgroundLoading={hasTimelineSpinner}
+              isBackgroundLoading={isBackgroundLoading}
             />
 
             {selectedEvents.length > 0 && (
@@ -457,6 +478,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                       selectedTournaments={selectedTournaments}
                       onDeselect={deselectMatch}
                       cardCount={cardCount}
+                      onRequestRichDetails={requestRichDetails}
                     />
                   </SyncedCardSlot>
                 ))}

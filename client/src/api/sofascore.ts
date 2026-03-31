@@ -1,10 +1,10 @@
 import type {
   Player,
-  Team,
-  Tournament,
   Season,
   TournamentSeason,
   PlayerSeasonStats,
+  PlayerMatchStatistics,
+  PlayerEventIncidents,
   MatchEvent,
   MatchComment,
   MatchLineups,
@@ -149,13 +149,28 @@ export async function getPlayerSeasonStats(
 export async function getPlayerEvents(
   playerId: number,
   page: number = 0
-): Promise<{ events: MatchEvent[]; hasNextPage: boolean }> {
-  const data = await apiFetch<{ events: MatchEvent[]; hasNextPage: boolean }>(
+): Promise<{
+  events: MatchEvent[];
+  hasNextPage: boolean;
+  statisticsMap: Record<string, PlayerMatchStatistics>;
+  incidentsMap: Record<string, PlayerEventIncidents>;
+  onBenchMap: Record<string, boolean>;
+}> {
+  const data = await apiFetch<{
+    events: MatchEvent[];
+    hasNextPage: boolean;
+    statisticsMap?: Record<string, PlayerMatchStatistics>;
+    incidentsMap?: Record<string, PlayerEventIncidents>;
+    onBenchMap?: Record<string, boolean>;
+  }>(
     `player/${playerId}/events/last/${page}`
   );
   return {
     events: data.events ?? [],
     hasNextPage: data.hasNextPage ?? false,
+    statisticsMap: data.statisticsMap ?? {},
+    incidentsMap: data.incidentsMap ?? {},
+    onBenchMap: data.onBenchMap ?? {},
   };
 }
 
@@ -166,6 +181,20 @@ export async function getMatchComments(eventId: number): Promise<MatchComment[]>
     `event/${eventId}/comments`
   );
   return data.comments ?? [];
+}
+
+export async function getPlayerMatchStatistics(
+  eventId: number,
+  playerId: number
+): Promise<PlayerMatchStatistics | null> {
+  try {
+    const data = await apiFetch<{ statistics: PlayerMatchStatistics }>(
+      `event/${eventId}/player/${playerId}/statistics`
+    );
+    return data.statistics ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getMatchLineups(eventId: number): Promise<MatchLineups | null> {

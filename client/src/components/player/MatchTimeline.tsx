@@ -23,15 +23,15 @@ function abbreviateTournament(name: string): string {
 
 function getFoulCounts(
   details: CachedMatchDetails | undefined,
-): { committed: number; suffered: number } | null {
+): { committed: number | null; suffered: number | null } | null {
   if (!details) return null;
-  let committed = 0;
-  let suffered = 0;
-  for (const f of details.fouls) {
-    if (f.type === 'committed' || f.type === 'handball') committed++;
-    if (f.type === 'suffered') suffered++;
-  }
-  return { committed, suffered };
+  const committed = details.officialStats?.fouls;
+  const suffered = details.officialStats?.wasFouled;
+  if (typeof committed !== 'number' && typeof suffered !== 'number') return null;
+  return {
+    committed: typeof committed === 'number' ? committed : null,
+    suffered: typeof suffered === 'number' ? suffered : null,
+  };
 }
 
 export default function MatchTimeline({
@@ -53,9 +53,7 @@ export default function MatchTimeline({
       {/* Header: titolo + spinner background + toggle seleziona/deseleziona tutte */}
       <div className="flex items-center gap-3 mb-3">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
-          Timeline partite ({isBackgroundLoading
-            ? `${events.filter(e => detailsLoadedIds.has(e.id)).length}/${events.length}`
-            : events.length})
+          Timeline partite ({events.length})
         </h3>
         {isBackgroundLoading && (
           <div
@@ -163,20 +161,20 @@ export default function MatchTimeline({
                     <>
                       {showCommitted && showSuffered ? (
                         <>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
-                            {counts.committed}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                            {counts.committed ?? '—'}
                           </span>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
-                            {counts.suffered}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                            {counts.suffered ?? '—'}
                           </span>
                         </>
                       ) : showCommitted ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
-                          {counts.committed}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                          {counts.committed ?? '—'}
                         </span>
                       ) : showSuffered ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
-                          {counts.suffered}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                          {counts.suffered ?? '—'}
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
@@ -186,7 +184,7 @@ export default function MatchTimeline({
                     </>
                   ) : (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
-                      0
+                      —
                     </span>
                   )}
                 </div>

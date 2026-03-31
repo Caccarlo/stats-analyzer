@@ -24,9 +24,11 @@ interface MatchCardProps {
   selectedTournaments: TournamentFilter[];
   onDeselect: (eventId: number) => void;
   cardCount: number;
+  onRequestRichDetails?: (eventId: number) => void;
 }
 
 type CardLayout = 'single' | 'double' | 'multi';
+type PositionsStatus = 'idle' | 'loading' | 'loaded' | 'unavailable';
 
 const CardIcon = ({ type }: { type: CardType }) => {
   if (type === 'yellow') {
@@ -47,7 +49,6 @@ const CardIcon = ({ type }: { type: CardType }) => {
       />
     );
   }
-  // yellowRed: giallo in basso a sinistra, rosso in alto a destra
   return (
     <div className="relative flex-shrink-0" style={{ width: '22px', height: '20px' }} title="Doppio cartellino">
       <div
@@ -62,6 +63,10 @@ const CardIcon = ({ type }: { type: CardType }) => {
   );
 };
 
+function getDisplayCount(value: number | undefined): string {
+  return typeof value === 'number' ? String(value) : '—';
+}
+
 export default function MatchCard({
   event,
   playerId,
@@ -73,13 +78,26 @@ export default function MatchCard({
   selectedTournaments,
   onDeselect,
   cardCount,
+  onRequestRichDetails,
 }: MatchCardProps) {
   const { openSplitPlayer, swapSplitAndOpenPlayer, openSplitTeam, swapSplitAndOpenTeam, selectPlayer } = useNavigation();
 
   const [activePlayerId, setActivePlayerId] = useState(playerId);
+  const [positions, setPositions] = useState<{ home: PlayerPosition[]; away: PlayerPosition[] } | null>(null);
+  const [positionsStatus, setPositionsStatus] = useState<PositionsStatus>('idle');
+  const [activePlayerSeasonStats, setActivePlayerSeasonStats] = useState<PlayerSeasonStats | null>(null);
+  const [activePlayerOwnFouls, setActivePlayerOwnFouls] = useState<{ committed: number; suffered: number } | null>(null);
+  const [fieldWidth, setFieldWidth] = useState(0);
 
   const fieldRef = useRef<HTMLDivElement>(null);
-  const [fieldWidth, setFieldWidth] = useState(0);
+  const details = detailsMap.get(event.id);
+
+  // Lazy fetch: se la card viene renderizzata e i dati rich non sono ancora stati caricati, li richiede ora
+  useEffect(() => {
+    if (details?.commentsStatus === 'idle') {
+      onRequestRichDetails?.(event.id);
+    }
+  }, [event.id, details?.commentsStatus, onRequestRichDetails]);
 
   useEffect(() => {
     setActivePlayerId(playerId);
@@ -95,36 +113,59 @@ export default function MatchCard({
     return () => ro.disconnect();
   }, []);
 
-  const details = detailsMap.get(event.id);
-  const [positions, setPositions] = useState<{ home: PlayerPosition[]; away: PlayerPosition[] } | null>(null);
-
   useEffect(() => {
     if (!details) return;
     if (details.positions) {
       setPositions(details.positions);
+      setPositionsStatus('loaded');
       return;
     }
+
+    let cancelled = false;
+    setPositionsStatus('loading');
+
     getMatchAveragePositions(event.id).then((pos) => {
-      if (pos) setPositions(pos);
+      if (cancelled) return;
+      if (pos) {
+        setPositions(pos);
+        setPositionsStatus('loaded');
+      } else {
+        setPositionsStatus('unavailable');
+      }
     });
+
+    return () => { cancelled = true; };
   }, [details, event.id]);
+
+  const isHome = event.homeTeam.id === playerTeamId;
+  const date = new Date(event.startTimestamp * 1000);
+  const dateStr = date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
+
   const fouls = details?.fouls ?? [];
+  const committedFouls = fouls.filter((f) => f.type === 'committed' || f.type === 'handball');
+  const sufferedFouls = fouls.filter((f) => f.type === 'suffered');
+  const officialCommitted = details?.officialStats?.fouls;
+  const officialSuffered = details?.officialStats?.wasFouled;
+  const officialMinutes = details?.officialStats?.minutesPlayed;
   const substituteInMinute = details?.substituteInMinute;
   const substituteOutMinute = details?.substituteOutMinute;
   const cardInfo = details?.cardInfo ?? null;
   const jerseyMap = details?.jerseyMap ?? new Map<number, string>();
+  const commentsMessage =
+    details?.commentsStatus === 'loading'
+      ? 'Caricamento cronaca...'
+      : details?.commentsStatus === 'error'
+        ? 'Errore nel caricamento della cronaca'
+        : 'Cronaca non disponibile per questa partita';
 
-  const isHome = event.homeTeam.id === playerTeamId;
-
-  const activeIsHome = positions
-    ? positions.home.some((p: PlayerPosition) => p.player.id === activePlayerId)
-    : isHome;
-
-  const date = new Date(event.startTimestamp * 1000);
-  const dateStr = date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
-
-  const committedFouls = fouls.filter((f) => f.type === 'committed' || f.type === 'handball');
-  const sufferedFouls = fouls.filter((f) => f.type === 'suffered');
+  const appearanceLabel =
+    substituteInMinute != null
+      ? `Entrato al ${substituteInMinute}'`
+      : details?.lineupsStatus === 'loaded'
+        ? 'Titolare'
+        : typeof officialMinutes === 'number'
+          ? `${officialMinutes} min`
+          : 'Dati minuti non disponibili';
 
   const neither = !showCommitted && !showSuffered;
 
@@ -150,9 +191,7 @@ export default function MatchCard({
   }, [involvedKey, playerId]);
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
-
-  const layoutMode: CardLayout =
-    cardCount === 1 ? 'single' : cardCount === 2 ? 'double' : 'multi';
+  const layoutMode: CardLayout = cardCount === 1 ? 'single' : cardCount === 2 ? 'double' : 'multi';
 
   const buildNavContext = () => {
     if (!event.tournament?.uniqueTournament) return undefined;
@@ -200,17 +239,17 @@ export default function MatchCard({
   const activePlayer = useMemo(() => {
     if (!positions) return null;
     return (
-      positions.home.find((p: PlayerPosition) => p.player.id === activePlayerId)?.player ??
-      positions.away.find((p: PlayerPosition) => p.player.id === activePlayerId)?.player ??
+      positions.home.find((p) => p.player.id === activePlayerId)?.player ??
+      positions.away.find((p) => p.player.id === activePlayerId)?.player ??
       null
     );
   }, [positions, activePlayerId]);
 
+  const activeIsHome = positions
+    ? positions.home.some((p) => p.player.id === activePlayerId)
+    : isHome;
+
   const activePlayerIsMain = activePlayerId === playerId;
-
-  const [activePlayerSeasonStats, setActivePlayerSeasonStats] = useState<PlayerSeasonStats | null>(null);
-  const [activePlayerOwnFouls, setActivePlayerOwnFouls] = useState<{ committed: number; suffered: number } | null>(null);
-
   const selectedTournamentsKey = selectedTournaments.map((t) => `${t.tournamentId}:${t.seasonId}`).join(',');
 
   useEffect(() => {
@@ -226,36 +265,39 @@ export default function MatchCard({
       );
       if (cancelled) return;
       const valid = results.filter((r): r is PlayerSeasonStats => r !== null);
-      if (valid.length === 0) return;
-      const aggregated = valid.reduce<PlayerSeasonStats>(
-        (acc, s) => ({
-          fouls: acc.fouls + s.fouls,
-          wasFouled: acc.wasFouled + s.wasFouled,
-          minutesPlayed: acc.minutesPlayed + s.minutesPlayed,
-          appearances: acc.appearances + s.appearances,
-          matchesStarted: acc.matchesStarted + s.matchesStarted,
-          yellowCards: acc.yellowCards + s.yellowCards,
-          redCards: acc.redCards + s.redCards,
-          rating: 0,
-        }),
-        { fouls: 0, wasFouled: 0, minutesPlayed: 0, appearances: 0, matchesStarted: 0, yellowCards: 0, redCards: 0, rating: 0 }
-      );
-      setActivePlayerSeasonStats(aggregated);
+      if (valid.length > 0) {
+        const aggregated = valid.reduce<PlayerSeasonStats>(
+          (acc, s) => ({
+            fouls: acc.fouls + s.fouls,
+            wasFouled: acc.wasFouled + s.wasFouled,
+            minutesPlayed: acc.minutesPlayed + s.minutesPlayed,
+            appearances: acc.appearances + s.appearances,
+            matchesStarted: acc.matchesStarted + s.matchesStarted,
+            yellowCards: acc.yellowCards + s.yellowCards,
+            redCards: acc.redCards + s.redCards,
+            rating: 0,
+          }),
+          { fouls: 0, wasFouled: 0, minutesPlayed: 0, appearances: 0, matchesStarted: 0, yellowCards: 0, redCards: 0, rating: 0 }
+        );
+        setActivePlayerSeasonStats(aggregated);
+      }
     };
 
     fetchStats();
 
     fetchMatchDetails(event.id, activePlayerId)
-      .then((details) => {
+      .then((matchDetails) => {
         if (cancelled) return;
-        const committed = details.fouls.filter((f) => f.type === 'committed' || f.type === 'handball').length;
-        const suffered = details.fouls.filter((f) => f.type === 'suffered').length;
-        setActivePlayerOwnFouls({ committed, suffered });
+        const committed = matchDetails.officialStats?.fouls;
+        const suffered = matchDetails.officialStats?.wasFouled;
+        if (typeof committed === 'number' || typeof suffered === 'number') {
+          setActivePlayerOwnFouls({ committed: committed ?? 0, suffered: suffered ?? 0 });
+        }
       });
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePlayerId, selectedTournamentsKey, event.id, activePlayerIsMain]);
+  }, [activePlayerId, activePlayerIsMain, selectedTournamentsKey, event.id]);
 
   const renderFoul = (f: FoulMatchup, i: number) => (
     <div key={i} className="text-sm text-text-secondary py-0.5">
@@ -272,7 +314,7 @@ export default function MatchCard({
             <>
               da{' '}
               <button
-                onClick={() => f.playerFouling && handlePlayerClick(f.playerFouling)}
+                onClick={() => handlePlayerClick(f.playerFouling!)}
                 className="text-neon hover:underline"
               >
                 {abbreviateName(f.playerFouling.name)}
@@ -293,7 +335,7 @@ export default function MatchCard({
             <>
               su{' '}
               <button
-                onClick={() => f.playerFouled && handlePlayerClick(f.playerFouled)}
+                onClick={() => handlePlayerClick(f.playerFouled!)}
                 className="text-neon hover:underline"
               >
                 {abbreviateName(f.playerFouled.name)}
@@ -312,8 +354,9 @@ export default function MatchCard({
   );
 
   const showTwoColumns = showCommitted && showSuffered;
+  const showActiveSuffered = showCommitted || neither;
+  const showActiveCommitted = showSuffered || neither;
 
-  // Nome giocatore attivo: cliccabile solo se non è il giocatore principale
   const playerNameRow = activePlayer ? (
     <div className="flex items-center gap-2 justify-center">
       <img
@@ -338,9 +381,6 @@ export default function MatchCard({
       )}
     </div>
   ) : null;
-
-  const showActiveSuffered = showCommitted || neither;
-  const showActiveCommitted = showSuffered || neither;
 
   const renderStatBoxes = (cols: 1 | 2 = 1) => {
     const s = activePlayerSeasonStats;
@@ -511,9 +551,21 @@ export default function MatchCard({
     );
   };
 
+  const renderNarrativeBlock = (title: string, count: string, colorClass: string, items: FoulMatchup[]) => (
+    <div className="flex flex-col items-center text-center">
+      <p className={`${colorClass} text-xs font-semibold uppercase tracking-wide mb-2`}>
+        {title} ({count})
+      </p>
+      {details?.commentsStatus === 'loaded' ? (
+        items.length > 0 ? items.map(renderFoul) : <p className="text-text-muted text-sm">Nessuno</p>
+      ) : (
+        <p className="text-text-muted text-sm">{commentsMessage}</p>
+      )}
+    </div>
+  );
+
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col">
-      {/* Header */}
       <div className="flex items-start justify-between px-4 py-6">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs text-text-muted">
@@ -548,7 +600,7 @@ export default function MatchCard({
           </div>
         </div>
         <div className="text-xs text-text-muted text-right flex-shrink-0 mx-2">
-          <p>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</p>
+          <p>{appearanceLabel}</p>
           {substituteOutMinute != null && <p>Uscito al {substituteOutMinute}'</p>}
         </div>
         {cardInfo && (
@@ -567,7 +619,6 @@ export default function MatchCard({
         </button>
       </div>
 
-      {/* Content */}
       <div className="px-4 pb-8 border-t border-border pt-3 flex-1">
         {!details ? (
           <div className="flex items-center gap-2 text-text-muted text-sm">
@@ -579,51 +630,45 @@ export default function MatchCard({
             {positions ? (
               renderPositionsSection()
             ) : (
-              <div className="text-xs text-text-secondary mb-3 text-center">
-                <span>{substituteInMinute != null ? `Entrato al ${substituteInMinute}'` : 'Titolare'}</span>
-                {substituteOutMinute != null && <span> · Uscito al {substituteOutMinute}'</span>}
+              <div className="mb-3">
+                <div className="text-xs text-text-secondary text-center">
+                  <span>{appearanceLabel}</span>
+                  {positionsStatus === 'loading' && <span> · Caricamento posizioni medie...</span>}
+                  {positionsStatus === 'unavailable' && <span> · Posizioni medie non disponibili</span>}
+                  {substituteOutMinute != null && <span> · Uscito al {substituteOutMinute}'</span>}
+                </div>
+                <div className="mt-3 flex justify-center">
+                  <HeatmapField
+                    eventId={event.id}
+                    playerId={playerId}
+                    isHome={isHome}
+                  />
+                </div>
               </div>
             )}
 
             {showTwoColumns ? (
               <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col items-center text-center">
-                  <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
-                    Falli commessi ({committedFouls.length})
-                  </p>
-                  {committedFouls.length > 0
-                    ? committedFouls.map(renderFoul)
-                    : <p className="text-text-muted text-sm">Nessuno</p>}
-                </div>
-                <div className="flex flex-col items-center text-center">
-                  <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
-                    Falli subiti ({sufferedFouls.length})
-                  </p>
-                  {sufferedFouls.length > 0
-                    ? sufferedFouls.map(renderFoul)
-                    : <p className="text-text-muted text-sm">Nessuno</p>}
-                </div>
+                {renderNarrativeBlock('Falli commessi', getDisplayCount(officialCommitted), 'text-negative', committedFouls)}
+                {renderNarrativeBlock('Falli subiti', getDisplayCount(officialSuffered), 'text-neon', sufferedFouls)}
               </div>
             ) : (
               <>
-                {showSuffered && sufferedFouls.length > 0 && (
-                  <div className="mb-3 flex flex-col items-center text-center">
-                    <p className="text-neon text-xs font-semibold uppercase tracking-wide mb-2">
-                      Falli subiti ({sufferedFouls.length})
-                    </p>
-                    {sufferedFouls.map(renderFoul)}
+                {showSuffered && (
+                  <div className="mb-3">
+                    {renderNarrativeBlock('Falli subiti', getDisplayCount(officialSuffered), 'text-neon', sufferedFouls)}
                   </div>
                 )}
-                {showCommitted && committedFouls.length > 0 && (
-                  <div className="mb-3 flex flex-col items-center text-center">
-                    <p className="text-negative text-xs font-semibold uppercase tracking-wide mb-2">
-                      Falli commessi ({committedFouls.length})
-                    </p>
-                    {committedFouls.map(renderFoul)}
+                {showCommitted && (
+                  <div className="mb-3">
+                    {renderNarrativeBlock('Falli commessi', getDisplayCount(officialCommitted), 'text-negative', committedFouls)}
                   </div>
                 )}
-                {visibleFouls.length === 0 && (
+                {details.commentsStatus === 'loaded' && visibleFouls.length === 0 && (
                   <p className="text-text-muted text-sm text-center">Nessun fallo in questa partita</p>
+                )}
+                {details.commentsStatus !== 'loaded' && !showCommitted && !showSuffered && (
+                  <p className="text-text-muted text-sm text-center">{commentsMessage}</p>
                 )}
               </>
             )}

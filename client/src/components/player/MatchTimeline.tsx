@@ -6,6 +6,7 @@ interface MatchTimelineProps {
   selectedEventIds: Set<number>;
   detailsMap: Map<number, CachedMatchDetails>;
   detailsLoadedIds: Set<number>;
+  failedIds?: Set<number>;
   showCommitted: boolean;
   showSuffered: boolean;
   onToggleMatch: (eventId: number) => void;
@@ -39,6 +40,7 @@ export default function MatchTimeline({
   selectedEventIds,
   detailsMap,
   detailsLoadedIds,
+  failedIds,
   showCommitted,
   showSuffered,
   onToggleMatch,
@@ -91,6 +93,7 @@ export default function MatchTimeline({
             const isSelected = selectedEventIds.has(event.id);
             const details = detailsMap.get(event.id);
             const isLoaded = detailsLoadedIds.has(event.id);
+            const isFailed = failedIds?.has(event.id) ?? false;
             const counts = getFoulCounts(details);
             const cardInfo = details?.cardInfo ?? null;
 
@@ -154,7 +157,11 @@ export default function MatchTimeline({
 
                 {/* Badge falli */}
                 <div className="mt-1 flex items-center gap-1">
-                  {!isLoaded ? (
+                  {isFailed ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
+                      —
+                    </span>
+                  ) : !isLoaded ? (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
                       <span className="w-2 h-2 border border-text-muted border-t-transparent rounded-full animate-spin mr-1" />
                       ...

@@ -104,19 +104,14 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     [selectedTournaments],
   );
 
-  // Season IDs for the current season — tells useMatchTimeline which events to load
-  const validSeasonIds = useMemo(
-    () => new Set(allTournamentsForSeason.map((t) => t.seasonId)),
-    [allTournamentsForSeason],
-  );
-
   const {
     allEvents,
     detailsMap,
     detailsLoadedIds,
+    failedIds,
     loadingEvents,
     initialDetailsLoaded,
-  } = useMatchTimeline(playerId, validSeasonIds);
+  } = useMatchTimeline(playerId, allTournamentsForSeason);
 
   // ── Display events: all filters applied on top of allEvents ──
   // This is pure derivation — changing any filter never touches the background loader.
@@ -170,7 +165,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   const preSelectedKeyRef = useRef('');
 
   useEffect(() => {
-    const seasonKey = [...validSeasonIds].sort().join(',');
+    const seasonKey = allTournamentsForSeason.map((t) => `${t.tournamentId}:${t.seasonId}`).sort().join(',');
     const key = `${playerId}-${seasonKey}`;
     if (preSelectedKeyRef.current === key) return;
     if (displayEvents.length === 0 || !initialDetailsLoaded) return;
@@ -178,7 +173,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const count = isMobile ? 1 : 3;
     setSelectedEventIds(new Set(displayEvents.slice(0, count).map((e) => e.id)));
-  }, [displayEvents, initialDetailsLoaded, playerId, validSeasonIds]);
+  }, [displayEvents, initialDetailsLoaded, playerId, allTournamentsForSeason]);
 
   // Prune selection when displayEvents shrinks (e.g. filter change removes events)
   useEffect(() => {
@@ -427,6 +422,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
               selectedEventIds={selectedEventIds}
               detailsMap={detailsMap}
               detailsLoadedIds={detailsLoadedIds}
+              failedIds={failedIds}
               showCommitted={showCommitted}
               showSuffered={showSuffered}
               onToggleMatch={toggleMatch}

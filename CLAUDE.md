@@ -33,7 +33,7 @@ stats-analyzer/
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine, selectedPeriod); exports SelectedPeriod type; currentSeasonYear auto-derived from selectedPeriod (if 'last' uses availableSeasonYears[0])
     │   │   ├── useMatchDetails.ts    # Fetches match fouls + lineups only (no average-positions); exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player; CachedMatchDetails includes didNotPlay flag and jerseyMap (Map<number, string> playerId→jerseyNumber built from lineups)
-    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading (batch 5, delay 200ms) running on allEvents; early stop only after finding at least one relevant event (not on first empty comparison); does NOT manage selection; exports allEvents, detailsMap, loadingEvents, initialDetailsLoaded
+    │   │   ├── useMatchTimeline.ts   # Loads events per-tournament/season in parallel via getPlayerTournamentSeasonEvents; progressive detail loading (batch 5, delay 300ms) on allEvents; failed fetches marked in failedIds (never retried); does NOT manage selection; exports allEvents, detailsMap, detailsLoadedIds, failedIds, loadingEvents, initialDetailsLoaded; accepts tournamentsForSeason: TournamentForSeason[]
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
     │   │   ├── foulPairing.ts        # Extracts fouls from match comments, pairs them, translates zones
@@ -140,7 +140,8 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 | `player/{id}` | Player info (includes current team) | PlayerPage |
 | `player/{id}/statistics/seasons` | Player tournament list | usePlayerData |
 | `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData (no longer used for StatsOverview display) |
-| `player/{id}/events/last/{page}` | Match history (paginated) | usePlayerData |
+| `player/{id}/events/last/{page}` | Match history (paginated, all-time) | (available, not used for season loading) |
+| `player/{id}/unique-tournament/{tid}/season/{sid}/events/last/{page}` | Match history per tournament/season | useMatchTimeline (primary) |
 | `event/{id}/player/{id}/heatmap` | Player heatmap points for a match | HeatmapField |
 | `team/{id}/image`, `player/{id}/image`, etc. | Images | via /api/img/ |
 

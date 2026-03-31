@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import type { MatchEvent, Player, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
+import type { MatchEvent, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails } from '@/hooks/useMatchDetails';
-import { getPlayerSeasonStats } from '@/api/sofascore';
+import { getPlayerSeasonStats, getMatchAveragePositions } from '@/api/sofascore';
 import { COUNTRIES } from '@/components/navigation/CountryList';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
@@ -74,7 +74,7 @@ export default function MatchCard({
   onDeselect,
   cardCount,
 }: MatchCardProps) {
-  const { openSplitPlayer, swapSplitAndOpenPlayer, selectPlayer } = useNavigation();
+  const { openSplitPlayer, swapSplitAndOpenPlayer, openSplitTeam, swapSplitAndOpenTeam, selectPlayer } = useNavigation();
 
   const [activePlayerId, setActivePlayerId] = useState(playerId);
 
@@ -96,11 +96,23 @@ export default function MatchCard({
   }, []);
 
   const details = detailsMap.get(event.id);
+  const [positions, setPositions] = useState<{ home: PlayerPosition[]; away: PlayerPosition[] } | null>(null);
+
+  useEffect(() => {
+    if (!details) return;
+    if (details.positions) {
+      setPositions(details.positions);
+      return;
+    }
+    getMatchAveragePositions(event.id).then((pos) => {
+      if (pos) setPositions(pos);
+    });
+  }, [details, event.id]);
   const fouls = details?.fouls ?? [];
-  const positions = details?.positions ?? null;
   const substituteInMinute = details?.substituteInMinute;
   const substituteOutMinute = details?.substituteOutMinute;
   const cardInfo = details?.cardInfo ?? null;
+  const jerseyMap = details?.jerseyMap ?? new Map<number, string>();
 
   const isHome = event.homeTeam.id === playerTeamId;
 
@@ -165,6 +177,17 @@ export default function MatchCard({
       }
     } else {
       selectPlayer(0, player.id, player);
+    }
+  };
+
+  const handleTeamClick = (team: Team) => {
+    if (isDesktop) {
+      const navContext = buildNavContext();
+      if (panelIndex > 0) {
+        swapSplitAndOpenTeam(team.id, team.name, navContext);
+      } else {
+        openSplitTeam(team.id, team.name, navContext);
+      }
     }
   };
 
@@ -254,6 +277,9 @@ export default function MatchCard({
               >
                 {abbreviateName(f.playerFouling.name)}
               </button>
+              {jerseyMap.get(f.playerFouling.id) && (
+                <span className="text-text-muted"> ({jerseyMap.get(f.playerFouling.id)})</span>
+              )}
             </>
           ) : (
             'punizione conquistata'
@@ -272,6 +298,9 @@ export default function MatchCard({
               >
                 {abbreviateName(f.playerFouled.name)}
               </button>
+              {jerseyMap.get(f.playerFouled.id) && (
+                <span className="text-text-muted"> ({jerseyMap.get(f.playerFouled.id)})</span>
+              )}
             </>
           ) : (
             'fallo commesso'
@@ -284,6 +313,7 @@ export default function MatchCard({
 
   const showTwoColumns = showCommitted && showSuffered;
 
+  // Nome giocatore attivo: cliccabile solo se non è il giocatore principale
   const playerNameRow = activePlayer ? (
     <div className="flex items-center gap-2 justify-center">
       <img
@@ -294,9 +324,18 @@ export default function MatchCard({
           (e.target as HTMLImageElement).style.display = 'none';
         }}
       />
-      <span className="text-sm text-text-primary font-medium truncate max-w-[100px]">
-        {abbreviateName(activePlayer.name)}
-      </span>
+      {activePlayerIsMain ? (
+        <span className="text-sm text-text-primary font-medium truncate max-w-[100px]">
+          {abbreviateName(activePlayer.name)}
+        </span>
+      ) : (
+        <button
+          onClick={() => handlePlayerClick(activePlayer)}
+          className="text-sm text-text-primary font-medium truncate max-w-[100px] hover:text-neon hover:underline transition-colors"
+        >
+          {abbreviateName(activePlayer.name)}
+        </button>
+      )}
     </div>
   ) : null;
 
@@ -483,11 +522,29 @@ export default function MatchCard({
             <span>· {dateStr}</span>
           </div>
           <div className="text-text-primary font-medium mt-0.5">
-            {event.homeTeam.shortName ?? event.homeTeam.name}{' '}
+            {isHome ? (
+              <span>{event.homeTeam.shortName ?? event.homeTeam.name}</span>
+            ) : (
+              <button
+                onClick={() => handleTeamClick(event.homeTeam)}
+                className="text-text-primary hover:text-neon hover:underline transition-colors"
+              >
+                {event.homeTeam.shortName ?? event.homeTeam.name}
+              </button>
+            )}{' '}
             <span className="text-text-muted">
               {event.homeScore.current} - {event.awayScore.current}
             </span>{' '}
-            {event.awayTeam.shortName ?? event.awayTeam.name}
+            {isHome ? (
+              <button
+                onClick={() => handleTeamClick(event.awayTeam)}
+                className="text-text-primary hover:text-neon hover:underline transition-colors"
+              >
+                {event.awayTeam.shortName ?? event.awayTeam.name}
+              </button>
+            ) : (
+              <span>{event.awayTeam.shortName ?? event.awayTeam.name}</span>
+            )}
           </div>
         </div>
         <div className="text-xs text-text-muted text-right flex-shrink-0 mx-2">

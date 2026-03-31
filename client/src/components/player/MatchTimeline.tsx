@@ -11,6 +11,7 @@ interface MatchTimelineProps {
   onToggleMatch: (eventId: number) => void;
   toggleMode: 'select' | 'deselect';
   onToggleAll: () => void;
+  isBackgroundLoading?: boolean;
 }
 
 function abbreviateTournament(name: string): string {
@@ -43,16 +44,25 @@ export default function MatchTimeline({
   onToggleMatch,
   toggleMode,
   onToggleAll,
+  isBackgroundLoading = false,
 }: MatchTimelineProps) {
   if (events.length === 0) return null;
 
   return (
     <div>
-      {/* Header: titolo + toggle seleziona/deseleziona tutte */}
+      {/* Header: titolo + spinner background + toggle seleziona/deseleziona tutte */}
       <div className="flex items-center gap-3 mb-3">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
-          Timeline partite ({events.length})
+          Timeline partite ({isBackgroundLoading
+            ? `${events.filter(e => detailsLoadedIds.has(e.id)).length}/${events.length}`
+            : events.length})
         </h3>
+        {isBackgroundLoading && (
+          <div
+            className="w-3.5 h-3.5 border-2 border-neon border-t-transparent rounded-full animate-spin flex-shrink-0"
+            title="Caricamento dettagli in corso..."
+          />
+        )}
         <button
           onClick={onToggleAll}
           className="flex items-center gap-2 group"
@@ -99,7 +109,7 @@ export default function MatchTimeline({
                     : 'border-border bg-surface hover:bg-surface-hover'
                 }`}
               >
-                {/* Icona cartellino in alto a destra */}
+                {/* Cartellino in alto a destra */}
                 {cardInfo && (
                   <div className="absolute top-1.5 right-1.5">
                     {cardInfo.type === 'yellow' && (
@@ -131,18 +141,18 @@ export default function MatchTimeline({
                   </div>
                 )}
 
-                {/* Row 1: Tournament + Round */}
+                {/* Torneo + giornata */}
                 <span className="text-[10px] text-text-muted leading-tight truncate max-w-full">
                   {tournamentAbbr}
                   {round != null && ` G.${round}`}
                 </span>
 
-                {/* Row 2: Teams */}
+                {/* Squadre */}
                 <span className="text-xs text-text-primary font-medium leading-tight mt-0.5">
                   {homeCode} - {awayCode}
                 </span>
 
-                {/* Row 3: Foul badges */}
+                {/* Badge falli */}
                 <div className="mt-1 flex items-center gap-1">
                   {!isLoaded ? (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">

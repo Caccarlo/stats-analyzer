@@ -12,6 +12,16 @@ import StatsOverview from '@/components/player/StatsOverview';
 import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
 
+function getCommittedCount(details: CachedMatchDetails | undefined): number | null {
+  const value = details?.officialStats?.fouls;
+  return typeof value === 'number' ? value : null;
+}
+
+function getSufferedCount(details: CachedMatchDetails | undefined): number | null {
+  const value = details?.officialStats?.wasFouled;
+  return typeof value === 'number' ? value : null;
+}
+
 // Wrapper for cross-panel card height sync (hooks can't be called in .map())
 function SyncedCardSlot({
   panelIndex,
@@ -156,7 +166,9 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       events = events.filter((e) => {
         const details = detailsMap.get(e.id);
         if (!details) return false;
-        return details.substituteInMinute === undefined;
+        if (details.substituteInMinute != null) return false;
+        if (details.lineupsStatus === 'loaded') return !details.didNotPlay;
+        return false;
       });
     }
 
@@ -232,7 +244,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
   // ── Derived stats from displayEvents ──
   const derivedStats = useMemo(() => {
-    const played = displayEvents.filter((e) => detailsMap.has(e.id));
+    const played = displayEvents
+      .map((e) => ({ event: e, details: detailsMap.get(e.id) }))
+      .filter((entry) => entry.details?.officialStatsStatus === 'loaded') as Array<{
+        event: (typeof displayEvents)[number];
+        details: CachedMatchDetails;
+      }>;
     if (played.length === 0) return null;
 
     let totalCommitted = 0;
@@ -243,10 +260,9 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     let committedOver = 0;
     let sufferedOver = 0;
 
-    for (const e of played) {
-      const d = detailsMap.get(e.id)!;
-      const committed = d.fouls.filter((f) => f.type === 'committed' || f.type === 'handball').length;
-      const suffered = d.fouls.filter((f) => f.type === 'suffered').length;
+    for (const { details: d } of played) {
+      const committed = getCommittedCount(d) ?? 0;
+      const suffered = getSufferedCount(d) ?? 0;
       totalCommitted += committed;
       totalSuffered += suffered;
 
@@ -257,12 +273,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       if (committed > committedLine) committedOver++;
       if (suffered > sufferedLine) sufferedOver++;
 
-      const inMin = d.substituteInMinute;
-      const outMin = d.substituteOutMinute;
-      if (inMin == null && outMin == null) totalMinutes += 90;
-      else if (inMin == null && outMin != null) totalMinutes += outMin;
-      else if (inMin != null && outMin == null) totalMinutes += Math.max(0, 90 - inMin);
-      else totalMinutes += Math.max(0, outMin! - inMin!);
+      totalMinutes += d.officialStats?.minutesPlayed ?? 0;
     }
 
     const appearances = played.length;
@@ -333,7 +344,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   }, [initialDetailsLoaded]);
 
   // ── Timeline spinner: shown when some visible events still lack details ──
-  const hasTimelineSpinner = displayEvents.some((e) => !detailsMap.has(e.id));
+  const hasTimelineSpinner = displayEvents.some((e) => !detailsLoadedIds.has(e.id));
 
   const displayPlayer: Player = resolvedPlayer ?? {
     id: playerId,

@@ -59,6 +59,27 @@ export interface PlayerSeasonStats {
   rating: number;
 }
 
+export interface PlayerMatchStatistics {
+  fouls?: number;
+  wasFouled?: number;
+  minutesPlayed?: number;
+  rating?: number;
+  yellowCards?: number;
+  redCards?: number;
+  [key: string]: unknown;
+}
+
+export interface PlayerEventIncidents {
+  yellowCards?: number;
+  redCards?: number;
+  yellowRedCards?: number;
+  goals?: number;
+  assists?: number;
+  [key: string]: unknown;
+}
+
+export type DataAvailability = 'idle' | 'loading' | 'loaded' | 'unavailable' | 'error';
+
 export interface AggregatedStats {
   totalFoulsCommitted: number;
   totalFoulsSuffered: number;
@@ -91,6 +112,8 @@ export interface MatchEvent {
   homeScore: { current: number; period1?: number; period2?: number };
   awayScore: { current: number; period1?: number; period2?: number };
   status: { code: number; description: string; type?: string };
+  hasEventPlayerStatistics?: boolean;
+  hasEventPlayerHeatMap?: boolean;
 }
 
 // === Commenti partita ===

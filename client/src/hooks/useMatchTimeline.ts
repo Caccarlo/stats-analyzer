@@ -1,7 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { getPlayerEvents } from '@/api/sofascore';
-import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
-import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
+import {
+  fetchMatchDetails,
+  matchDetailsCache,
+  createSeededMatchDetails,
+  type CachedMatchDetails,
+  type MatchDetailsSeed,
+} from '@/hooks/useMatchDetails';
 import type { MatchEvent } from '@/types';
 
 export interface UseMatchTimelineResult {
@@ -12,6 +17,29 @@ export interface UseMatchTimelineResult {
   initialDetailsLoaded: boolean;
 }
 
+function buildSeed(
+  eventId: number,
+  statisticsMap: Record<string, MatchDetailsSeed['officialStats']>,
+  incidentsMap: Record<string, MatchDetailsSeed['incidents']>,
+  onBenchMap: Record<string, boolean>,
+): MatchDetailsSeed {
+  const id = String(eventId);
+  return {
+    officialStats: statisticsMap[id] ?? null,
+    incidents: incidentsMap[id] ?? null,
+    onBench: onBenchMap[id] ?? false,
+  };
+}
+
+function hasEssentialDetails(details: CachedMatchDetails | undefined): boolean {
+  if (!details) return false;
+  return (
+    details.officialStatsStatus !== 'idle' &&
+    details.commentsStatus !== 'idle' &&
+    details.lineupsStatus !== 'idle'
+  );
+}
+
 export function useMatchTimeline(
   playerId: number,
   validSeasonIds: Set<number>,
@@ -20,7 +48,6 @@ export function useMatchTimeline(
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
   const [loadingEvents, setLoadingEvents] = useState(true);
 
-  // Ref to track which event details have already been fetched (avoids duplicate requests)
   const loadedIdsRef = useRef<Set<number>>(new Set());
 
   const seasonIdsKey = useMemo(
@@ -28,7 +55,6 @@ export function useMatchTimeline(
     [validSeasonIds],
   );
 
-  // ── Load event pages for the current season only ──
   useEffect(() => {
     if (validSeasonIds.size === 0) return;
 
@@ -42,25 +68,32 @@ export function useMatchTimeline(
       let page = 0;
       let accumulated: MatchEvent[] = [];
       let hasMore = true;
-      // Track whether we've found relevant events yet.
-      // Only stop early AFTER we've found some and then a page has none —
-      // this fixes the bug where 24/25 events were never reached because
-      // the first pages (all 25/26) triggered an early stop.
       let foundRelevant = false;
+      let combinedDetails = new Map<number, CachedMatchDetails>();
 
       while (hasMore && !cancelled) {
         try {
-          const { events: pageEvents, hasNextPage } = await getPlayerEvents(playerId, page);
+          const {
+            events: pageEvents,
+            hasNextPage,
+            statisticsMap,
+            incidentsMap,
+            onBenchMap,
+          } = await getPlayerEvents(playerId, page);
           if (cancelled) return;
 
           const relevant = pageEvents.filter(
             (e) => e.status?.code === 100 && validSeasonIds.has(e.season?.id),
           );
+
           accumulated = [...accumulated, ...relevant];
+          for (const event of relevant) {
+            const seed = buildSeed(event.id, statisticsMap, incidentsMap, onBenchMap);
+            const existing = combinedDetails.get(event.id);
+            combinedDetails.set(event.id, existing ?? createSeededMatchDetails(seed));
+          }
 
           if (relevant.length > 0) foundRelevant = true;
-
-          // Stop only after we've found season events and then a page has none
           if (foundRelevant && pageEvents.length > 0 && relevant.length === 0) break;
 
           hasMore = hasNextPage;
@@ -72,7 +105,13 @@ export function useMatchTimeline(
 
       if (!cancelled) {
         accumulated.sort((a, b) => b.startTimestamp - a.startTimestamp);
+        const sortedDetails = new Map<number, CachedMatchDetails>();
+        accumulated.forEach((event) => {
+          const details = combinedDetails.get(event.id);
+          if (details) sortedDetails.set(event.id, details);
+        });
         setAllEvents(accumulated);
+        setDetailsMap(sortedDetails);
         setLoadingEvents(false);
       }
     }
@@ -81,40 +120,44 @@ export function useMatchTimeline(
     return () => { cancelled = true; };
   }, [playerId, seasonIdsKey]);
 
-  // ── Progressive detail loading ──
-  // Critically: this runs on allEvents, NEVER on the filtered/display subset.
-  // This means filter changes in PlayerPage never interrupt or restart this loop.
   useEffect(() => {
     if (allEvents.length === 0) return;
 
     let cancelled = false;
 
     async function loadAllDetails() {
-      const eventIds = allEvents.map((e) => e.id);
-
-      for (let i = 0; i < eventIds.length; i += 5) {
+      for (let i = 0; i < allEvents.length; i += 5) {
         if (cancelled) return;
-        const batch = eventIds.slice(i, i + 5);
+
+        const batch = allEvents.slice(i, i + 5);
         const batchResults: { eventId: number; result: CachedMatchDetails }[] = [];
 
         await Promise.all(
-          batch.map(async (eventId) => {
-            if (loadedIdsRef.current.has(eventId)) return;
+          batch.map(async (event) => {
+            if (loadedIdsRef.current.has(event.id)) return;
 
-            const key = `${eventId}-${playerId}`;
-            if (matchDetailsCache.has(key)) {
-              const cached = matchDetailsCache.get(key)!;
-              loadedIdsRef.current.add(eventId);
-              batchResults.push({ eventId, result: cached });
-              return;
-            }
+            const existing = detailsMap.get(event.id);
+            const seed: MatchDetailsSeed = {
+              officialStats: existing?.officialStats ?? null,
+              incidents: null,
+              onBench: existing?.onBench ?? false,
+            };
 
+            const key = `${event.id}-${playerId}`;
             try {
-              const result = await fetchMatchDetails(eventId, playerId);
+              const result = matchDetailsCache.has(key)
+                ? matchDetailsCache.get(key)!
+                : await fetchMatchDetails(event.id, playerId, seed);
               if (cancelled) return;
-              loadedIdsRef.current.add(eventId);
-              batchResults.push({ eventId, result });
-            } catch { /* skip failed */ }
+              loadedIdsRef.current.add(event.id);
+              batchResults.push({ eventId: event.id, result });
+            } catch {
+              loadedIdsRef.current.add(event.id);
+              batchResults.push({
+                eventId: event.id,
+                result: existing ?? createSeededMatchDetails(seed),
+              });
+            }
           }),
         );
 
@@ -130,7 +173,7 @@ export function useMatchTimeline(
           });
         }
 
-        if (i + 5 < eventIds.length) {
+        if (i + 5 < allEvents.length) {
           await new Promise((r) => setTimeout(r, 300));
         }
       }
@@ -138,19 +181,20 @@ export function useMatchTimeline(
 
     loadAllDetails();
     return () => { cancelled = true; };
-  }, [allEvents, playerId]);
+  }, [allEvents, detailsMap, playerId]);
 
-  // ── Derived ──
   const detailsLoadedIds = useMemo(
-    () => new Set(detailsMap.keys()),
+    () => new Set(
+      [...detailsMap.entries()]
+        .filter(([, details]) => hasEssentialDetails(details))
+        .map(([eventId]) => eventId),
+    ),
     [detailsMap],
   );
 
-  // True once the first 5 events (or all events if fewer than 5) have their details loaded.
-  // Used by PlayerPage to know when to dismiss the full-page loader on first visit.
   const initialDetailsLoaded = useMemo(() => {
     const first5 = allEvents.slice(0, 5);
-    return first5.length > 0 && first5.every((e) => detailsMap.has(e.id));
+    return first5.length > 0 && first5.every((e) => hasEssentialDetails(detailsMap.get(e.id)));
   }, [allEvents, detailsMap]);
 
   return {

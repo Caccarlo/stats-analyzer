@@ -32,8 +32,8 @@ stats-analyzer/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine, selectedPeriod); exports SelectedPeriod type; currentSeasonYear auto-derived from selectedPeriod (if 'last' uses availableSeasonYears[0])
-    │   │   ├── useMatchDetails.ts    # Fetches match fouls + lineups only (no average-positions); exports shared cache + fetchMatchDetails(eventId, playerId) callable for any player; CachedMatchDetails includes didNotPlay flag and jerseyMap (Map<number, string> playerId→jerseyNumber built from lineups)
-    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, progressive detail loading (batch 5, delay 200ms) running on allEvents; early stop only after finding at least one relevant event (not on first empty comparison); does NOT manage selection; exports allEvents, detailsMap, loadingEvents, initialDetailsLoaded
+    │   │   ├── useMatchDetails.ts    # Fetches independent match data sources (official player statistics, comments, lineups) with separate caches/statuses; comments are narrative-only; exports fetchMatchDetails(eventId, playerId)
+    │   │   ├── useMatchTimeline.ts   # Loads all match events eagerly, seeds per-match official stats/incidents/onBench from player/{id}/events/last/{page}, then progressively enriches allEvents with match details in background
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
     │   │   ├── foulPairing.ts        # Extracts fouls from match comments, pairs them, translates zones
@@ -41,7 +41,7 @@ stats-analyzer/
     │   │   └── positionMapping.ts    # SofaScore coords -> SVG coords, 13+ formation templates
     │   ├── pages/
     │   │   ├── HomePage.tsx          # Landing with search bar
-    │   │   └── PlayerPage.tsx        # Player analysis: owns all selection logic; displayEvents = single useMemo applying tournament + period + didNotPlay + venue + starter filters on allEvents (no touch to loader); full-page loader (initialLoadComplete) fires once on first load only; subsequent period/season changes show spinner inside timeline section only; derivedStats computed from displayEvents ∩ detailsMap progressively
+    │   │   └── PlayerPage.tsx        # Player analysis: owns all selection logic; displayEvents = single useMemo applying tournament + period + didNotPlay + venue + starter filters on allEvents (no touch to loader); derivedStats uses official per-match player statistics, never comments
     │   └── components/
     │       ├── layout/
     │       │   ├── Sidebar.tsx       # Fixed 210px left panel, hamburger on mobile
@@ -135,12 +135,13 @@ All via `/api/sofascore/` prefix. Images via `/api/img/`.
 | `team/{id}/players` | Team roster | TeamView |
 | `team/{id}/events/next/0` | Next match | TeamView |
 | `event/{id}/lineups` | Formation + players; used in fetchMatchDetails to detect didNotPlay and build jerseyMap | TeamView, useMatchDetails |
-| `event/{id}/comments` | Match chronicle (fouls) | useMatchDetails |
+| `event/{id}/comments` | Match chronicle (foul narrative only) | useMatchDetails |
+| `event/{id}/player/{id}/statistics` | Official player match statistics (fouls, wasFouled, minutes, rating, etc.) | useMatchDetails |
 | `event/{id}/average-positions` | Player avg positions | MatchCard (on-demand, only when card is opened) |
 | `player/{id}` | Player info (includes current team) | PlayerPage |
 | `player/{id}/statistics/seasons` | Player tournament list | usePlayerData |
-| `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData (no longer used for StatsOverview display) |
-| `player/{id}/events/last/{page}` | Match history (paginated) | usePlayerData |
+| `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Season stats | usePlayerData |
+| `player/{id}/events/last/{page}` | Match history (paginated) + statisticsMap + incidentsMap + onBenchMap | useMatchTimeline |
 | `event/{id}/player/{id}/heatmap` | Player heatmap points for a match | HeatmapField |
 | `team/{id}/image`, `player/{id}/image`, etc. | Images | via /api/img/ |
 
@@ -155,19 +156,16 @@ Parses match `comments[]` to extract fouls for a specific player:
 - Substitutions extracted from `type: 'substitution'` comments
 
 ### Stats Calculator (statsCalculator.ts)
-Still exists but no longer used for StatsOverview display. All displayed stats are now derived from `detailsMap` in `PlayerPage` via `derivedStats` useMemo.
+Still exists for season/tournament aggregation from `/statistics/overall`, but the player page match-by-match numbers now come from official per-match player statistics.
 
 ### Derived Stats (PlayerPage.tsx)
-All statistics shown in `StatsOverview` are computed via a single `derivedStats` useMemo over `displayEvents ∩ detailsMap` (partite con dettagli già caricati). Grows progressively as `useMatchTimeline` loads match details in background. Responds immediately to all active filters (tournament, period, venue, starter, didNotPlay).
+All statistics shown in `StatsOverview` are computed via a single `derivedStats` useMemo over visible matches with `officialStatsStatus === 'loaded'`. Source of truth is `event/{id}/player/{id}/statistics` plus incident/card seeds from `player/{id}/events/last/{page}`. Comments are never used as numeric source of truth.
 
 Per ogni partita caricata:
-- `fouls` → committed (type 'committed' | 'handball') e suffered (type 'suffered')
-- `cardInfo` → yellow / red / yellowRed
-- Minuti giocati calcolati da `substituteInMinute` / `substituteOutMinute`:
-  - Titolare senza uscire: 90 min
-  - Titolare uscito al X': X min
-  - Subentrante al X' senza uscire: 90 - X min
-  - Subentrante al X' uscito al Y': Y - X min
+- `officialStats.fouls` → falli commessi ufficiali
+- `officialStats.wasFouled` → falli subiti ufficiali
+- `officialStats.minutesPlayed` → minutaggio ufficiale
+- `cardInfo` → yellow / red / yellowRed da incidents seed o comments fallback narrativo
 
 Output di `derivedStats`:
 - `stats: AggregatedStats` — totalFoulsCommitted, totalFoulsSuffered, totalMinutesPlayed, totalAppearances, avgFoulsCommittedPerMatch, avgFoulsCommittedPer90, avgFoulsSufferedPerMatch, avgFoulsSufferedPer90, totalYellowCards, totalRedCards, avgYellowCardsPerMatch, avgRedCardsPerMatch
@@ -175,14 +173,12 @@ Output di `derivedStats`:
 - `sufferedHitRate: { over, total }` — partite con falli subiti > sufferedLine
 
 ### Did Not Play Detection (useMatchDetails.ts)
-Rilevato in `fetchMatchDetails` durante il caricamento dei dettagli partita:
-- Vengono caricati in parallelo commenti e lineups (`getMatchLineups`) — average-positions NON viene caricata qui
-- Un giocatore è classificato `didNotPlay: true` se tutte e tre le condizioni sono vere:
-  1. Le lineups sono disponibili (`lineups !== null`)
-  2. I commenti della partita non sono vuoti (`comments.length > 0`) — garantisce che l'API abbia risposto con dati reali
-  3. Il giocatore è nella lista lineups con `substitute: true` e non appare in nessun commento come `player`, `playerIn` o `playerOut`
-- Se le lineups non sono disponibili o i commenti sono vuoti, `didNotPlay` resta `false` (falso negativo preferibile a falso positivo)
-- Le partite `didNotPlay` vengono escluse da `displayEvents` in `PlayerPage` e auto-deselezionate in `useMatchTimeline` non appena i dettagli vengono caricati
+Rilevato combinando fonti indipendenti:
+- `onBenchMap` da `player/{id}/events/last/{page}`
+- `officialStats.minutesPlayed`
+- `lineups` se disponibili
+- `comments` solo per l'eventuale minuto di ingresso, non come prerequisito
+- Le partite `didNotPlay` vengono escluse da `displayEvents` in `PlayerPage` e auto-deselezionate quando i dettagli confermano che il giocatore non è entrato
 
 ### Jersey Map (useMatchDetails.ts)
 Costruita in `fetchMatchDetails` dopo il caricamento delle lineups:
@@ -194,7 +190,7 @@ Costruita in `fetchMatchDetails` dopo il caricamento delle lineups:
 Caricata on-demand tramite `getMatchAveragePositions(event.id)` dentro un `useEffect` in `MatchCard`, solo quando la card viene renderizzata. Non più caricata nel loop progressivo di `useMatchTimeline`. Stato locale `positions` in `MatchCard` (useState), inizialmente `null`, popolato al primo render della card.
 
 ### Hit Rate (PlayerPage.tsx)
-Parte di `derivedStats` (vedi sopra). Calcolato su `displayEvents ∩ detailsMap`. Cresce progressivamente.
+Parte di `derivedStats` (vedi sopra). Calcolato sulle partite visibili con statistiche ufficiali disponibili. Cresce progressivamente.
 - `committedHitRate` = `{ over, total }` dove `over` = partite con falli commessi > `committedLine`
 - `sufferedHitRate` = `{ over, total }` dove `over` = partite con falli subiti > `sufferedLine`
 

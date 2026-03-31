@@ -32,7 +32,7 @@ stats-analyzer/
     │   │   └── NavigationContext.tsx  # useReducer state for all navigation + split view
     │   ├── hooks/
     │   │   ├── usePlayerData.ts      # Fetches player seasons/stats, manages filters (showCommitted, showSuffered, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine, selectedPeriod); exports SelectedPeriod type; currentSeasonYear auto-derived from selectedPeriod (if 'last' uses availableSeasonYears[0])
-    │   │   ├── useMatchDetails.ts    # Fetches independent match data sources (official player statistics, comments, lineups) with separate caches/statuses; comments are narrative-only; exports fetchMatchDetails(eventId, playerId)
+    │   │   ├── useMatchDetails.ts    # Fetches independent match data sources with separate caches/statuses; comments are narrative-only; exports fetchMatchDetails(eventId, playerId) + helper separati: fetchMatchOfficialStats, fetchMatchLineupsOnly, fetchMatchRichData, patchMatchDetailsCache
     │   │   ├── useMatchTimeline.ts   # 4 code dopo events/last: (1) officialStats via event/{id}/player/{id}/statistics (batch 8) → initialStatsLoaded dopo prime 5; (2) lineups (batch 5) → allLineupsLoaded; (3) rich/comments ultime 5; (4) lazy per le altre via requestRichDetails(eventId)
     │   │   └── useSplitCardSync.ts   # Cross-panel card height sync via module-level registry + useLayoutEffect
     │   ├── utils/
@@ -57,7 +57,7 @@ stats-analyzer/
     │       │   ├── PlayerHeader.tsx  # Avatar, name, team, position, number
     │       │   ├── PlayerFilters.tsx # 3-column layout: col1=Competizioni(vertical), col2=Sede+Periodo+Titolare, col3=Mostra(vertical) con dropdown Over X.5 affiancati; "Periodo:" select raggruppato: prima opzioni "Ultime N" poi stagioni per anno; isSplitView prop controls w-full vs w-1/2
     │       │   ├── StatsOverview.tsx # Stat cards grid: committed(4 cols), suffered(4 cols), cards(4 cols when showCards); quarto card = HitRateCard
-    │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle; prop isBackgroundLoading: when true shows small green spinner next to "Timeline partite (N)"
+    │       │   ├── MatchTimeline.tsx # Horizontal scrollable match timeline with foul badges + select/deselect all toggle; header mostra sempre il totale partite (N); prop isBackgroundLoading: when true shows small green spinner next to the count
     │       │   ├── MatchCard.tsx     # Always-open match card: foul list, FieldMap, Heatmap, active player stats overlay; opponent team name in header is clickable (opens split/swap); active opponent player name is clickable (opens split/swap); foul comments show jersey number after player name outside the clickable button; all clickable elements use text-text-primary hover:text-neon except foul comment player buttons which are text-neon; average-positions loaded on-demand via getMatchAveragePositions when card is opened
     │       │   ├── FieldMap.tsx      # SVG field with clickable position dots; activePlayerId + involvedPlayerIds filtering
     │       │   └── HeatmapField.tsx  # Canvas-based player heatmap; maxWidth prop = half of FieldMap width (measured via ResizeObserver), fallback 119px portrait / 200px landscape

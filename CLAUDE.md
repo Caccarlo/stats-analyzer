@@ -23,6 +23,7 @@ stats-analyzer/
 │   └── index.js                     # Express proxy (2 routes: /api/sofascore/*, /api/img/*)
 └── client/
     ├── vite.config.ts               # Proxy /api -> :3001, alias @ -> src/
+    ├── tsconfig.app.json            # TypeScript client config; mirrors alias @ -> src/* for editor + build resolution
     ├── src/
     │   ├── App.tsx                   # Root: wraps NavigationProvider, renders Sidebar + ContentPanel
     │   ├── index.css                 # Tailwind imports + custom CSS theme variables
@@ -283,12 +284,13 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 ### Starter filter (Titolare)
 - State lives in `usePlayerData` as `showStartersOnly` (`false` by default)
 - Rendered in `PlayerFilters` colonna 2, come bottone affiancato a destra del `<select>` del periodo, sulla stessa riga
-- Disattivo al caricamento; quando attivo mostra solo le partite in cui il giocatore è partito titolare (non dalla panchina)
-- Logica: una partita è "da titolare" se `CachedMatchDetails.substituteInMinute === undefined`
+- Sempre visibile ma `disabled` finché `allLineupsLoaded === false`; diventa cliccabile solo quando tutte le partite hanno caricato le formazioni
+- Quando attivo mostra solo le partite in cui il giocatore è partito titolare (non dalla panchina)
+- Logica: una partita è "da titolare" se `CachedMatchDetails.isStarter === true`, flag derivato direttamente da `event/{id}/lineups` (`lineupPlayer.substitute !== true`)
 - Filtro applicato in `PlayerPage` dentro `displayEvents` useMemo **solo quando `allLineupsLoaded === true`**; se le lineups non sono ancora pronte, `displayEvents` restituisce `[]` per evitare dati parziali
 - Quando `showStartersOnly && !allLineupsLoaded`: PlayerPage mostra un loader contestuale ("Caricamento formazioni...") e nasconde StatsOverview e Timeline
 - Dipendenze del `useMemo`: `allEvents`, `showHome`, `showAway`, `resolvedPlayer?.team?.id`, `showStartersOnly`, `detailsMap`, `selectedPeriod`, `allLineupsLoaded`
-- Le lineups vengono precaricate per tutte le partite in background da `useMatchTimeline` (loop separato, batch 5, 150ms)
+- Le lineups vengono precaricate per tutte le partite in background da `useMatchTimeline` (loop separato, batch 5, 150ms); il filtro non dipende dai comments rich né dalla selezione delle card
 
 ### Did Not Play filter (automatico, non configurabile dall'utente)
 - Non è un filtro esplicito: le partite in cui il giocatore era in panchina senza mai entrare vengono escluse automaticamente
@@ -315,7 +317,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Width: `w-1/2` in full-screen, `w-full` in split view — controlled via `isSplitView` prop passed from `PlayerPage`
 - All buttons and labels use `text-xs` and `px-2 py-1` for compact sizing
 - Colonna 1 and 3 use `items-start` on the flex container so buttons shrink to content width
-- Colonna 2: bottoni Casa/Trasferta affiancati; sotto, sulla stessa riga, il `<select>` periodo e il bottone Titolare affiancati
+- Colonna 2: bottoni Casa/Trasferta affiancati; sotto, sulla stessa riga, il `<select>` periodo e il bottone Titolare affiancati; Titolare usa stato `disabled` + `opacity-40` finché `allLineupsLoaded` è `false`
 - Colonna 3: ogni bottone (Falli commessi, Falli subiti) ha affiancato un `<select>` 0.5→9.5 sempre visibile, disabilitato e scurito (`opacity-40`) se il filtro è inattivo
 - Nessun segno di spunta (✓) sui bottoni filtro
 

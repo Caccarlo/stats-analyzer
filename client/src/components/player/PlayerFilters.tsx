@@ -22,6 +22,7 @@ interface PlayerFiltersProps {
   onShowCardsChange: (v: boolean) => void;
   showStartersOnly: boolean;
   onShowStartersOnlyChange: (v: boolean) => void;
+  startersFilterEnabled: boolean;
   committedLine: number;
   onCommittedLineChange: (v: number) => void;
   sufferedLine: number;
@@ -48,6 +49,7 @@ export default function PlayerFilters({
   onShowCardsChange,
   showStartersOnly,
   onShowStartersOnlyChange,
+  startersFilterEnabled,
   committedLine,
   onCommittedLineChange,
   sufferedLine,
@@ -182,12 +184,21 @@ export default function PlayerFilters({
               )}
             </select>
             <button
+              type="button"
+              disabled={!startersFilterEnabled}
               onClick={() => onShowStartersOnlyChange(!showStartersOnly)}
               className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
                 showStartersOnly
                   ? 'bg-neon/15 border-neon text-neon'
-                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                  : startersFilterEnabled
+                    ? 'bg-surface border-border text-text-muted hover:border-border-hover'
+                    : 'bg-surface border-border text-text-muted opacity-40 cursor-not-allowed'
               }`}
+              title={
+                startersFilterEnabled
+                  ? undefined
+                  : 'Disponibile quando tutte le partite hanno caricato le formazioni'
+              }
             >
               Titolare
             </button>

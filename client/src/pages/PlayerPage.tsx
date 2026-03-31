@@ -170,9 +170,9 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       events = events.filter((e) => {
         const details = detailsMap.get(e.id);
         if (!details) return false;
-        if (details.lineupsStatus === 'loaded') return !details.didNotPlay && details.substituteInMinute == null;
+        if (details.lineupsStatus === 'loaded') return !details.didNotPlay && details.isStarter === true;
         // lineup unavailable/error: includi solo se officialStats conferma minuti > 0
-        return (details.officialStats?.minutesPlayed ?? 0) > 0 && details.substituteInMinute == null;
+        return (details.officialStats?.minutesPlayed ?? 0) > 0;
       });
     }
 
@@ -406,6 +406,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onSufferedLineChange={setSufferedLine}
             showStartersOnly={showStartersOnly}
             onShowStartersOnlyChange={setShowStartersOnly}
+            startersFilterEnabled={allLineupsLoaded}
             isSplitView={isSplitView}
           />
         </div>

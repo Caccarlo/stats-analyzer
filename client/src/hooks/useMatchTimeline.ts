@@ -5,7 +5,6 @@ import {
   fetchMatchOfficialStats,
   fetchMatchLineupsOnly,
   fetchMatchRichData,
-  matchDetailsCache,
   createSeededMatchDetails,
   type CachedMatchDetails,
   type MatchDetailsSeed,
@@ -257,6 +256,7 @@ export function useMatchTimeline(
               lineupsStatus: result.lineupsStatus,
               jerseyMap: result.jerseyMap,
               didNotPlay: result.didNotPlay,
+              isStarter: result.isStarter,
             };
             patchMatchDetailsCache(event.id, playerId, patch);
             batchResults.push({ eventId: event.id, patch });
@@ -290,6 +290,7 @@ export function useMatchTimeline(
       if (!cancelled) {
         setAllLineupsLoaded(true);
       }
+
     }
 
     loadAllLineups();

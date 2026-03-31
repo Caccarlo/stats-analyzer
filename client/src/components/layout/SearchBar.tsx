@@ -8,7 +8,7 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { selectPlayer } = useNavigation();
 
@@ -33,7 +33,11 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
       }
     }, 500);
 
-    return () => clearTimeout(timerRef.current);
+    return () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+      }
+    };
   }, [query]);
 
   // Close dropdown on outside click

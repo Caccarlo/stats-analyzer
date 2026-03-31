@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { getPlayerEvents } from '@/api/sofascore';
+import { getPlayerTournamentSeasonEvents } from '@/api/sofascore';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import type { MatchEvent } from '@/types';
@@ -30,20 +30,17 @@ export function useMatchTimeline(
   // Ref to track which event details have already been fetched (avoids duplicate requests)
   const loadedIdsRef = useRef<Set<number>>(new Set());
 
-  // Derive validSeasonIds from tournamentsForSeason for event filtering
-  const validSeasonIds = useMemo(
-    () => new Set(tournamentsForSeason.map((t) => t.seasonId)),
+  const tournamentsKey = useMemo(
+    () => tournamentsForSeason
+      .map((t) => `${t.tournamentId}:${t.seasonId}`)
+      .sort()
+      .join(','),
     [tournamentsForSeason],
   );
 
-  const seasonIdsKey = useMemo(
-    () => [...validSeasonIds].sort().join(','),
-    [validSeasonIds],
-  );
-
-  // ── Load event pages for the current season only ──
+  // ── Load events for the current season in parallel across tournaments ──
   useEffect(() => {
-    if (validSeasonIds.size === 0) return;
+    if (tournamentsForSeason.length === 0) return;
 
     let cancelled = false;
     loadedIdsRef.current = new Set();
@@ -52,46 +49,56 @@ export function useMatchTimeline(
     setFailedIds(new Set());
     setLoadingEvents(true);
 
-    async function loadPages() {
+    async function loadOneTournament(tournamentId: number, seasonId: number): Promise<MatchEvent[]> {
       let page = 0;
       let accumulated: MatchEvent[] = [];
-      let hasMore = true;
-      // Only stop early AFTER we've found some events and then a page has none —
-      // this prevents stopping too early when first pages belong to a newer season.
-      let foundRelevant = false;
 
-      while (hasMore && !cancelled) {
+      while (!cancelled) {
         try {
-          const { events: pageEvents, hasNextPage } = await getPlayerEvents(playerId, page);
-          if (cancelled) return;
-
-          const relevant = pageEvents.filter(
-            (e) => e.status?.code === 100 && validSeasonIds.has(e.season?.id),
+          const { events: pageEvents, hasNextPage } = await getPlayerTournamentSeasonEvents(
+            playerId, tournamentId, seasonId, page,
           );
-          accumulated = [...accumulated, ...relevant];
+          if (cancelled) return accumulated;
 
-          if (relevant.length > 0) foundRelevant = true;
+          const finished = pageEvents.filter((e) => e.status?.code === 100);
+          accumulated = [...accumulated, ...finished];
 
-          // Stop only after we've found season events and then a page has none
-          if (foundRelevant && pageEvents.length > 0 && relevant.length === 0) break;
-
-          hasMore = hasNextPage;
+          if (!hasNextPage) break;
           page++;
         } catch {
           break;
         }
       }
 
-      if (!cancelled) {
-        accumulated.sort((a, b) => b.startTimestamp - a.startTimestamp);
-        setAllEvents(accumulated);
-        setLoadingEvents(false);
-      }
+      return accumulated;
     }
 
-    loadPages();
+    async function loadAll() {
+      const results = await Promise.all(
+        tournamentsForSeason.map((t) => loadOneTournament(t.tournamentId, t.seasonId)),
+      );
+      if (cancelled) return;
+
+      // Merge, deduplicate by event id, sort most-recent first
+      const seen = new Set<number>();
+      const merged: MatchEvent[] = [];
+      for (const events of results) {
+        for (const e of events) {
+          if (!seen.has(e.id)) {
+            seen.add(e.id);
+            merged.push(e);
+          }
+        }
+      }
+      merged.sort((a, b) => b.startTimestamp - a.startTimestamp);
+
+      setAllEvents(merged);
+      setLoadingEvents(false);
+    }
+
+    loadAll();
     return () => { cancelled = true; };
-  }, [playerId, seasonIdsKey]);
+  }, [playerId, tournamentsKey]);
 
   // ── Progressive detail loading ──
   // Critically: this runs on allEvents, NEVER on the filtered/display subset.

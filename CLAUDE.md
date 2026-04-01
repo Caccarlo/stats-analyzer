@@ -15,6 +15,16 @@ npm run install:all   # first time
 npm start             # runs both client and server via concurrently
 ```
 
+### Killing stuck processes (Windows)
+`taskkill` doesn't work in Git Bash (interprets `/PID` as a path). Use PowerShell instead:
+```bash
+# Find PIDs listening on ports 3001 and 5173
+netstat -ano | grep -E "LISTENING" | grep -E ":3001 |:5173 "
+
+# Kill by PID (replace 1234 / 5678 with actual PIDs)
+powershell -Command "Stop-Process -Id 1234 -Force -ErrorAction SilentlyContinue; Stop-Process -Id 5678 -Force -ErrorAction SilentlyContinue"
+```
+
 ## Project Structure
 ```
 stats-analyzer/

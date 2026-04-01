@@ -78,6 +78,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     selectedPeriod,
     setSelectedPeriod,
     currentSeasonYear,
+    enabledTournaments,
     selectedTournaments,
     toggleTournament,
     showCommitted,
@@ -98,7 +99,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowStartersOnly,
   } = usePlayerData(playerId);
 
-  // All tournaments available for the current season year (used by filter UI)
+  // All tournaments available for the current season year (used in 'season' mode)
   const allTournamentsForSeason = tournamentSeasons
     .map((ts) => {
       const season = ts.seasons.find((s) => s.year === currentSeasonYear);
@@ -112,16 +113,20 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  const selectedTournamentIds = useMemo(
-    () => new Set(selectedTournaments.map((t) => t.tournamentId)),
-    [selectedTournaments],
+  // Season IDs passed to useMatchTimeline:
+  // 'last' mode → all season IDs across all years (caricamento fisso, indipendente dai filtri)
+  // 'season' mode → only the current season year (existing behaviour)
+  const validSeasonIds = useMemo(
+    () => {
+      if (selectedPeriod.type === 'season') {
+        return new Set(allTournamentsForSeason.map((t) => t.seasonId));
+      }
+      return new Set(tournamentSeasons.flatMap((ts) => ts.seasons.map((s) => s.id)));
+    },
+    [selectedPeriod.type, allTournamentsForSeason, tournamentSeasons],
   );
 
-  // Season IDs for the current season — tells useMatchTimeline which events to load
-  const validSeasonIds = useMemo(
-    () => new Set(allTournamentsForSeason.map((t) => t.seasonId)),
-    [allTournamentsForSeason],
-  );
+  const maxEvents = selectedPeriod.type === 'last' ? selectedPeriod.count * 3 : undefined;
 
   const {
     allEvents,
@@ -132,26 +137,71 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     allLineupsLoaded,
     recentRichLoaded,
     requestRichDetails,
-  } = useMatchTimeline(playerId, validSeasonIds);
+  } = useMatchTimeline(playerId, validSeasonIds, maxEvents);
+
+  // Tournament list for the filter UI:
+  // 'last' mode → unique tournaments extracted from the actually loaded events
+  // 'season' mode → same as allTournamentsForSeason
+  const tournamentsForFilter = useMemo(() => {
+    if (selectedPeriod.type === 'season') return allTournamentsForSeason;
+    const seen = new Set<number>();
+    const result: typeof allTournamentsForSeason = [];
+    const count = selectedPeriod.count;
+    for (const event of allEvents.slice(0, count)) {
+      const tid = event.tournament?.uniqueTournament?.id;
+      const tname = event.tournament?.uniqueTournament?.name;
+      if (tid && tname && !seen.has(tid)) {
+        seen.add(tid);
+        result.push({
+          tournamentId: tid,
+          tournamentName: tname,
+          seasonId: event.season?.id ?? 0,
+          seasonName: event.season?.name ?? '',
+        });
+      }
+    }
+    return result;
+  }, [selectedPeriod.type, selectedPeriod, allTournamentsForSeason, allEvents]);
+
+  // Tournaments currently enabled (subset of tournamentsForFilter)
+  const activeFilterTournaments = useMemo(
+    () => tournamentsForFilter.filter((t) => enabledTournaments.has(t.tournamentId)),
+    [tournamentsForFilter, enabledTournaments],
+  );
+
+  const selectedTournamentIds = useMemo(
+    () => new Set(activeFilterTournaments.map((t) => t.tournamentId)),
+    [activeFilterTournaments],
+  );
 
   // ── Display events: all filters applied on top of allEvents ──
   // This is pure derivation — changing any filter never touches the background loader.
   const displayEvents = useMemo(() => {
-    // 1. Tournament filter
-    let events = selectedTournamentIds.size === 0
-      ? allEvents
-      : allEvents.filter((e) => selectedTournamentIds.has(e.tournament?.uniqueTournament?.id));
+    let events: typeof allEvents;
 
-    // 2. Exclude matches where player was on the bench and never came on
-    events = events.filter((e) => {
-      const details = detailsMap.get(e.id);
-      if (!details) return true; // keep until details confirm didNotPlay
-      return !details.didNotPlay;
-    });
-
-    // 3. Period: "last N" must count only matches that remain valid after didNotPlay exclusion
     if (selectedPeriod.type === 'last') {
-      events = events.slice(0, selectedPeriod.count);
+      // 'last N': prima escludi didNotPlay, poi slice a N, poi filtri display su quelle N
+      events = allEvents.filter((e) => {
+        const details = detailsMap.get(e.id);
+        if (!details) return true;
+        return !details.didNotPlay;
+      }).slice(0, selectedPeriod.count);
+    } else {
+      // 'season': tournament filter prima, poi didNotPlay exclusion
+      events = selectedTournamentIds.size === 0
+        ? allEvents
+        : allEvents.filter((e) => selectedTournamentIds.has(e.tournament?.uniqueTournament?.id));
+
+      events = events.filter((e) => {
+        const details = detailsMap.get(e.id);
+        if (!details) return true;
+        return !details.didNotPlay;
+      });
+    }
+
+    // Tournament filter (in 'last' mode: su quelle N partite; in 'season' mode: già applicato)
+    if (selectedPeriod.type === 'last' && selectedTournamentIds.size > 0) {
+      events = events.filter((e) => selectedTournamentIds.has(e.tournament?.uniqueTournament?.id));
     }
 
     // 4. Venue filter
@@ -407,7 +457,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             availableSeasonYears={availableSeasonYears}
             selectedPeriod={selectedPeriod}
             onPeriodChange={handlePeriodChange}
-            selectedTournaments={selectedTournaments}
+            selectedTournaments={activeFilterTournaments}
             onToggleTournament={toggleTournament}
             showCommitted={showCommitted}
             onShowCommittedChange={setShowCommitted}
@@ -419,7 +469,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onShowHomeChange={setShowHome}
             showAway={showAway}
             onShowAwayChange={setShowAway}
-            allTournamentsForSeason={allTournamentsForSeason}
+            allTournamentsForSeason={tournamentsForFilter}
             committedLine={committedLine}
             onCommittedLineChange={setCommittedLine}
             sufferedLine={sufferedLine}

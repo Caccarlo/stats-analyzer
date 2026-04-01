@@ -40,6 +40,7 @@ function buildSeed(
 export function useMatchTimeline(
   playerId: number,
   validSeasonIds: Set<number>,
+  maxEvents?: number,
 ): UseMatchTimelineResult {
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
@@ -104,6 +105,11 @@ export function useMatchTimeline(
             combinedDetails.set(event.id, existing ?? createSeededMatchDetails(seed));
           }
 
+          if (maxEvents !== undefined && accumulated.length >= maxEvents) {
+            hasMore = false;
+            break;
+          }
+
           if (relevant.length > 0) foundRelevant = true;
           if (foundRelevant && pageEvents.length > 0 && relevant.length === 0) break;
 
@@ -135,7 +141,7 @@ export function useMatchTimeline(
 
     loadPages();
     return () => { cancelled = true; };
-  }, [playerId, seasonIdsKey]);
+  }, [playerId, seasonIdsKey, maxEvents]);
 
   // ── Effetto 2: fetch officialStats (fouls, wasFouled, minutesPlayed) per tutte le partite ──
   // I seed di events/last non contengono fouls/wasFouled → serve event/{id}/player/{id}/statistics

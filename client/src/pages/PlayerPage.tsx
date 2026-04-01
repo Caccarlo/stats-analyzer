@@ -12,6 +12,8 @@ import StatsOverview from '@/components/player/StatsOverview';
 import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
 
+const AUTO_SELECTED_MATCH_COUNT = 3;
+
 function getCommittedCount(details: CachedMatchDetails | undefined): number | null {
   const value = details?.officialStats?.fouls;
   return typeof value === 'number' ? value : null;
@@ -180,71 +182,92 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, allLineupsLoaded]);
 
   // ── Selection state (moved here from useMatchTimeline) ──
+  const [selectionMode, setSelectionMode] = useState<'auto' | 'manual'>('auto');
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
+  const manualSelectionStateRef = useRef<Map<number, boolean>>(new Map());
+  const seasonSelectionKey = useMemo(
+    () => `${playerId}-${[...validSeasonIds].sort().join(',')}`,
+    [playerId, validSeasonIds],
+  );
+  const visibleSelectedIdsFromManualState = useCallback(() => (
+    new Set(
+      displayEvents
+        .filter((event) => manualSelectionStateRef.current.get(event.id) === true)
+        .map((event) => event.id),
+    )
+  ), [displayEvents]);
 
-  // Pre-selection key: once per player+season combo (not per period change)
-  const preSelectedKeyRef = useRef('');
+  const snapshotCurrentSelectionIntoManualState = useCallback(() => {
+    const nextSnapshot = new Map<number, boolean>();
+    displayEvents.forEach((event) => {
+      nextSnapshot.set(event.id, selectedEventIds.has(event.id));
+    });
+    manualSelectionStateRef.current = nextSnapshot;
+  }, [displayEvents, selectedEventIds]);
 
+  const ensureManualMode = useCallback(() => {
+    if (selectionMode === 'manual') return;
+    snapshotCurrentSelectionIntoManualState();
+    setSelectionMode('manual');
+  }, [selectionMode, snapshotCurrentSelectionIntoManualState]);
+
+  // A season change resets the manual snapshot and re-enables automatic selection.
   useEffect(() => {
-    const seasonKey = [...validSeasonIds].sort().join(',');
-    const key = `${playerId}-${seasonKey}`;
-    if (preSelectedKeyRef.current === key) return;
-    if (displayEvents.length === 0 || !allOfficialStatsLoaded || !allLineupsLoaded || !recentRichLoaded) return;
-    preSelectedKeyRef.current = key;
+    manualSelectionStateRef.current = new Map();
+    setSelectionMode('auto');
+    setSelectedEventIds(new Set());
+  }, [seasonSelectionKey]);
+
+  // Automatic mode always tracks the latest visible matches for the current filter set.
+  useEffect(() => {
+    if (selectionMode !== 'auto') return;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const count = isMobile ? 1 : 3;
-    setSelectedEventIds(new Set(displayEvents.slice(0, count).map((e) => e.id)));
-  }, [displayEvents, allOfficialStatsLoaded, allLineupsLoaded, recentRichLoaded, playerId, validSeasonIds]);
+    const count = isMobile ? 1 : AUTO_SELECTED_MATCH_COUNT;
+    setSelectedEventIds(new Set(displayEvents.slice(0, count).map((event) => event.id)));
+  }, [displayEvents, selectionMode]);
 
-  // Prune selection when displayEvents shrinks (e.g. filter change removes events)
+  // Manual mode restores the user's frozen selection for any event that becomes visible again.
   useEffect(() => {
-    const validIds = new Set(displayEvents.map((e) => e.id));
-    setSelectedEventIds((prev) => {
-      const pruned = new Set([...prev].filter((id) => validIds.has(id)));
-      if (pruned.size === prev.size) return prev;
-      return pruned;
-    });
-  }, [displayEvents]);
-
-  // Auto-deselect didNotPlay matches as their details arrive
-  useEffect(() => {
-    const notPlayedIds = [...detailsMap.entries()]
-      .filter(([, d]) => d.didNotPlay)
-      .map(([id]) => id);
-    if (notPlayedIds.length === 0) return;
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      notPlayedIds.forEach((id) => {
-        if (next.has(id)) { next.delete(id); changed = true; }
-      });
-      return changed ? next : prev;
-    });
-  }, [detailsMap]);
+    if (selectionMode !== 'manual') return;
+    setSelectedEventIds(visibleSelectedIdsFromManualState());
+  }, [displayEvents, selectionMode, visibleSelectedIdsFromManualState]);
 
   const toggleMatch = useCallback((eventId: number) => {
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventId)) next.delete(eventId); else next.add(eventId);
-      return next;
-    });
-  }, []);
+    if (selectionMode === 'auto') {
+      snapshotCurrentSelectionIntoManualState();
+      setSelectionMode('manual');
+    }
+
+    const currentValue =
+      selectionMode === 'manual'
+        ? manualSelectionStateRef.current.get(eventId) === true
+        : selectedEventIds.has(eventId);
+
+    manualSelectionStateRef.current.set(eventId, !currentValue);
+    setSelectedEventIds(visibleSelectedIdsFromManualState());
+  }, [selectionMode, selectedEventIds, snapshotCurrentSelectionIntoManualState, visibleSelectedIdsFromManualState]);
 
   const deselectMatch = useCallback((eventId: number) => {
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      next.delete(eventId);
-      return next;
-    });
-  }, []);
+    ensureManualMode();
+    manualSelectionStateRef.current.set(eventId, false);
+    setSelectedEventIds(visibleSelectedIdsFromManualState());
+  }, [ensureManualMode, visibleSelectedIdsFromManualState]);
 
   const selectAll = useCallback(() => {
-    setSelectedEventIds(new Set(displayEvents.map((e) => e.id)));
-  }, [displayEvents]);
+    ensureManualMode();
+    displayEvents.forEach((event) => {
+      manualSelectionStateRef.current.set(event.id, true);
+    });
+    setSelectedEventIds(new Set(displayEvents.map((event) => event.id)));
+  }, [displayEvents, ensureManualMode]);
 
   const deselectAll = useCallback(() => {
+    ensureManualMode();
+    displayEvents.forEach((event) => {
+      manualSelectionStateRef.current.set(event.id, false);
+    });
     setSelectedEventIds(new Set());
-  }, []);
+  }, [displayEvents, ensureManualMode]);
 
   // ── Derived stats from displayEvents ──
   const derivedStats = useMemo(() => {
@@ -317,25 +340,16 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         ? 'w-full md:w-[calc(50%-4px)]'
         : 'w-full md:w-[calc(33.333%-6px)]';
 
-  // Toggle mode for select/deselect all
-  const [toggleMode, setToggleMode] = useState<'select' | 'deselect'>('select');
-
-  useEffect(() => {
-    if (displayEvents.length === 0) return;
-    if (selectedEventIds.size === displayEvents.length) {
-      setToggleMode('deselect');
-    } else if (selectedEventIds.size === 0) {
-      setToggleMode('select');
-    }
-  }, [selectedEventIds, displayEvents]);
+  const toggleMode: 'select' | 'deselect' =
+    displayEvents.length > 0 && selectedEvents.length === displayEvents.length
+      ? 'deselect'
+      : 'select';
 
   const handleToggleAll = useCallback(() => {
     if (toggleMode === 'select') {
       selectAll();
-      setToggleMode('deselect');
     } else {
       deselectAll();
-      setToggleMode('select');
     }
   }, [toggleMode, selectAll, deselectAll]);
 

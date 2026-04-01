@@ -283,6 +283,10 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Rendered in `PlayerFilters` colonna 2, affiancati, con Periodo sotto
 - Toggle logic: se si disattiva l'unico filtro attivo, l'altro viene attivato automaticamente prima (nessun click ignorato)
 - In `PlayerPage`, applied inside `displayEvents` useMemo on `allEvents`
+- Lato/campo determinato da `CachedMatchDetails.playerSide: 'home' | 'away' | undefined`, derivato dalle lineup (`derivePlayerSide` in `useMatchDetails.ts`): controlla se il `playerId` è in `lineups.home.players` o `lineups.away.players`
+- `playerSide` viene propagato dall'Effetto 3 di `useMatchTimeline` (lineup loader) via patch su `detailsMap`
+- Fallback per lineup non ancora caricate: confronto diretto `homeTeam.id === player.team.id`; se nemmeno questo risolve (es. partite di nazionali prima del caricamento lineup), la partita viene inclusa temporaneamente (`isHome === null → return true`)
+- Necessario per le nazionali: `player.team` è sempre il club corrente, non la nazionale, quindi il confronto per ID fallirebbe
 
 ### Starter filter (Titolare)
 - State lives in `usePlayerData` as `showStartersOnly` (`false` by default)

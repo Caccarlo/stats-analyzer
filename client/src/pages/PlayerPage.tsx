@@ -139,17 +139,17 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       ? allEvents
       : allEvents.filter((e) => selectedTournamentIds.has(e.tournament?.uniqueTournament?.id));
 
-    // 2. Period: "last N" slices the already-tournament-filtered list (behavior B)
-    if (selectedPeriod.type === 'last') {
-      events = events.slice(0, selectedPeriod.count);
-    }
-
-    // 3. Exclude matches where player was on the bench and never came on
+    // 2. Exclude matches where player was on the bench and never came on
     events = events.filter((e) => {
       const details = detailsMap.get(e.id);
       if (!details) return true; // keep until details confirm didNotPlay
       return !details.didNotPlay;
     });
+
+    // 3. Period: "last N" must count only matches that remain valid after didNotPlay exclusion
+    if (selectedPeriod.type === 'last') {
+      events = events.slice(0, selectedPeriod.count);
+    }
 
     // 4. Venue filter
     if (!showHome || !showAway) {

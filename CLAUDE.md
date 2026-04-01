@@ -272,6 +272,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - State lives in `usePlayerData` as `selectedPeriod: SelectedPeriod` (type exported from `usePlayerData.ts`)
 - `SelectedPeriod` can be `'last'` or a specific season year string
 - `currentSeasonYear` is auto-derived: if `selectedPeriod === 'last'`, always uses `availableSeasonYears[0]` (most recent season)
+- The `availableSeasonYears` sync must preserve an already-selected `last N` period; only invalid season-year selections are reset to the most recent season
 - Rendered in `PlayerFilters` colonna 2 as `<select>` with grouped options: first group = "Ultime N" options, second group = seasons by year
 - Label changed from "Stagione:" to "Periodo:"
 
@@ -296,6 +297,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Non è un filtro esplicito: le partite in cui il giocatore era in panchina senza mai entrare vengono escluse automaticamente
 - Rilevato in `fetchMatchDetails` confrontando lineups e commenti (vedi sezione Business Logic)
 - Applicato come primo step in `displayEvents` useMemo in `PlayerPage`
+- Le opzioni `Ultime 5/10/...` vengono applicate solo dopo questa esclusione, così il conteggio mostra sempre N partite effettivamente valide
 - Le partite vengono mostrate finché i dettagli non sono caricati (return true se details undefined), poi spariscono automaticamente se `didNotPlay: true`
 - In `useMatchTimeline`, le partite `didNotPlay` vengono anche auto-deselezionate dalla selezione attiva non appena i dettagli del batch vengono caricati
 

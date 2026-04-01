@@ -182,19 +182,23 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   // ── Selection state (moved here from useMatchTimeline) ──
   const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
 
-  // Pre-selection key: once per player+season combo (not per period change)
+  // Pre-selection key: once per player + active period context
   const preSelectedKeyRef = useRef('');
 
   useEffect(() => {
     const seasonKey = [...validSeasonIds].sort().join(',');
-    const key = `${playerId}-${seasonKey}`;
+    const periodKey =
+      selectedPeriod.type === 'last'
+        ? `last:${selectedPeriod.count}`
+        : `season:${selectedPeriod.year}`;
+    const key = `${playerId}-${seasonKey}-${periodKey}`;
     if (preSelectedKeyRef.current === key) return;
     if (displayEvents.length === 0 || !allOfficialStatsLoaded || !allLineupsLoaded || !recentRichLoaded) return;
     preSelectedKeyRef.current = key;
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const count = isMobile ? 1 : 3;
     setSelectedEventIds(new Set(displayEvents.slice(0, count).map((e) => e.id)));
-  }, [displayEvents, allOfficialStatsLoaded, allLineupsLoaded, recentRichLoaded, playerId, validSeasonIds]);
+  }, [displayEvents, allOfficialStatsLoaded, allLineupsLoaded, recentRichLoaded, playerId, validSeasonIds, selectedPeriod]);
 
   // Prune selection when displayEvents shrinks (e.g. filter change removes events)
   useEffect(() => {

@@ -15,7 +15,6 @@ interface MatchTimelineProps {
 
 function abbreviateTournament(name: string): string {
   if (!name) return '';
-  // Common abbreviations
   const words = name.split(/\s+/);
   if (words.length === 1) return words[0].substring(0, 3).toUpperCase();
   return words.map((w) => w[0]?.toUpperCase() ?? '').join('.');
@@ -23,15 +22,15 @@ function abbreviateTournament(name: string): string {
 
 function getFoulCounts(
   details: CachedMatchDetails | undefined,
-): { committed: number; suffered: number } | null {
-  if (!details) return null; // not loaded yet
-  let committed = 0;
-  let suffered = 0;
-  for (const f of details.fouls) {
-    if (f.type === 'committed' || f.type === 'handball') committed++;
-    if (f.type === 'suffered') suffered++;
-  }
-  return { committed, suffered };
+): { committed: number | null; suffered: number | null } | null {
+  if (!details) return null;
+  const committed = details.officialStats?.fouls;
+  const suffered = details.officialStats?.wasFouled;
+  if (typeof committed !== 'number' && typeof suffered !== 'number') return null;
+  return {
+    committed: typeof committed === 'number' ? committed : null,
+    suffered: typeof suffered === 'number' ? suffered : null,
+  };
 }
 
 export default function MatchTimeline({
@@ -49,7 +48,6 @@ export default function MatchTimeline({
 
   return (
     <div>
-      {/* Header: titolo + toggle seleziona/deseleziona tutte */}
       <div className="flex items-center gap-3 mb-3">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
           Timeline partite ({events.length})
@@ -59,7 +57,6 @@ export default function MatchTimeline({
           className="flex items-center gap-2 group"
           aria-label={toggleMode === 'select' ? 'Seleziona tutte le partite' : 'Deseleziona tutte le partite'}
         >
-          {/* Toggle pill */}
           <div
             className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${
               toggleMode === 'deselect' ? 'bg-neon' : 'bg-border group-hover:bg-border/80'
@@ -71,7 +68,6 @@ export default function MatchTimeline({
               }`}
             />
           </div>
-          {/* Label */}
           <span className="text-xs text-text-secondary group-hover:text-text-primary transition-colors">
             {toggleMode === 'select' ? 'Seleziona tutte' : 'Deseleziona tutte'}
           </span>
@@ -85,6 +81,7 @@ export default function MatchTimeline({
             const details = detailsMap.get(event.id);
             const isLoaded = detailsLoadedIds.has(event.id);
             const counts = getFoulCounts(details);
+            const cardInfo = details?.cardInfo ?? null;
 
             const homeCode = event.homeTeam.nameCode ?? event.homeTeam.shortName ?? event.homeTeam.name.substring(0, 3).toUpperCase();
             const awayCode = event.awayTeam.nameCode ?? event.awayTeam.shortName ?? event.awayTeam.name.substring(0, 3).toUpperCase();
@@ -95,24 +92,56 @@ export default function MatchTimeline({
               <button
                 key={event.id}
                 onClick={() => onToggleMatch(event.id)}
-                className={`flex-shrink-0 flex flex-col items-center justify-center px-3 py-2 rounded-lg border text-center transition-colors cursor-pointer min-w-[100px] ${
+                className={`relative flex-shrink-0 flex flex-col items-center justify-center px-3 py-2 rounded-lg border text-center transition-colors cursor-pointer min-w-[100px] ${
                   isSelected
                     ? 'border-neon bg-neon/5'
                     : 'border-border bg-surface hover:bg-surface-hover'
                 }`}
               >
-                {/* Row 1: Tournament + Round */}
+                {/* Cartellino in alto a destra */}
+                {cardInfo && (
+                  <div className="absolute top-1.5 right-1.5">
+                    {cardInfo.type === 'yellow' && (
+                      <div
+                        className="rounded-sm"
+                        style={{ width: '10px', height: '14px', backgroundColor: '#facc15' }}
+                        title="Cartellino giallo"
+                      />
+                    )}
+                    {cardInfo.type === 'red' && (
+                      <div
+                        className="rounded-sm"
+                        style={{ width: '10px', height: '14px', backgroundColor: '#ef4444' }}
+                        title="Cartellino rosso"
+                      />
+                    )}
+                    {cardInfo.type === 'yellowRed' && (
+                      <div className="relative" style={{ width: '16px', height: '16px' }} title="Doppio cartellino">
+                        <div
+                          className="absolute rounded-sm"
+                          style={{ width: '10px', height: '14px', backgroundColor: '#facc15', bottom: 0, left: 0 }}
+                        />
+                        <div
+                          className="absolute rounded-sm"
+                          style={{ width: '10px', height: '14px', backgroundColor: '#ef4444', top: 0, right: 0 }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Torneo + giornata */}
                 <span className="text-[10px] text-text-muted leading-tight truncate max-w-full">
                   {tournamentAbbr}
                   {round != null && ` G.${round}`}
                 </span>
 
-                {/* Row 2: Teams */}
+                {/* Squadre */}
                 <span className="text-xs text-text-primary font-medium leading-tight mt-0.5">
                   {homeCode} - {awayCode}
                 </span>
 
-                {/* Row 3: Foul badges */}
+                {/* Badge falli */}
                 <div className="mt-1 flex items-center gap-1">
                   {!isLoaded ? (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
@@ -123,20 +152,20 @@ export default function MatchTimeline({
                     <>
                       {showCommitted && showSuffered ? (
                         <>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
-                            {counts.committed}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                            {counts.committed ?? '—'}
                           </span>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
-                            {counts.suffered}
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                            {counts.suffered ?? '—'}
                           </span>
                         </>
                       ) : showCommitted ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
-                          {counts.committed}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                          {counts.committed ?? '—'}
                         </span>
                       ) : showSuffered ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
-                          {counts.suffered}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                          {counts.suffered ?? '—'}
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
@@ -146,7 +175,7 @@ export default function MatchTimeline({
                     </>
                   ) : (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
-                      0
+                      —
                     </span>
                   )}
                 </div>

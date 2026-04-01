@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { TournamentSeason, PlayerSeasonStats, AggregatedStats, Season } from '@/types';
+import type { TournamentSeason, PlayerSeasonStats, AggregatedStats } from '@/types';
 import { getPlayerSeasons, getPlayerSeasonStats } from '@/api/sofascore';
 import { calculateStats } from '@/utils/statsCalculator';
+
+export type SelectedPeriod =
+  | { type: 'last'; count: 5 | 10 | 15 | 20 | 30 }
+  | { type: 'season'; year: string };
 
 interface SelectedTournament {
   tournamentId: number;
@@ -13,14 +17,28 @@ interface SelectedTournament {
 interface PlayerDataResult {
   tournamentSeasons: TournamentSeason[];
   availableSeasonYears: string[];
-  selectedSeasonYear: string;
-  setSelectedSeasonYear: (year: string) => void;
+  selectedPeriod: SelectedPeriod;
+  setSelectedPeriod: (p: SelectedPeriod) => void;
+  currentSeasonYear: string;
+  enabledTournaments: Set<number>;
   selectedTournaments: SelectedTournament[];
   toggleTournament: (tournamentId: number) => void;
   showCommitted: boolean;
   setShowCommitted: (v: boolean) => void;
   showSuffered: boolean;
   setShowSuffered: (v: boolean) => void;
+  showHome: boolean;
+  setShowHome: (v: boolean) => void;
+  showAway: boolean;
+  setShowAway: (v: boolean) => void;
+  showCards: boolean;
+  setShowCards: (v: boolean) => void;
+  showStartersOnly: boolean;
+  setShowStartersOnly: (v: boolean) => void;
+  committedLine: number;
+  setCommittedLine: (v: number) => void;
+  sufferedLine: number;
+  setSufferedLine: (v: number) => void;
   stats: AggregatedStats | null;
   statsByTournament: Map<number, PlayerSeasonStats>;
   loading: boolean;
@@ -29,16 +47,62 @@ interface PlayerDataResult {
 
 export function usePlayerData(playerId: number | null): PlayerDataResult {
   const [tournamentSeasons, setTournamentSeasons] = useState<TournamentSeason[]>([]);
-  const [selectedSeasonYear, setSelectedSeasonYear] = useState('');
+  const [selectedPeriod, setSelectedPeriod] = useState<SelectedPeriod>({ type: 'season', year: '' });
   const [enabledTournaments, setEnabledTournaments] = useState<Set<number>>(new Set());
   const [statsByTournament, setStatsByTournament] = useState<Map<number, PlayerSeasonStats>>(new Map());
   const [showCommitted, setShowCommitted] = useState(true);
   const [showSuffered, setShowSuffered] = useState(true);
+  const [showHome, setShowHome] = useState(true);
+  const [showAway, setShowAway] = useState(true);
+  const [showCards, setShowCards] = useState(false);
+  const [showStartersOnly, setShowStartersOnly] = useState(false);
+  const [committedLine, setCommittedLine] = useState(0.5);
+  const [sufferedLine, setSufferedLine] = useState(0.5);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cache = useRef<Map<string, PlayerSeasonStats>>(new Map());
 
-  // Carica stagioni del giocatore
+  // All season years available for this player, sorted descending
+  const availableSeasonYears = Array.from(
+    new Set(tournamentSeasons.flatMap((ts) => ts.seasons.map((s) => s.year)))
+  ).sort().reverse();
+
+  // The season year to use for tournament/season lookups.
+  // When period is 'last', we always use the most recent available season.
+  const currentSeasonYear =
+    selectedPeriod.type === 'season'
+      ? selectedPeriod.year
+      : availableSeasonYears[0] ?? '';
+
+  useEffect(() => {
+    if (availableSeasonYears.length === 0) return;
+
+    setSelectedPeriod((prev) => {
+      if (prev.type === 'last') {
+        return prev;
+      }
+      if (prev.type === 'season' && availableSeasonYears.includes(prev.year)) {
+        return prev;
+      }
+      return { type: 'season', year: availableSeasonYears[0] };
+    });
+  }, [availableSeasonYears]);
+
+  // Tournaments available for the current season year
+  const tournamentsForSeason = tournamentSeasons
+    .map((ts) => {
+      const season = ts.seasons.find((s) => s.year === currentSeasonYear);
+      if (!season) return null;
+      return {
+        tournamentId: ts.uniqueTournament.id,
+        tournamentName: ts.uniqueTournament.name,
+        seasonId: season.id,
+        seasonName: season.name,
+      };
+    })
+    .filter((x): x is SelectedTournament => x !== null);
+
+  // Load player seasons
   useEffect(() => {
     if (!playerId) return;
 
@@ -50,15 +114,6 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
       .then((ts) => {
         if (cancelled) return;
         setTournamentSeasons(ts);
-
-        // Trova tutte le stagioni disponibili (per anno)
-        const years = new Set<string>();
-        ts.forEach((t) => t.seasons.forEach((s) => years.add(s.year)));
-        const sorted = Array.from(years).sort().reverse();
-
-        if (sorted.length > 0 && !selectedSeasonYear) {
-          setSelectedSeasonYear(sorted[0]);
-        }
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -70,26 +125,17 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     return () => { cancelled = true; };
   }, [playerId]);
 
-  // Calcola quali tornei sono disponibili per la stagione selezionata
-  const tournamentsForSeason = tournamentSeasons
-    .map((ts) => {
-      const season = ts.seasons.find((s) => s.year === selectedSeasonYear);
-      if (!season) return null;
-      return {
-        tournamentId: ts.uniqueTournament.id,
-        tournamentName: ts.uniqueTournament.name,
-        seasonId: season.id,
-        seasonName: season.name,
-      };
-    })
-    .filter((x): x is SelectedTournament => x !== null);
-
-  // Quando cambia la stagione, abilita tutti i tornei
+  // When season changes (or period type switches), enable all relevant tournaments
   useEffect(() => {
-    setEnabledTournaments(new Set(tournamentsForSeason.map((t) => t.tournamentId)));
-  }, [selectedSeasonYear, tournamentSeasons.length]);
+    if (selectedPeriod.type === 'last') {
+      const allIds = new Set(tournamentSeasons.map((ts) => ts.uniqueTournament.id));
+      setEnabledTournaments(allIds);
+    } else {
+      setEnabledTournaments(new Set(tournamentsForSeason.map((t) => t.tournamentId)));
+    }
+  }, [currentSeasonYear, tournamentSeasons.length, selectedPeriod.type]);
 
-  // Carica stats per ogni torneo della stagione
+  // Load stats for each tournament in the current season
   useEffect(() => {
     if (!playerId || tournamentsForSeason.length === 0) return;
 
@@ -123,9 +169,9 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
       });
 
     return () => { cancelled = true; };
-  }, [playerId, selectedSeasonYear, tournamentsForSeason.length]);
+  }, [playerId, currentSeasonYear, tournamentsForSeason.length]);
 
-  // Calcola stats aggregate (solo tornei abilitati)
+  // Aggregate stats (only enabled tournaments)
   const enabledStats = Array.from(statsByTournament.entries())
     .filter(([tid]) => enabledTournaments.has(tid))
     .map(([, s]) => s);
@@ -144,10 +190,6 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     });
   }, []);
 
-  const availableSeasonYears = Array.from(
-    new Set(tournamentSeasons.flatMap((ts) => ts.seasons.map((s) => s.year)))
-  ).sort().reverse();
-
   const selectedTournaments = tournamentsForSeason.filter((t) =>
     enabledTournaments.has(t.tournamentId)
   );
@@ -155,14 +197,28 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
   return {
     tournamentSeasons,
     availableSeasonYears,
-    selectedSeasonYear,
-    setSelectedSeasonYear,
+    selectedPeriod,
+    setSelectedPeriod,
+    currentSeasonYear,
+    enabledTournaments,
     selectedTournaments,
     toggleTournament,
     showCommitted,
     setShowCommitted,
     showSuffered,
     setShowSuffered,
+    showHome,
+    setShowHome,
+    showAway,
+    setShowAway,
+    showCards,
+    setShowCards,
+    showStartersOnly,
+    setShowStartersOnly,
+    committedLine,
+    setCommittedLine,
+    sufferedLine,
+    setSufferedLine,
     stats,
     statsByTournament,
     loading,

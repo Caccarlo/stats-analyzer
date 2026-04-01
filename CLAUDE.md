@@ -16,6 +16,18 @@ npm run install:all
 npm start
 ```
 
+### Killing Stuck Processes (Windows)
+
+`taskkill` does not work correctly in Git Bash because `/PID` is parsed like a path. Use PowerShell instead.
+
+```bash
+# Find PIDs listening on ports 3001 and 5173
+netstat -ano | grep -E "LISTENING" | grep -E ":3001 |:5173 "
+
+# Kill by PID
+powershell -Command "Stop-Process -Id 1234 -Force -ErrorAction SilentlyContinue; Stop-Process -Id 5678 -Force -ErrorAction SilentlyContinue"
+```
+
 ## Project Structure
 
 ```text
@@ -25,6 +37,7 @@ stats-analyzer/
 |   `-- index.js                     # Express proxy (/api/sofascore/* and /api/img/*)
 `-- client/
     |-- vite.config.ts               # Proxy /api -> :3001, alias @ -> src/
+    |-- tsconfig.app.json            # Client TS config
     `-- src/
         |-- App.tsx                  # Root: wraps NavigationProvider, renders Sidebar + ContentPanel
         |-- index.css                # Tailwind imports + theme variables
@@ -141,7 +154,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 - zone text is translated to Italian
 - substitutions are derived from substitution comments
 
-### Stats Source of Truth
+### Stats Source Of Truth
 
 - PlayerPage match-by-match numbers come from official per-match statistics, not from comments.
 - `officialStats.fouls` drives committed fouls.

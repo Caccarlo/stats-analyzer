@@ -1,72 +1,129 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getPlayerEvents } from '@/api/sofascore';
-import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
-import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
+import {
+  patchMatchDetailsCache,
+  fetchMatchOfficialStats,
+  fetchMatchLineupsOnly,
+  fetchMatchRichData,
+  createSeededMatchDetails,
+  type CachedMatchDetails,
+  type MatchDetailsSeed,
+} from '@/hooks/useMatchDetails';
 import type { MatchEvent } from '@/types';
 
 export interface UseMatchTimelineResult {
-  filteredEvents: MatchEvent[];
-  selectedEventIds: Set<number>;
+  allEvents: MatchEvent[];
   detailsMap: Map<number, CachedMatchDetails>;
   detailsLoadedIds: Set<number>;
+  lineupsLoadedIds: Set<number>;
   loadingEvents: boolean;
-  toggleMatch: (eventId: number) => void;
-  deselectMatch: (eventId: number) => void;
-  selectAll: () => void;
-  deselectAll: () => void;
+  allOfficialStatsLoaded: boolean;
+  allLineupsLoaded: boolean;
+  recentRichLoaded: boolean;
+  requestRichDetails: (eventId: number) => void;
+}
+
+function buildSeed(
+  eventId: number,
+  statisticsMap: Record<string, MatchDetailsSeed['officialStats']>,
+  incidentsMap: Record<string, MatchDetailsSeed['incidents']>,
+  onBenchMap: Record<string, boolean>,
+): MatchDetailsSeed {
+  const id = String(eventId);
+  return {
+    officialStats: statisticsMap[id] ?? null,
+    incidents: incidentsMap[id] ?? null,
+    onBench: onBenchMap[id] ?? false,
+  };
 }
 
 export function useMatchTimeline(
   playerId: number,
-  selectedTournamentIds: Set<number>,
   validSeasonIds: Set<number>,
+  maxEvents?: number,
 ): UseMatchTimelineResult {
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
-  const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [allOfficialStatsLoaded, setAllOfficialStatsLoaded] = useState(false);
+  const [lineupsLoadedIds, setLineupsLoadedIds] = useState<Set<number>>(new Set());
+  const [allLineupsLoaded, setAllLineupsLoaded] = useState(false);
+  const [recentRichLoaded, setRecentRichLoaded] = useState(false);
 
-  // Use ref for tracking loaded details to avoid stale closures
-  const loadedIdsRef = useRef<Set<number>>(new Set());
-  const preSelectedRef = useRef(false);
+  const statsLoadingRef = useRef(false);
+  const lineupsLoadingRef = useRef(false);
+  const richLoadingRef = useRef(false);
 
-  // Serialize validSeasonIds for stable dependency comparison
   const seasonIdsKey = useMemo(
     () => [...validSeasonIds].sort().join(','),
     [validSeasonIds],
   );
 
-  // ── Load event pages, stopping once past the current season ──
+  // ── Effetto 1: carica tutte le pagine events/last e costruisce i seed ──
+  // officialStats è già inclusa in statisticsMap → initialStatsLoaded scatta subito
   useEffect(() => {
-    // Don't load until we know which seasons are valid
     if (validSeasonIds.size === 0) return;
 
     let cancelled = false;
-    preSelectedRef.current = false;
-    loadedIdsRef.current = new Set();
+    statsLoadingRef.current = false;
+    lineupsLoadingRef.current = false;
+    richLoadingRef.current = false;
     setAllEvents([]);
-    setSelectedEventIds(new Set());
     setDetailsMap(new Map());
     setLoadingEvents(true);
+    setAllOfficialStatsLoaded(false);
+    setLineupsLoadedIds(new Set());
+    setAllLineupsLoaded(false);
+    setRecentRichLoaded(false);
 
     async function loadPages() {
       let page = 0;
       let accumulated: MatchEvent[] = [];
       let hasMore = true;
+      let foundRelevant = false;
+      const stopAfterFirstIrrelevantPage = maxEvents === undefined;
+      const combinedDetails = new Map<number, CachedMatchDetails>();
 
       while (hasMore && !cancelled) {
         try {
-          const { events: pageEvents, hasNextPage } = await getPlayerEvents(playerId, page);
+          const {
+            events: pageEvents,
+            hasNextPage,
+            statisticsMap,
+            incidentsMap,
+            onBenchMap,
+          } = await getPlayerEvents(playerId, page);
           if (cancelled) return;
 
-          // Keep only completed matches from valid seasons
           const relevant = pageEvents.filter(
             (e) => e.status?.code === 100 && validSeasonIds.has(e.season?.id),
           );
-          accumulated = [...accumulated, ...relevant];
 
-          // If this page had events but none matched our season, we've gone past it — stop
-          if (pageEvents.length > 0 && relevant.length === 0) break;
+          accumulated = [...accumulated, ...relevant];
+          for (const event of relevant) {
+            const seed = buildSeed(event.id, statisticsMap, incidentsMap, onBenchMap);
+            const existing = combinedDetails.get(event.id);
+            combinedDetails.set(event.id, existing ?? createSeededMatchDetails(seed));
+          }
+
+          if (maxEvents !== undefined && accumulated.length >= maxEvents) {
+            hasMore = false;
+            break;
+          }
+
+          if (relevant.length > 0) foundRelevant = true;
+
+          // In "season" mode we can stop once we've crossed past the contiguous block
+          // of matches for that season. In "last N" cross-season mode this assumption
+          // is unsafe because irrelevant pages can appear in the middle of the history.
+          if (
+            stopAfterFirstIrrelevantPage &&
+            foundRelevant &&
+            pageEvents.length > 0 &&
+            relevant.length === 0
+          ) {
+            break;
+          }
 
           hasMore = hasNextPage;
           page++;
@@ -76,147 +133,317 @@ export function useMatchTimeline(
       }
 
       if (!cancelled) {
-        // Sort descending by date (most recent first)
         accumulated.sort((a, b) => b.startTimestamp - a.startTimestamp);
+        const sortedDetails = new Map<number, CachedMatchDetails>();
+        accumulated.forEach((event) => {
+          const details = combinedDetails.get(event.id);
+          if (details) sortedDetails.set(event.id, details);
+        });
         setAllEvents(accumulated);
+        setDetailsMap(sortedDetails);
         setLoadingEvents(false);
+        if (accumulated.length === 0) {
+          setAllOfficialStatsLoaded(true);
+          setAllLineupsLoaded(true);
+          setRecentRichLoaded(true);
+        }
+        // initialStatsLoaded viene settato dal loop officialStats quando il primo batch è pronto
       }
     }
 
     loadPages();
     return () => { cancelled = true; };
-  }, [playerId, seasonIdsKey]);
+  }, [playerId, seasonIdsKey, maxEvents]);
 
-  // ── Filtered events by selected tournaments (derived) ──
-  const filteredEvents = useMemo(() => {
-    if (selectedTournamentIds.size === 0) return allEvents;
-    return allEvents.filter((e) =>
-      selectedTournamentIds.has(e.tournament?.uniqueTournament?.id),
-    );
-  }, [allEvents, selectedTournamentIds]);
-
-  // ── Pre-select last N matches after initial load ──
+  // ── Effetto 2: fetch officialStats (fouls, wasFouled, minutesPlayed) per tutte le partite ──
+  // I seed di events/last non contengono fouls/wasFouled → serve event/{id}/player/{id}/statistics
+  // initialStatsLoaded scatta quando le prime 5 partite hanno i dati completi
   useEffect(() => {
-    if (preSelectedRef.current || filteredEvents.length === 0 || loadingEvents) return;
-    preSelectedRef.current = true;
-
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const count = isMobile ? 1 : 3;
-    const initialIds = new Set(filteredEvents.slice(0, count).map((e) => e.id));
-    setSelectedEventIds(initialIds);
-  }, [filteredEvents, loadingEvents]);
-
-  // ── Prune selection when filters remove events ──
-  useEffect(() => {
-    const validIds = new Set(filteredEvents.map((e) => e.id));
-    setSelectedEventIds((prev) => {
-      const pruned = new Set([...prev].filter((id) => validIds.has(id)));
-      if (pruned.size === prev.size) return prev;
-      return pruned;
-    });
-  }, [filteredEvents]);
-
-  // ── Progressive detail loading ──
-  useEffect(() => {
-    if (filteredEvents.length === 0) return;
+    if (allEvents.length === 0) return;
+    if (statsLoadingRef.current) return;
+    statsLoadingRef.current = true;
 
     let cancelled = false;
 
-    async function loadAllDetails() {
-      const eventIds = filteredEvents.map((e) => e.id);
+    async function loadAllOfficialStats() {
+      const BATCH = 8;
+      const DELAY = 100;
 
-      for (let i = 0; i < eventIds.length; i += 3) {
+      for (let i = 0; i < allEvents.length; i += BATCH) {
         if (cancelled) return;
-        const batch = eventIds.slice(i, i + 3);
-        const batchResults: { eventId: number; result: CachedMatchDetails }[] = [];
+
+        const batch = allEvents.slice(i, i + BATCH);
+        const batchResults: { eventId: number; patch: Partial<CachedMatchDetails> }[] = [];
 
         await Promise.all(
-          batch.map(async (eventId) => {
-            if (loadedIdsRef.current.has(eventId)) return;
-
-            const key = `${eventId}-${playerId}`;
-            if (matchDetailsCache.has(key)) {
-              const cached = matchDetailsCache.get(key)!;
-              loadedIdsRef.current.add(eventId);
-              batchResults.push({ eventId, result: cached });
+          batch.map(async (event) => {
+            const existing = detailsMap.get(event.id);
+            // Salta se dati già affidabili (fouls presente)
+            if (typeof existing?.officialStats?.fouls === 'number') {
+              batchResults.push({ eventId: event.id, patch: {} });
               return;
             }
 
-            try {
-              const result = await fetchMatchDetails(eventId, playerId);
-              if (cancelled) return;
-              loadedIdsRef.current.add(eventId);
-              batchResults.push({ eventId, result });
-            } catch { /* skip failed */ }
+            const result = await fetchMatchOfficialStats(
+              event.id,
+              playerId,
+              existing?.officialStats ?? null,
+            );
+            if (cancelled) return;
+
+            const patch: Partial<CachedMatchDetails> = {
+              officialStats: result.officialStats,
+              officialStatsStatus: result.officialStatsStatus,
+              // Ricalcola didNotPlay con i minuti aggiornati
+              didNotPlay: existing?.didNotPlay
+                ? (result.officialStats?.minutesPlayed ?? 0) === 0 && (existing?.onBench ?? false)
+                : false,
+            };
+            patchMatchDetailsCache(event.id, playerId, patch);
+            batchResults.push({ eventId: event.id, patch });
           }),
         );
 
         if (cancelled) return;
 
-        if (batchResults.length > 0) {
-          setDetailsMap((prev) => {
-            const next = new Map(prev);
-            for (const { eventId, result } of batchResults) {
-              next.set(eventId, result);
+        setDetailsMap((prev) => {
+          const next = new Map(prev);
+          for (const { eventId, patch } of batchResults) {
+            const cur = next.get(eventId);
+            if (cur && Object.keys(patch).length > 0) {
+              next.set(eventId, { ...cur, ...patch });
             }
-            return next;
-          });
-        }
+          }
+          return next;
+        });
 
-        if (i + 3 < eventIds.length) {
-          await new Promise((r) => setTimeout(r, 300));
+        if (i + BATCH < allEvents.length) {
+          await new Promise((r) => setTimeout(r, DELAY));
         }
+      }
+
+      if (!cancelled) {
+        setAllOfficialStatsLoaded(true);
       }
     }
 
-    loadAllDetails();
+    loadAllOfficialStats();
     return () => { cancelled = true; };
-  }, [filteredEvents, playerId]);
+  }, [allEvents]);
 
-  // ── Derived: loaded IDs set for rendering ──
+  // ── Effetto 3: preload lineups per tutte le partite (necessario per filtro Titolare) ──
+  useEffect(() => {
+    if (allEvents.length === 0) return;
+    if (lineupsLoadingRef.current) return;
+    lineupsLoadingRef.current = true;
+
+    let cancelled = false;
+
+    async function loadAllLineups() {
+      const BATCH = 5;
+      const DELAY = 150;
+
+      for (let i = 0; i < allEvents.length; i += BATCH) {
+        if (cancelled) return;
+
+        const batch = allEvents.slice(i, i + BATCH);
+        const batchResults: { eventId: number; patch: Partial<CachedMatchDetails> }[] = [];
+
+        await Promise.all(
+          batch.map(async (event) => {
+            const existing = detailsMap.get(event.id);
+            // Salta se lineups già caricate per questo evento
+            if (existing?.lineupsStatus === 'loaded' || existing?.lineupsStatus === 'unavailable') {
+              batchResults.push({ eventId: event.id, patch: {} });
+              return;
+            }
+
+            const result = await fetchMatchLineupsOnly(
+              event.id,
+              playerId,
+              existing?.onBench ?? false,
+              existing?.officialStats ?? null,
+            );
+            if (cancelled) return;
+
+            const patch: Partial<CachedMatchDetails> = {
+              lineupsStatus: result.lineupsStatus,
+              jerseyMap: result.jerseyMap,
+              didNotPlay: result.didNotPlay,
+              isStarter: result.isStarter,
+              playerSide: result.playerSide,
+            };
+            patchMatchDetailsCache(event.id, playerId, patch);
+            batchResults.push({ eventId: event.id, patch });
+          }),
+        );
+
+        if (cancelled) return;
+
+        setDetailsMap((prev) => {
+          const next = new Map(prev);
+          for (const { eventId, patch } of batchResults) {
+            const cur = next.get(eventId);
+            if (cur && Object.keys(patch).length > 0) {
+              next.set(eventId, { ...cur, ...patch });
+            }
+          }
+          return next;
+        });
+
+        setLineupsLoadedIds((prev) => {
+          const next = new Set(prev);
+          for (const { eventId } of batchResults) next.add(eventId);
+          return next;
+        });
+
+        if (i + BATCH < allEvents.length) {
+          await new Promise((r) => setTimeout(r, DELAY));
+        }
+      }
+
+      if (!cancelled) {
+        setAllLineupsLoaded(true);
+      }
+
+    }
+
+    loadAllLineups();
+    return () => { cancelled = true; };
+  }, [allEvents]);
+
+  // ── Effetto 4: preload rich data (comments) solo per le ultime 5 partite ──
+  useEffect(() => {
+    if (allEvents.length === 0) return;
+    if (richLoadingRef.current) return;
+    richLoadingRef.current = true;
+
+    let cancelled = false;
+    const richTargets = allEvents.slice(0, 5);
+
+    async function loadRichForRecent() {
+      const BATCH = 2;
+      const DELAY = 200;
+
+      for (let i = 0; i < richTargets.length; i += BATCH) {
+        if (cancelled) return;
+
+        const batch = richTargets.slice(i, i + BATCH);
+        const batchResults: { eventId: number; patch: Partial<CachedMatchDetails> }[] = [];
+
+        await Promise.all(
+          batch.map(async (event) => {
+            const existing = detailsMap.get(event.id);
+            // Salta se già caricato
+            if (existing?.commentsStatus !== 'idle') {
+              batchResults.push({ eventId: event.id, patch: {} });
+              return;
+            }
+
+            const result = await fetchMatchRichData(
+              event.id,
+              playerId,
+              existing?.cardInfo ? null : null, // incidents già nel seed/cardInfo
+            );
+            if (cancelled) return;
+
+            const patch: Partial<CachedMatchDetails> = {
+              fouls: result.fouls,
+              commentsStatus: result.commentsStatus,
+              commentsAvailable: result.commentsAvailable,
+              substituteInMinute: result.substituteInMinute,
+              substituteOutMinute: result.substituteOutMinute,
+              cardInfo: result.cardInfo ?? existing?.cardInfo ?? null,
+              cardInfoStatus: result.cardInfoStatus,
+            };
+            patchMatchDetailsCache(event.id, playerId, patch);
+            batchResults.push({ eventId: event.id, patch });
+          }),
+        );
+
+        if (cancelled) return;
+
+        setDetailsMap((prev) => {
+          const next = new Map(prev);
+          for (const { eventId, patch } of batchResults) {
+            const cur = next.get(eventId);
+            if (cur && Object.keys(patch).length > 0) {
+              next.set(eventId, { ...cur, ...patch });
+            }
+          }
+          return next;
+        });
+
+        if (i + BATCH < richTargets.length) {
+          await new Promise((r) => setTimeout(r, DELAY));
+        }
+      }
+
+      if (!cancelled) {
+        setRecentRichLoaded(true);
+      }
+    }
+
+    loadRichForRecent();
+    return () => { cancelled = true; };
+  }, [allEvents]);
+
+  // ── Trigger lazy per rich data di una partita specifica (es. card selezionata fuori ultime 5) ──
+  const playerIdRef = useRef(playerId);
+  playerIdRef.current = playerId;
+
+  const requestRichDetails = useCallback((eventId: number) => {
+    setDetailsMap((prev) => {
+      const existing = prev.get(eventId);
+      if (!existing || existing.commentsStatus !== 'idle') return prev;
+
+      // Avvia il fetch asincrono e aggiorna lo stato quando completo
+      fetchMatchRichData(eventId, playerIdRef.current, null).then((result) => {
+        const patch: Partial<CachedMatchDetails> = {
+          fouls: result.fouls,
+          commentsStatus: result.commentsStatus,
+          commentsAvailable: result.commentsAvailable,
+          substituteInMinute: result.substituteInMinute,
+          substituteOutMinute: result.substituteOutMinute,
+          cardInfo: result.cardInfo ?? existing.cardInfo ?? null,
+          cardInfoStatus: result.cardInfoStatus,
+        };
+        patchMatchDetailsCache(eventId, playerIdRef.current, patch);
+        setDetailsMap((p) => {
+          const cur = p.get(eventId);
+          if (!cur) return p;
+          const next = new Map(p);
+          next.set(eventId, { ...cur, ...patch });
+          return next;
+        });
+      });
+
+      // Segna subito commentsStatus come 'loading' per evitare doppi fetch
+      const next = new Map(prev);
+      next.set(eventId, { ...existing, commentsStatus: 'loading' });
+      return next;
+    });
+  }, []);
+
+  // detailsLoadedIds: partite con officialStats pronte (quasi subito dopo il seed)
   const detailsLoadedIds = useMemo(
-    () => new Set(detailsMap.keys()),
+    () => new Set(
+      [...detailsMap.entries()]
+        .filter(([, details]) => details.officialStatsStatus !== 'idle')
+        .map(([eventId]) => eventId),
+    ),
     [detailsMap],
   );
 
-  // ── Actions ──
-  const toggleMatch = useCallback((eventId: number) => {
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventId)) {
-        next.delete(eventId);
-      } else {
-        next.add(eventId);
-      }
-      return next;
-    });
-  }, []);
-
-  const deselectMatch = useCallback((eventId: number) => {
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      next.delete(eventId);
-      return next;
-    });
-  }, []);
-
-  const selectAll = useCallback(() => {
-    setSelectedEventIds(new Set(filteredEvents.map((e) => e.id)));
-  }, [filteredEvents]);
-
-  const deselectAll = useCallback(() => {
-    setSelectedEventIds(new Set());
-  }, []);
-
   return {
-    filteredEvents,
-    selectedEventIds,
+    allEvents,
     detailsMap,
     detailsLoadedIds,
+    lineupsLoadedIds,
     loadingEvents,
-    toggleMatch,
-    deselectMatch,
-    selectAll,
-    deselectAll,
+    allOfficialStatsLoaded,
+    allLineupsLoaded,
+    recentRichLoaded,
+    requestRichDetails,
   };
 }

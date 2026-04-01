@@ -63,3 +63,27 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
 }
+
+/* Split view panel scrollbars — always visible and wider */
+.split-panel {
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-text-muted) var(--color-surface);
+}
+
+.split-panel::-webkit-scrollbar {
+  width: 10px;
+}
+
+.split-panel::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+.split-panel::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 5px;
+  border: 2px solid var(--color-surface);
+}
+
+.split-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

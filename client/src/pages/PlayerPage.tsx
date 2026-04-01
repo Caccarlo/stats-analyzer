@@ -12,6 +12,8 @@ import StatsOverview from '@/components/player/StatsOverview';
 import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
 
+const AUTO_SELECTED_MATCH_COUNT = 3;
+
 function getCommittedCount(details: CachedMatchDetails | undefined): number | null {
   const value = details?.officialStats?.fouls;
   return typeof value === 'number' ? value : null;
@@ -201,7 +203,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
   const autoSelectedIds = useMemo(() => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const count = isMobile ? 1 : 3;
+    const count = isMobile ? 1 : AUTO_SELECTED_MATCH_COUNT;
     return new Set(displayEvents.slice(0, count).map((event) => event.id));
   }, [displayEvents]);
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
 import { useMatchTimeline } from '@/hooks/useMatchTimeline';
 import { useSplitCardSync } from '@/hooks/useSplitCardSync';
@@ -141,17 +141,17 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       ? allEvents
       : allEvents.filter((e) => selectedTournamentIds.has(e.tournament?.uniqueTournament?.id));
 
-    // 2. Period: "last N" slices the already-tournament-filtered list (behavior B)
-    if (selectedPeriod.type === 'last') {
-      events = events.slice(0, selectedPeriod.count);
-    }
-
-    // 3. Exclude matches where player was on the bench and never came on
+    // 2. Exclude matches where player was on the bench and never came on
     events = events.filter((e) => {
       const details = detailsMap.get(e.id);
       if (!details) return true; // keep until details confirm didNotPlay
       return !details.didNotPlay;
     });
+
+    // 3. Period: "last N" must count only matches that remain valid after didNotPlay exclusion
+    if (selectedPeriod.type === 'last') {
+      events = events.slice(0, selectedPeriod.count);
+    }
 
     // 4. Venue filter
     if (!showHome || !showAway) {
@@ -182,92 +182,94 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, allLineupsLoaded]);
 
   // ── Selection state (moved here from useMatchTimeline) ──
-  const [selectionMode, setSelectionMode] = useState<'auto' | 'manual'>('auto');
-  const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
-  const manualSelectionStateRef = useRef<Map<number, boolean>>(new Map());
-  const seasonSelectionKey = useMemo(
-    () => `${playerId}-${[...validSeasonIds].sort().join(',')}`,
-    [playerId, validSeasonIds],
-  );
-  const visibleSelectedIdsFromManualState = useCallback(() => (
-    new Set(
-      displayEvents
-        .filter((event) => manualSelectionStateRef.current.get(event.id) === true)
-        .map((event) => event.id),
-    )
-  ), [displayEvents]);
+  type SelectionDefault = 'auto' | 'all' | 'none';
 
-  const snapshotCurrentSelectionIntoManualState = useCallback(() => {
-    const nextSnapshot = new Map<number, boolean>();
-    displayEvents.forEach((event) => {
-      nextSnapshot.set(event.id, selectedEventIds.has(event.id));
-    });
-    manualSelectionStateRef.current = nextSnapshot;
-  }, [displayEvents, selectedEventIds]);
+  const [selectionDefault, setSelectionDefault] = useState<SelectionDefault>('auto');
+  const [selectionOverrides, setSelectionOverrides] = useState<Map<number, boolean>>(new Map());
 
-  const ensureManualMode = useCallback(() => {
-    if (selectionMode === 'manual') return;
-    snapshotCurrentSelectionIntoManualState();
-    setSelectionMode('manual');
-  }, [selectionMode, snapshotCurrentSelectionIntoManualState]);
+  const selectionContextKey = useMemo(() => {
+    const seasonKey = [...validSeasonIds].sort().join(',');
+    const periodKey =
+      selectedPeriod.type === 'last'
+        ? `last:${selectedPeriod.count}`
+        : `season:${selectedPeriod.year}`;
+    return `${playerId}-${seasonKey}-${periodKey}`;
+  }, [playerId, validSeasonIds, selectedPeriod]);
 
-  // A season change resets the manual snapshot and re-enables automatic selection.
   useEffect(() => {
-    manualSelectionStateRef.current = new Map();
-    setSelectionMode('auto');
-    setSelectedEventIds(new Set());
-  }, [seasonSelectionKey]);
+    setSelectionDefault('auto');
+    setSelectionOverrides(new Map());
+  }, [selectionContextKey]);
 
-  // Automatic mode always tracks the latest visible matches for the current filter set.
-  useEffect(() => {
-    if (selectionMode !== 'auto') return;
+  const autoSelectedIds = useMemo(() => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const count = isMobile ? 1 : AUTO_SELECTED_MATCH_COUNT;
-    setSelectedEventIds(new Set(displayEvents.slice(0, count).map((event) => event.id)));
-  }, [displayEvents, selectionMode]);
+    return new Set(displayEvents.slice(0, count).map((event) => event.id));
+  }, [displayEvents]);
 
-  // Manual mode restores the user's frozen selection for any event that becomes visible again.
-  useEffect(() => {
-    if (selectionMode !== 'manual') return;
-    setSelectedEventIds(visibleSelectedIdsFromManualState());
-  }, [displayEvents, selectionMode, visibleSelectedIdsFromManualState]);
+  const selectedEventIds = useMemo(() => {
+    const next =
+      selectionDefault === 'all'
+        ? new Set(displayEvents.map((event) => event.id))
+        : selectionDefault === 'none'
+          ? new Set<number>()
+          : new Set(autoSelectedIds);
+
+    displayEvents.forEach((event) => {
+      const override = selectionOverrides.get(event.id);
+      if (override === true) next.add(event.id);
+      if (override === false) next.delete(event.id);
+    });
+
+    return next;
+  }, [displayEvents, selectionDefault, selectionOverrides, autoSelectedIds]);
+
+  const isSelectedByDefault = useCallback((eventId: number) => {
+    if (selectionDefault === 'all') return true;
+    if (selectionDefault === 'none') return false;
+    return autoSelectedIds.has(eventId);
+  }, [selectionDefault, autoSelectedIds]);
 
   const toggleMatch = useCallback((eventId: number) => {
-    if (selectionMode === 'auto') {
-      snapshotCurrentSelectionIntoManualState();
-      setSelectionMode('manual');
-    }
+    setSelectionOverrides((prev) => {
+      const next = new Map(prev);
+      const nextSelected = !selectedEventIds.has(eventId);
+      const defaultSelected = isSelectedByDefault(eventId);
 
-    const currentValue =
-      selectionMode === 'manual'
-        ? manualSelectionStateRef.current.get(eventId) === true
-        : selectedEventIds.has(eventId);
+      if (nextSelected === defaultSelected) {
+        next.delete(eventId);
+      } else {
+        next.set(eventId, nextSelected);
+      }
 
-    manualSelectionStateRef.current.set(eventId, !currentValue);
-    setSelectedEventIds(visibleSelectedIdsFromManualState());
-  }, [selectionMode, selectedEventIds, snapshotCurrentSelectionIntoManualState, visibleSelectedIdsFromManualState]);
+      return next;
+    });
+  }, [selectedEventIds, isSelectedByDefault]);
 
   const deselectMatch = useCallback((eventId: number) => {
-    ensureManualMode();
-    manualSelectionStateRef.current.set(eventId, false);
-    setSelectedEventIds(visibleSelectedIdsFromManualState());
-  }, [ensureManualMode, visibleSelectedIdsFromManualState]);
+    setSelectionOverrides((prev) => {
+      const next = new Map(prev);
+      const defaultSelected = isSelectedByDefault(eventId);
+
+      if (defaultSelected) {
+        next.set(eventId, false);
+      } else {
+        next.delete(eventId);
+      }
+
+      return next;
+    });
+  }, [isSelectedByDefault]);
 
   const selectAll = useCallback(() => {
-    ensureManualMode();
-    displayEvents.forEach((event) => {
-      manualSelectionStateRef.current.set(event.id, true);
-    });
-    setSelectedEventIds(new Set(displayEvents.map((event) => event.id)));
-  }, [displayEvents, ensureManualMode]);
+    setSelectionDefault('all');
+    setSelectionOverrides(new Map());
+  }, []);
 
   const deselectAll = useCallback(() => {
-    ensureManualMode();
-    displayEvents.forEach((event) => {
-      manualSelectionStateRef.current.set(event.id, false);
-    });
-    setSelectedEventIds(new Set());
-  }, [displayEvents, ensureManualMode]);
+    setSelectionDefault('none');
+    setSelectionOverrides(new Map());
+  }, []);
 
   // ── Derived stats from displayEvents ──
   const derivedStats = useMemo(() => {
@@ -341,7 +343,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         : 'w-full md:w-[calc(33.333%-6px)]';
 
   const toggleMode: 'select' | 'deselect' =
-    displayEvents.length > 0 && selectedEvents.length === displayEvents.length
+    displayEvents.length > 0 && selectedEventIds.size === displayEvents.length
       ? 'deselect'
       : 'select';
 

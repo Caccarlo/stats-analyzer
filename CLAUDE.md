@@ -247,6 +247,8 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Split view only above 1024px width
 - Match timeline: horizontal scrollable bar with all matches, foul count badges loaded progressively
 - Match cards: always open (not expandable), selectable via timeline; most recent 3 pre-selected on desktop, 1 on mobile
+- Every `Periodo` change resets the card selection back to automatic preselection (latest 3 on desktop, 1 on mobile), exactly like a season-context change
+- Match selection uses a context-level default (`latest 3`, `all`, or `none`) plus per-match overrides, so `Seleziona tutte` / `Deseleziona tutte` keep affecting newly visible matches inside the same period when tournament or venue filters change
 - Match details caricati in 4 code parallele dopo events/last: (1) **officialStats** via `event/{id}/player/{id}/statistics` per tutte le partite (batch 8, 100ms) — `initialStatsLoaded` scatta dopo il primo batch (prime 5); (2) **lineups** per tutte le partite (batch 5, 150ms) → `allLineupsLoaded` abilita filtro Titolare; (3) **rich data** (comments) solo per ultime 5 partite (batch 2, 200ms); (4) per le altre partite, comments caricati lazy al primo render della card selezionata via `onRequestRichDetails`; average-positions on-demand in MatchCard; tutto cached per sessione
 - Card layout: 1 card = 100%, 2 = `calc(50%-4px)`, 3+ = `calc(33.333%-6px)` (flexbox wrap, gap-compensated); 100% below `md:` (768px) and in split view
 - Player who changed team mid-season: separate matches with visual divider showing team name
@@ -272,6 +274,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - State lives in `usePlayerData` as `selectedPeriod: SelectedPeriod` (type exported from `usePlayerData.ts`)
 - `SelectedPeriod` can be `'last'` or a specific season year string
 - `currentSeasonYear` is auto-derived: if `selectedPeriod === 'last'`, always uses `availableSeasonYears[0]` (most recent season)
+- The `availableSeasonYears` sync must preserve an already-selected `last N` period; only invalid season-year selections are reset to the most recent season
 - Rendered in `PlayerFilters` colonna 2 as `<select>` with grouped options: first group = "Ultime N" options, second group = seasons by year
 - Label changed from "Stagione:" to "Periodo:"
 
@@ -296,6 +299,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Non è un filtro esplicito: le partite in cui il giocatore era in panchina senza mai entrare vengono escluse automaticamente
 - Rilevato in `fetchMatchDetails` confrontando lineups e commenti (vedi sezione Business Logic)
 - Applicato come primo step in `displayEvents` useMemo in `PlayerPage`
+- Le opzioni `Ultime 5/10/...` vengono applicate solo dopo questa esclusione, così il conteggio mostra sempre N partite effettivamente valide
 - Le partite vengono mostrate finché i dettagli non sono caricati (return true se details undefined), poi spariscono automaticamente se `didNotPlay: true`
 - In `useMatchTimeline`, le partite `didNotPlay` vengono anche auto-deselezionate dalla selezione attiva non appena i dettagli del batch vengono caricati
 

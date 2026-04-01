@@ -77,6 +77,9 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     if (availableSeasonYears.length === 0) return;
 
     setSelectedPeriod((prev) => {
+      if (prev.type === 'last') {
+        return prev;
+      }
       if (prev.type === 'season' && availableSeasonYears.includes(prev.year)) {
         return prev;
       }

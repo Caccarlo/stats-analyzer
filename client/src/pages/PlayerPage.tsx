@@ -340,25 +340,16 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         ? 'w-full md:w-[calc(50%-4px)]'
         : 'w-full md:w-[calc(33.333%-6px)]';
 
-  // Toggle mode for select/deselect all
-  const [toggleMode, setToggleMode] = useState<'select' | 'deselect'>('select');
-
-  useEffect(() => {
-    if (displayEvents.length === 0) return;
-    if (selectedEventIds.size === displayEvents.length) {
-      setToggleMode('deselect');
-    } else if (selectedEventIds.size === 0) {
-      setToggleMode('select');
-    }
-  }, [selectedEventIds, displayEvents]);
+  const toggleMode: 'select' | 'deselect' =
+    displayEvents.length > 0 && selectedEvents.length === displayEvents.length
+      ? 'deselect'
+      : 'select';
 
   const handleToggleAll = useCallback(() => {
     if (toggleMode === 'select') {
       selectAll();
-      setToggleMode('deselect');
     } else {
       deselectAll();
-      setToggleMode('select');
     }
   }, [toggleMode, selectAll, deselectAll]);
 

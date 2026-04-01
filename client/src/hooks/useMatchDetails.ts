@@ -36,6 +36,7 @@ export interface CachedMatchDetails {
   cardInfoStatus: DataAvailability;
   didNotPlay: boolean;
   isStarter?: boolean;
+  playerSide: 'home' | 'away' | undefined;
   lineupsStatus: DataAvailability;
   jerseyMap: Map<number, string>;
   onBench: boolean;
@@ -123,6 +124,16 @@ function deriveStarterFlag(
   return lineupPlayer.substitute !== true;
 }
 
+function derivePlayerSide(
+  playerId: number,
+  lineups: MatchLineups | null,
+): 'home' | 'away' | undefined {
+  if (!lineups) return undefined;
+  if (lineups.home.players.some((lp) => lp.player.id === playerId)) return 'home';
+  if (lineups.away.players.some((lp) => lp.player.id === playerId)) return 'away';
+  return undefined;
+}
+
 export function createSeededMatchDetails(seed?: MatchDetailsSeed): CachedMatchDetails {
   return {
     officialStats: seed?.officialStats ?? null,
@@ -141,6 +152,7 @@ export function createSeededMatchDetails(seed?: MatchDetailsSeed): CachedMatchDe
       (seed?.officialStats?.minutesPlayed == null || seed.officialStats.minutesPlayed === 0)
     ),
     isStarter: undefined,
+    playerSide: undefined,
     lineupsStatus: 'idle',
     jerseyMap: new Map<number, string>(),
     onBench: seed?.onBench ?? false,
@@ -223,6 +235,7 @@ export async function fetchMatchLineupsOnly(
   jerseyMap: Map<number, string>;
   didNotPlay: boolean;
   isStarter: boolean | undefined;
+  playerSide: 'home' | 'away' | undefined;
 }> {
   if (matchLineupsCache.has(eventId)) {
     const lineups = matchLineupsCache.get(eventId) ?? null;
@@ -232,6 +245,7 @@ export async function fetchMatchLineupsOnly(
       jerseyMap: buildJerseyMap(lineups),
       didNotPlay: deriveDidNotPlay(playerId, lineups, onBench, officialStats, undefined),
       isStarter: deriveStarterFlag(playerId, lineups),
+      playerSide: derivePlayerSide(playerId, lineups),
     };
   }
 
@@ -244,6 +258,7 @@ export async function fetchMatchLineupsOnly(
       jerseyMap: buildJerseyMap(lineups),
       didNotPlay: deriveDidNotPlay(playerId, lineups, onBench, officialStats, undefined),
       isStarter: deriveStarterFlag(playerId, lineups),
+      playerSide: derivePlayerSide(playerId, lineups),
     };
   } catch {
     return {
@@ -251,6 +266,7 @@ export async function fetchMatchLineupsOnly(
       jerseyMap: new Map(),
       didNotPlay: onBench && (officialStats?.minutesPlayed == null || officialStats.minutesPlayed === 0),
       isStarter: undefined,
+      playerSide: undefined,
     };
   }
 }
@@ -396,6 +412,7 @@ export async function fetchMatchDetails(
       subInfo.inMinute,
     ),
     isStarter: deriveStarterFlag(playerId, lineups),
+    playerSide: derivePlayerSide(playerId, lineups),
     lineupsStatus,
     jerseyMap: buildJerseyMap(lineups),
     onBench: Boolean(seed?.onBench),

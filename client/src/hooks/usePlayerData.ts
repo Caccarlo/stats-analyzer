@@ -20,6 +20,7 @@ interface PlayerDataResult {
   selectedPeriod: SelectedPeriod;
   setSelectedPeriod: (p: SelectedPeriod) => void;
   currentSeasonYear: string;
+  enabledTournaments: Set<number>;
   selectedTournaments: SelectedTournament[];
   toggleTournament: (tournamentId: number) => void;
   showCommitted: boolean;
@@ -124,10 +125,15 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     return () => { cancelled = true; };
   }, [playerId]);
 
-  // When season changes, enable all tournaments for that season
+  // When season changes (or period type switches), enable all relevant tournaments
   useEffect(() => {
-    setEnabledTournaments(new Set(tournamentsForSeason.map((t) => t.tournamentId)));
-  }, [currentSeasonYear, tournamentSeasons.length]);
+    if (selectedPeriod.type === 'last') {
+      const allIds = new Set(tournamentSeasons.map((ts) => ts.uniqueTournament.id));
+      setEnabledTournaments(allIds);
+    } else {
+      setEnabledTournaments(new Set(tournamentsForSeason.map((t) => t.tournamentId)));
+    }
+  }, [currentSeasonYear, tournamentSeasons.length, selectedPeriod.type]);
 
   // Load stats for each tournament in the current season
   useEffect(() => {
@@ -194,6 +200,7 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     selectedPeriod,
     setSelectedPeriod,
     currentSeasonYear,
+    enabledTournaments,
     selectedTournaments,
     toggleTournament,
     showCommitted,

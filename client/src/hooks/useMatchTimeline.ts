@@ -40,6 +40,7 @@ function buildSeed(
 export function useMatchTimeline(
   playerId: number,
   validSeasonIds: Set<number>,
+  maxEvents?: number,
 ): UseMatchTimelineResult {
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
@@ -80,6 +81,7 @@ export function useMatchTimeline(
       let accumulated: MatchEvent[] = [];
       let hasMore = true;
       let foundRelevant = false;
+      const stopAfterFirstIrrelevantPage = maxEvents === undefined;
       const combinedDetails = new Map<number, CachedMatchDetails>();
 
       while (hasMore && !cancelled) {
@@ -104,8 +106,24 @@ export function useMatchTimeline(
             combinedDetails.set(event.id, existing ?? createSeededMatchDetails(seed));
           }
 
+          if (maxEvents !== undefined && accumulated.length >= maxEvents) {
+            hasMore = false;
+            break;
+          }
+
           if (relevant.length > 0) foundRelevant = true;
-          if (foundRelevant && pageEvents.length > 0 && relevant.length === 0) break;
+
+          // In "season" mode we can stop once we've crossed past the contiguous block
+          // of matches for that season. In "last N" cross-season mode this assumption
+          // is unsafe because irrelevant pages can appear in the middle of the history.
+          if (
+            stopAfterFirstIrrelevantPage &&
+            foundRelevant &&
+            pageEvents.length > 0 &&
+            relevant.length === 0
+          ) {
+            break;
+          }
 
           hasMore = hasNextPage;
           page++;
@@ -135,7 +153,7 @@ export function useMatchTimeline(
 
     loadPages();
     return () => { cancelled = true; };
-  }, [playerId, seasonIdsKey]);
+  }, [playerId, seasonIdsKey, maxEvents]);
 
   // ── Effetto 2: fetch officialStats (fouls, wasFouled, minutesPlayed) per tutte le partite ──
   // I seed di events/last non contengono fouls/wasFouled → serve event/{id}/player/{id}/statistics

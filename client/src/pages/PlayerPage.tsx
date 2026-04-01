@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
 import { useMatchTimeline } from '@/hooks/useMatchTimeline';
 import { useSplitCardSync } from '@/hooks/useSplitCardSync';
@@ -180,74 +180,93 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, allLineupsLoaded]);
 
   // ── Selection state (moved here from useMatchTimeline) ──
-  const [selectedEventIds, setSelectedEventIds] = useState<Set<number>>(new Set());
+  type SelectionDefault = 'auto' | 'all' | 'none';
 
-  // Pre-selection key: once per player + active period context
-  const preSelectedKeyRef = useRef('');
+  const [selectionDefault, setSelectionDefault] = useState<SelectionDefault>('auto');
+  const [selectionOverrides, setSelectionOverrides] = useState<Map<number, boolean>>(new Map());
 
-  useEffect(() => {
+  const selectionContextKey = useMemo(() => {
     const seasonKey = [...validSeasonIds].sort().join(',');
     const periodKey =
       selectedPeriod.type === 'last'
         ? `last:${selectedPeriod.count}`
         : `season:${selectedPeriod.year}`;
-    const key = `${playerId}-${seasonKey}-${periodKey}`;
-    if (preSelectedKeyRef.current === key) return;
-    if (displayEvents.length === 0 || !allOfficialStatsLoaded || !allLineupsLoaded || !recentRichLoaded) return;
-    preSelectedKeyRef.current = key;
+    return `${playerId}-${seasonKey}-${periodKey}`;
+  }, [playerId, validSeasonIds, selectedPeriod]);
+
+  useEffect(() => {
+    setSelectionDefault('auto');
+    setSelectionOverrides(new Map());
+  }, [selectionContextKey]);
+
+  const autoSelectedIds = useMemo(() => {
     const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const count = isMobile ? 1 : 3;
-    setSelectedEventIds(new Set(displayEvents.slice(0, count).map((e) => e.id)));
-  }, [displayEvents, allOfficialStatsLoaded, allLineupsLoaded, recentRichLoaded, playerId, validSeasonIds, selectedPeriod]);
-
-  // Prune selection when displayEvents shrinks (e.g. filter change removes events)
-  useEffect(() => {
-    const validIds = new Set(displayEvents.map((e) => e.id));
-    setSelectedEventIds((prev) => {
-      const pruned = new Set([...prev].filter((id) => validIds.has(id)));
-      if (pruned.size === prev.size) return prev;
-      return pruned;
-    });
+    return new Set(displayEvents.slice(0, count).map((event) => event.id));
   }, [displayEvents]);
 
-  // Auto-deselect didNotPlay matches as their details arrive
-  useEffect(() => {
-    const notPlayedIds = [...detailsMap.entries()]
-      .filter(([, d]) => d.didNotPlay)
-      .map(([id]) => id);
-    if (notPlayedIds.length === 0) return;
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      notPlayedIds.forEach((id) => {
-        if (next.has(id)) { next.delete(id); changed = true; }
-      });
-      return changed ? next : prev;
+  const selectedEventIds = useMemo(() => {
+    const next =
+      selectionDefault === 'all'
+        ? new Set(displayEvents.map((event) => event.id))
+        : selectionDefault === 'none'
+          ? new Set<number>()
+          : new Set(autoSelectedIds);
+
+    displayEvents.forEach((event) => {
+      const override = selectionOverrides.get(event.id);
+      if (override === true) next.add(event.id);
+      if (override === false) next.delete(event.id);
     });
-  }, [detailsMap]);
+
+    return next;
+  }, [displayEvents, selectionDefault, selectionOverrides, autoSelectedIds]);
+
+  const isSelectedByDefault = useCallback((eventId: number) => {
+    if (selectionDefault === 'all') return true;
+    if (selectionDefault === 'none') return false;
+    return autoSelectedIds.has(eventId);
+  }, [selectionDefault, autoSelectedIds]);
 
   const toggleMatch = useCallback((eventId: number) => {
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(eventId)) next.delete(eventId); else next.add(eventId);
+    setSelectionOverrides((prev) => {
+      const next = new Map(prev);
+      const nextSelected = !selectedEventIds.has(eventId);
+      const defaultSelected = isSelectedByDefault(eventId);
+
+      if (nextSelected === defaultSelected) {
+        next.delete(eventId);
+      } else {
+        next.set(eventId, nextSelected);
+      }
+
       return next;
     });
-  }, []);
+  }, [selectedEventIds, isSelectedByDefault]);
 
   const deselectMatch = useCallback((eventId: number) => {
-    setSelectedEventIds((prev) => {
-      const next = new Set(prev);
-      next.delete(eventId);
+    setSelectionOverrides((prev) => {
+      const next = new Map(prev);
+      const defaultSelected = isSelectedByDefault(eventId);
+
+      if (defaultSelected) {
+        next.set(eventId, false);
+      } else {
+        next.delete(eventId);
+      }
+
       return next;
     });
-  }, []);
+  }, [isSelectedByDefault]);
 
   const selectAll = useCallback(() => {
-    setSelectedEventIds(new Set(displayEvents.map((e) => e.id)));
-  }, [displayEvents]);
+    setSelectionDefault('all');
+    setSelectionOverrides(new Map());
+  }, []);
 
   const deselectAll = useCallback(() => {
-    setSelectedEventIds(new Set());
+    setSelectionDefault('none');
+    setSelectionOverrides(new Map());
   }, []);
 
   // ── Derived stats from displayEvents ──
@@ -321,25 +340,16 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         ? 'w-full md:w-[calc(50%-4px)]'
         : 'w-full md:w-[calc(33.333%-6px)]';
 
-  // Toggle mode for select/deselect all
-  const [toggleMode, setToggleMode] = useState<'select' | 'deselect'>('select');
-
-  useEffect(() => {
-    if (displayEvents.length === 0) return;
-    if (selectedEventIds.size === displayEvents.length) {
-      setToggleMode('deselect');
-    } else if (selectedEventIds.size === 0) {
-      setToggleMode('select');
-    }
-  }, [selectedEventIds, displayEvents]);
+  const toggleMode: 'select' | 'deselect' =
+    displayEvents.length > 0 && selectedEventIds.size === displayEvents.length
+      ? 'deselect'
+      : 'select';
 
   const handleToggleAll = useCallback(() => {
     if (toggleMode === 'select') {
       selectAll();
-      setToggleMode('deselect');
     } else {
       deselectAll();
-      setToggleMode('select');
     }
   }, [toggleMode, selectAll, deselectAll]);
 

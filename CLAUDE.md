@@ -248,6 +248,7 @@ Dimensions: 680x1050 (aspect-ratio 68/105). Home team top half, away bottom half
 - Match timeline: horizontal scrollable bar with all matches, foul count badges loaded progressively
 - Match cards: always open (not expandable), selectable via timeline; most recent 3 pre-selected on desktop, 1 on mobile
 - Every `Periodo` change resets the card selection back to automatic preselection (latest 3 on desktop, 1 on mobile), exactly like a season-context change
+- Match selection uses a context-level default (`latest 3`, `all`, or `none`) plus per-match overrides, so `Seleziona tutte` / `Deseleziona tutte` keep affecting newly visible matches inside the same period when tournament or venue filters change
 - Match details caricati in 4 code parallele dopo events/last: (1) **officialStats** via `event/{id}/player/{id}/statistics` per tutte le partite (batch 8, 100ms) — `initialStatsLoaded` scatta dopo il primo batch (prime 5); (2) **lineups** per tutte le partite (batch 5, 150ms) → `allLineupsLoaded` abilita filtro Titolare; (3) **rich data** (comments) solo per ultime 5 partite (batch 2, 200ms); (4) per le altre partite, comments caricati lazy al primo render della card selezionata via `onRequestRichDetails`; average-positions on-demand in MatchCard; tutto cached per sessione
 - Card layout: 1 card = 100%, 2 = `calc(50%-4px)`, 3+ = `calc(33.333%-6px)` (flexbox wrap, gap-compensated); 100% below `md:` (768px) and in split view
 - Player who changed team mid-season: separate matches with visual divider showing team name

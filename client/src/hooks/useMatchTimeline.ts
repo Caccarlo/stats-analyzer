@@ -253,6 +253,7 @@ export function useMatchTimeline(
               jerseyMap: result.jerseyMap,
               didNotPlay: result.didNotPlay,
               isStarter: result.isStarter,
+              playerSide: result.playerSide,
             };
             patchMatchDetailsCache(event.id, playerId, patch);
             batchResults.push({ eventId: event.id, patch });

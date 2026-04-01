@@ -157,14 +157,25 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     // 4. Venue filter
     if (!showHome || !showAway) {
       const teamId = resolvedPlayer?.team?.id;
-      if (teamId) {
-        events = events.filter((e) => {
-          const isHome = e.homeTeam.id === teamId;
-          if (showHome && isHome) return true;
-          if (showAway && !isHome) return true;
-          return false;
-        });
-      }
+      events = events.filter((e) => {
+        // Primo: usa playerSide dalle lineup (affidabile anche per le nazionali)
+        const side = detailsMap.get(e.id)?.playerSide;
+        let isHome: boolean | null;
+        if (side !== undefined) {
+          isHome = side === 'home';
+        } else if (teamId) {
+          // Fallback: confronto per team ID (funziona per i club, non per le nazionali)
+          if (e.homeTeam.id === teamId) isHome = true;
+          else if (e.awayTeam.id === teamId) isHome = false;
+          else isHome = null; // lineups non ancora caricate e team non riconosciuto
+        } else {
+          isHome = null;
+        }
+        if (isHome === null) return true; // includi finché non abbiamo certezza
+        if (showHome && isHome) return true;
+        if (showAway && !isHome) return true;
+        return false;
+      });
     }
 
     // 5. Starter filter — applicato solo quando tutte le lineups sono caricate

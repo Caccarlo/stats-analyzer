@@ -139,15 +139,26 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     requestRichDetails,
   } = useMatchTimeline(playerId, validSeasonIds, maxEvents);
 
+  const lastPeriodBaseEvents = useMemo(() => {
+    if (selectedPeriod.type !== 'last') return [];
+
+    return allEvents
+      .filter((e) => {
+        const details = detailsMap.get(e.id);
+        if (!details) return true;
+        return !details.didNotPlay;
+      })
+      .slice(0, selectedPeriod.count);
+  }, [selectedPeriod, allEvents, detailsMap]);
+
   // Tournament list for the filter UI:
-  // 'last' mode → unique tournaments extracted from the actually loaded events
+  // 'last' mode → unique tournaments extracted from the current last-N valid matches
   // 'season' mode → same as allTournamentsForSeason
   const tournamentsForFilter = useMemo(() => {
     if (selectedPeriod.type === 'season') return allTournamentsForSeason;
     const seen = new Set<number>();
     const result: typeof allTournamentsForSeason = [];
-    const count = selectedPeriod.count;
-    for (const event of allEvents.slice(0, count)) {
+    for (const event of lastPeriodBaseEvents) {
       const tid = event.tournament?.uniqueTournament?.id;
       const tname = event.tournament?.uniqueTournament?.name;
       if (tid && tname && !seen.has(tid)) {
@@ -161,7 +172,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       }
     }
     return result;
-  }, [selectedPeriod.type, selectedPeriod, allTournamentsForSeason, allEvents]);
+  }, [selectedPeriod.type, allTournamentsForSeason, lastPeriodBaseEvents]);
 
   // Tournaments currently enabled (subset of tournamentsForFilter)
   const activeFilterTournaments = useMemo(
@@ -181,11 +192,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
     if (selectedPeriod.type === 'last') {
       // 'last N': prima escludi didNotPlay, poi slice a N, poi filtri display su quelle N
-      events = allEvents.filter((e) => {
-        const details = detailsMap.get(e.id);
-        if (!details) return true;
-        return !details.didNotPlay;
-      }).slice(0, selectedPeriod.count);
+      events = lastPeriodBaseEvents;
     } else {
       // 'season': tournament filter prima, poi didNotPlay exclusion
       events = selectedTournamentIds.size === 0
@@ -241,7 +248,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     }
 
     return events;
-  }, [allEvents, selectedTournamentIds, selectedPeriod, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, allLineupsLoaded]);
+  }, [allEvents, selectedTournamentIds, selectedPeriod, lastPeriodBaseEvents, detailsMap, showHome, showAway, resolvedPlayer?.team?.id, showStartersOnly, allLineupsLoaded]);
 
   // ── Selection state (moved here from useMatchTimeline) ──
   type SelectionDefault = 'auto' | 'all' | 'none';

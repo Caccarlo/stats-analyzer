@@ -81,6 +81,7 @@ export function useMatchTimeline(
       let accumulated: MatchEvent[] = [];
       let hasMore = true;
       let foundRelevant = false;
+      const stopAfterFirstIrrelevantPage = maxEvents === undefined;
       const combinedDetails = new Map<number, CachedMatchDetails>();
 
       while (hasMore && !cancelled) {
@@ -111,7 +112,18 @@ export function useMatchTimeline(
           }
 
           if (relevant.length > 0) foundRelevant = true;
-          if (foundRelevant && pageEvents.length > 0 && relevant.length === 0) break;
+
+          // In "season" mode we can stop once we've crossed past the contiguous block
+          // of matches for that season. In "last N" cross-season mode this assumption
+          // is unsafe because irrelevant pages can appear in the middle of the history.
+          if (
+            stopAfterFirstIrrelevantPage &&
+            foundRelevant &&
+            pageEvents.length > 0 &&
+            relevant.length === 0
+          ) {
+            break;
+          }
 
           hasMore = hasNextPage;
           page++;

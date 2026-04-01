@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
+import type { SelectedPeriod } from '@/hooks/usePlayerData';
 import { useMatchTimeline } from '@/hooks/useMatchTimeline';
 import { useSplitCardSync } from '@/hooks/useSplitCardSync';
 import { useNavigation } from '@/context/NavigationContext';
@@ -355,6 +356,16 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     }
   }, [toggleMode, selectAll, deselectAll]);
 
+  const handlePeriodChange = useCallback((period: SelectedPeriod) => {
+    setSelectedPeriod(period);
+    setShowHome(true);
+    setShowAway(true);
+    setShowStartersOnly(false);
+    setShowCommitted(true);
+    setShowSuffered(true);
+    setShowCards(false);
+  }, [setSelectedPeriod, setShowHome, setShowAway, setShowStartersOnly, setShowCommitted, setShowSuffered, setShowCards]);
+
   // ── Full-page loader: only on the very first visit (never on filter/season changes) ──
   const pageSectionLoading =
     loadingEvents ||
@@ -384,7 +395,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             tournamentSeasons={tournamentSeasons}
             availableSeasonYears={availableSeasonYears}
             selectedPeriod={selectedPeriod}
-            onPeriodChange={setSelectedPeriod}
+            onPeriodChange={handlePeriodChange}
             selectedTournaments={selectedTournaments}
             onToggleTournament={toggleTournament}
             showCommitted={showCommitted}

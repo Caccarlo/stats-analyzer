@@ -177,8 +177,8 @@ Matches marked `didNotPlay` are removed from PlayerPage display and statistics.
 ### Ultime N
 
 - `selectedPeriod` can be either `{ type: 'last', count }` or `{ type: 'season', year }`.
-- In `Ultime N`, PlayerPage passes all player season IDs to `useMatchTimeline` plus `maxEvents = N * 3`.
-- `useMatchTimeline` keeps paging across seasons until it reaches `maxEvents` or the API ends.
+- In `Ultime N`, PlayerPage passes all player season IDs to `useMatchTimeline` plus `minPlayedEvents = N` and `maxEvents = N * 2` (safety cap).
+- `useMatchTimeline` keeps paging across seasons until it reaches `minPlayedEvents` matches with `onBench === false`, hits `maxEvents`, or the API ends.
 - `PlayerPage` builds `lastPeriodBaseEvents = allEvents -> exclude didNotPlay -> slice(N)`.
 - Tournament options in `Ultime N` are derived from that same `lastPeriodBaseEvents` base.
 - Tournament, venue, and starter filters are applied locally on that fixed `N`-match base without refetching.
@@ -196,7 +196,7 @@ Other current behavior:
 
 - In season mode, the pager can stop after the first irrelevant page once it has already found relevant season matches.
 - In cross-season `Ultime N`, that early stop is disabled.
-- `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKey, maxEvents}`.
+- `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKey, maxEvents, minPlayedEvents}`.
 - When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.
 - Queue effects exit immediately when their corresponding `all*Loaded` flag is already true, and artificial inter-batch delays are skipped when the whole batch was cache hits.
 - PlayerPage shows a section loader while `loadingEvents || !allOfficialStatsLoaded || !allLineupsLoaded || !recentRichLoaded`.

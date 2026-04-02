@@ -148,7 +148,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     [selectedPeriod.type, allTournamentsForSeason, tournamentSeasons],
   );
 
-  const maxEvents = selectedPeriod.type === 'last' ? selectedPeriod.count * 3 : undefined;
+  const maxEvents = selectedPeriod.type === 'last' ? selectedPeriod.count * 2 : undefined;
+  const minPlayedEvents = selectedPeriod.type === 'last' ? selectedPeriod.count : undefined;
 
   const {
     allEvents,
@@ -159,7 +160,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     allLineupsLoaded,
     recentRichLoaded,
     requestRichDetails,
-  } = useMatchTimeline(playerId, validSeasonIds, maxEvents);
+  } = useMatchTimeline(playerId, validSeasonIds, maxEvents, minPlayedEvents);
 
   const lastPeriodBaseEvents = useMemo(() => {
     if (selectedPeriod.type !== 'last') return [];

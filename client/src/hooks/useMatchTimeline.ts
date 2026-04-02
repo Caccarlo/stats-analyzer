@@ -81,8 +81,12 @@ function buildTimelineContextKey(
   playerId: number,
   seasonIdsKey: string,
   maxEvents?: number,
+  minPlayedEvents?: number,
 ): string {
-  return `${playerId}|${seasonIdsKey}|${maxEvents ?? 'all'}`;
+  const suffix = minPlayedEvents !== undefined
+    ? `p${minPlayedEvents}-m${maxEvents ?? 'all'}`
+    : `${maxEvents ?? 'all'}`;
+  return `${playerId}|${seasonIdsKey}|${suffix}`;
 }
 
 function cloneDetailsMap(source: Map<number, CachedMatchDetails>): Map<number, CachedMatchDetails> {
@@ -158,6 +162,7 @@ function buildSnapshotFromCachedPages(
   playerId: number,
   validSeasonIds: Set<number>,
   maxEvents?: number,
+  minPlayedEvents?: number,
 ): TimelineSnapshot | null {
   if (validSeasonIds.size === 0) return null;
 
@@ -166,6 +171,7 @@ function buildSnapshotFromCachedPages(
   let foundRelevant = false;
   const stopAfterFirstIrrelevantPage = maxEvents === undefined;
   const combinedDetails = new Map<number, CachedMatchDetails>();
+  const combinedOnBenchMap: Record<string, boolean> = {};
 
   while (true) {
     const cachedPage = playerEventsPageCache.get(`${playerId}-${page}`);
@@ -178,6 +184,7 @@ function buildSnapshotFromCachedPages(
       incidentsMap,
       onBenchMap,
     } = cachedPage;
+    Object.assign(combinedOnBenchMap, onBenchMap);
 
     const relevant = pageEvents.filter(
       (event) => event.status?.code === 100 && validSeasonIds.has(event.season?.id),
@@ -199,6 +206,15 @@ function buildSnapshotFromCachedPages(
 
     if (maxEvents !== undefined && accumulated.length >= maxEvents) {
       return buildSnapshotFromEvents(accumulated, combinedDetails);
+    }
+    if (minPlayedEvents !== undefined) {
+      const playedCount = accumulated.filter((event) => {
+        const onBench = combinedOnBenchMap[String(event.id)];
+        return onBench === false;
+      }).length;
+      if (playedCount >= minPlayedEvents) {
+        return buildSnapshotFromEvents(accumulated, combinedDetails);
+      }
     }
 
     if (relevant.length > 0) foundRelevant = true;
@@ -224,6 +240,7 @@ export function useMatchTimeline(
   playerId: number,
   validSeasonIds: Set<number>,
   maxEvents?: number,
+  minPlayedEvents?: number,
 ): UseMatchTimelineResult {
   const seasonIdsKey = useMemo(
     () => [...validSeasonIds].sort().join(','),
@@ -239,8 +256,8 @@ export function useMatchTimeline(
     [seasonIdsKey],
   );
   const contextKey = useMemo(
-    () => buildTimelineContextKey(playerId, seasonIdsKey, maxEvents),
-    [playerId, seasonIdsKey, maxEvents],
+    () => buildTimelineContextKey(playerId, seasonIdsKey, maxEvents, minPlayedEvents),
+    [playerId, seasonIdsKey, maxEvents, minPlayedEvents],
   );
 
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
@@ -290,6 +307,7 @@ export function useMatchTimeline(
       playerId,
       stableSeasonIds,
       maxEvents,
+      minPlayedEvents,
     );
     if (cachedPagesSnapshot) {
       const snapshot = cloneTimelineSnapshot(cachedPagesSnapshot);
@@ -319,6 +337,7 @@ export function useMatchTimeline(
       let foundRelevant = false;
       const stopAfterFirstIrrelevantPage = maxEvents === undefined;
       const combinedDetails = new Map<number, CachedMatchDetails>();
+      const combinedOnBenchMap: Record<string, boolean> = {};
 
       while (hasMore && !cancelled) {
         try {
@@ -334,6 +353,7 @@ export function useMatchTimeline(
             incidentsMap,
             onBenchMap,
           } = pageResult;
+          Object.assign(combinedOnBenchMap, onBenchMap);
           if (cancelled) return;
 
           const relevant = pageEvents.filter(
@@ -359,6 +379,16 @@ export function useMatchTimeline(
           if (maxEvents !== undefined && accumulated.length >= maxEvents) {
             hasMore = false;
             break;
+          }
+          if (minPlayedEvents !== undefined) {
+            const playedCount = accumulated.filter((event) => {
+              const onBench = combinedOnBenchMap[String(event.id)];
+              return onBench === false;
+            }).length;
+            if (playedCount >= minPlayedEvents) {
+              hasMore = false;
+              break;
+            }
           }
 
           if (relevant.length > 0) foundRelevant = true;
@@ -395,7 +425,7 @@ export function useMatchTimeline(
 
     loadPages();
     return () => { cancelled = true; };
-  }, [playerId, stableSeasonIds, maxEvents, contextKey]);
+  }, [playerId, stableSeasonIds, maxEvents, minPlayedEvents, contextKey]);
 
   useEffect(() => {
     if (allEvents.length === 0) return;

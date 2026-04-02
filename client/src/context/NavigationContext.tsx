@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type ReactNode } from 'react';
-import type { PanelState, Player, ViewType } from '@/types';
+import type { PanelState, Player, PlayerFilterState, ViewType } from '@/types';
 
 // === Stato ===
 
@@ -18,6 +18,7 @@ type NavAction =
   | { type: 'OPEN_SPLIT'; panelState: PanelState }
   | { type: 'SWAP_SPLIT_AND_OPEN'; panelState: PanelState }
   | { type: 'CLOSE_SPLIT'; panel: number }
+  | { type: 'UPDATE_PANEL_FILTERS'; panel: number; filterState: PlayerFilterState }
   | { type: 'RESET' };
 
 function reducer(state: NavState, action: NavAction): NavState {
@@ -26,7 +27,12 @@ function reducer(state: NavState, action: NavAction): NavState {
   switch (action.type) {
     case 'SET_VIEW': {
       const current = panels[action.panel] ?? initialPanel;
-      panels[action.panel] = { ...current, view: action.data?.view ?? current.view, ...action.data };
+      const updated: PanelState = { ...current, view: action.data?.view ?? current.view, ...action.data };
+      // Clear filter state when navigating to a different player
+      if (action.data?.playerId !== undefined && action.data.playerId !== current.playerId) {
+        updated.filterState = undefined;
+      }
+      panels[action.panel] = updated;
       return { panels };
     }
 
@@ -116,6 +122,12 @@ function reducer(state: NavState, action: NavAction): NavState {
       return { panels: [panels[0]] };
     }
 
+    case 'UPDATE_PANEL_FILTERS': {
+      if (!panels[action.panel]) return state;
+      panels[action.panel] = { ...panels[action.panel], filterState: action.filterState };
+      return { panels };
+    }
+
     case 'RESET':
       return initialState;
 
@@ -138,6 +150,7 @@ interface NavContextValue {
   swapSplitAndOpenPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string, context?: Partial<PanelState>) => void;
   openSplitHome: () => void;
   closeSplit: (panel?: number) => void;
+  updatePanelFilters: (panel: number, filterState: PlayerFilterState) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string) => void;
   selectLeague: (panel: number, leagueId: number, leagueName?: string, seasonId?: number) => void;
   selectTeam: (panel: number, teamId: number, teamName?: string) => void;
@@ -207,6 +220,10 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'CLOSE_SPLIT', panel });
   };
 
+  const updatePanelFilters = (panel: number, filterState: PlayerFilterState) => {
+    dispatch({ type: 'UPDATE_PANEL_FILTERS', panel, filterState });
+  };
+
   const selectCountry = (panel: number, countryId: string, countryName?: string) => {
     navigateTo(panel, 'leagues', { countryId, countryName });
   };
@@ -241,6 +258,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         swapSplitAndOpenPlayer,
         openSplitHome,
         closeSplit,
+        updatePanelFilters,
         selectCountry,
         selectLeague,
         selectTeam,

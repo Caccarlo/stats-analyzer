@@ -203,6 +203,10 @@ Other current behavior:
 
 ## Filters
 
+### Filter state persistence
+
+All user-set filter values (`selectedPeriod`, `showCommitted`, `showSuffered`, `showHome`, `showAway`, `showCards`, `showStartersOnly`, `committedLine`, `sufferedLine`) are persisted inside the panel's `PanelState.filterState` in NavigationContext via `updatePanelFilters`. `usePlayerData` accepts `initialFilterState` and `onFiltersChange` to read/write this state. Because `PanelState` travels with the panel during `CLOSE_SPLIT`, filters survive split↔fullscreen transitions. When a panel is truly closed (the other side of a split close), its `PanelState` is discarded and the next open starts from defaults.
+
 ### Periodo
 
 - Lives in `usePlayerData` as `selectedPeriod`.

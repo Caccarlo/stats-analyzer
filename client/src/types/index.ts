@@ -206,6 +206,23 @@ export interface MatchAnalysis {
 
 export type ViewType = 'home' | 'leagues' | 'teams' | 'team' | 'player';
 
+export type SelectedPeriod =
+  | { type: 'last'; count: 5 | 10 | 15 | 20 | 30 }
+  | { type: 'season'; year: string };
+
+export interface PlayerFilterState {
+  selectedPeriod: SelectedPeriod;
+  enabledTournaments: Set<number>;
+  showCommitted: boolean;
+  showSuffered: boolean;
+  showHome: boolean;
+  showAway: boolean;
+  showCards: boolean;
+  showStartersOnly: boolean;
+  committedLine: number;
+  sufferedLine: number;
+}
+
 export interface PanelState {
   view: ViewType;
   countryId?: string;
@@ -217,6 +234,7 @@ export interface PanelState {
   teamName?: string;
   playerId?: number;
   playerData?: Player;
+  filterState?: PlayerFilterState;
 }
 
 export interface NavigationState {

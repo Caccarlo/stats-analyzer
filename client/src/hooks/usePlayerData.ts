@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { TournamentSeason, PlayerSeasonStats, AggregatedStats } from '@/types';
+import type { TournamentSeason, PlayerSeasonStats, AggregatedStats, PlayerFilterState, SelectedPeriod } from '@/types';
 import { getPlayerSeasons, getPlayerSeasonStats } from '@/api/sofascore';
 import { calculateStats } from '@/utils/statsCalculator';
 
-export type SelectedPeriod =
-  | { type: 'last'; count: 5 | 10 | 15 | 20 | 30 }
-  | { type: 'season'; year: string };
+export type { SelectedPeriod };
 
 interface SelectedTournament {
   tournamentId: number;
@@ -45,22 +43,33 @@ interface PlayerDataResult {
   error: string | null;
 }
 
-export function usePlayerData(playerId: number | null): PlayerDataResult {
+export function usePlayerData(
+  playerId: number | null,
+  initialFilterState?: PlayerFilterState,
+  onFiltersChange?: (s: PlayerFilterState) => void,
+): PlayerDataResult {
   const [tournamentSeasons, setTournamentSeasons] = useState<TournamentSeason[]>([]);
-  const [selectedPeriod, setSelectedPeriod] = useState<SelectedPeriod>({ type: 'season', year: '' });
-  const [enabledTournaments, setEnabledTournaments] = useState<Set<number>>(new Set());
+  const [selectedPeriod, setSelectedPeriod] = useState<SelectedPeriod>(
+    () => initialFilterState?.selectedPeriod ?? { type: 'season', year: '' },
+  );
+  const [enabledTournaments, setEnabledTournaments] = useState<Set<number>>(
+    () => initialFilterState?.enabledTournaments ?? new Set(),
+  );
+  const tournamentsLoaded = useRef(false);
   const [statsByTournament, setStatsByTournament] = useState<Map<number, PlayerSeasonStats>>(new Map());
-  const [showCommitted, setShowCommitted] = useState(true);
-  const [showSuffered, setShowSuffered] = useState(true);
-  const [showHome, setShowHome] = useState(true);
-  const [showAway, setShowAway] = useState(true);
-  const [showCards, setShowCards] = useState(false);
-  const [showStartersOnly, setShowStartersOnly] = useState(false);
-  const [committedLine, setCommittedLine] = useState(0.5);
-  const [sufferedLine, setSufferedLine] = useState(0.5);
+  const [showCommitted, setShowCommitted] = useState(() => initialFilterState?.showCommitted ?? true);
+  const [showSuffered, setShowSuffered] = useState(() => initialFilterState?.showSuffered ?? true);
+  const [showHome, setShowHome] = useState(() => initialFilterState?.showHome ?? true);
+  const [showAway, setShowAway] = useState(() => initialFilterState?.showAway ?? true);
+  const [showCards, setShowCards] = useState(() => initialFilterState?.showCards ?? false);
+  const [showStartersOnly, setShowStartersOnly] = useState(() => initialFilterState?.showStartersOnly ?? false);
+  const [committedLine, setCommittedLine] = useState(() => initialFilterState?.committedLine ?? 0.5);
+  const [sufferedLine, setSufferedLine] = useState(() => initialFilterState?.sufferedLine ?? 0.5);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cache = useRef<Map<string, PlayerSeasonStats>>(new Map());
+  const onFiltersChangeRef = useRef(onFiltersChange);
+  onFiltersChangeRef.current = onFiltersChange;
 
   // All season years available for this player, sorted descending
   const availableSeasonYears = Array.from(
@@ -125,8 +134,15 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
     return () => { cancelled = true; };
   }, [playerId]);
 
-  // When season changes (or period type switches), enable all relevant tournaments
+  // When season changes (or period type switches), enable all relevant tournaments.
+  // On the very first load, skip auto-enable if we restored saved tournament state.
   useEffect(() => {
+    if (tournamentSeasons.length === 0) return;
+
+    const justLoaded = !tournamentsLoaded.current;
+    if (justLoaded) tournamentsLoaded.current = true;
+    if (justLoaded && initialFilterState?.enabledTournaments?.size) return;
+
     if (selectedPeriod.type === 'last') {
       const allIds = new Set(tournamentSeasons.map((ts) => ts.uniqueTournament.id));
       setEnabledTournaments(allIds);
@@ -170,6 +186,22 @@ export function usePlayerData(playerId: number | null): PlayerDataResult {
 
     return () => { cancelled = true; };
   }, [playerId, currentSeasonYear, tournamentsForSeason.length]);
+
+  // Persist filter state to NavigationContext whenever it changes
+  useEffect(() => {
+    onFiltersChangeRef.current?.({
+      selectedPeriod,
+      enabledTournaments,
+      showCommitted,
+      showSuffered,
+      showHome,
+      showAway,
+      showCards,
+      showStartersOnly,
+      committedLine,
+      sufferedLine,
+    });
+  }, [selectedPeriod, enabledTournaments, showCommitted, showSuffered, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine]);
 
   // Aggregate stats (only enabled tournaments)
   const enabledStats = Array.from(statsByTournament.entries())

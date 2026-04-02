@@ -46,6 +46,7 @@ function AppContent() {
                 </button>
               )}
               <PlayerPage
+                key={panel.playerId}
                 playerId={panel.playerId}
                 playerData={panel.playerData}
                 panelIndex={panelIndex}

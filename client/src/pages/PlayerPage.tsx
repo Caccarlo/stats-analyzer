@@ -5,7 +5,7 @@ import { useMatchTimeline } from '@/hooks/useMatchTimeline';
 import { useSplitCardSync } from '@/hooks/useSplitCardSync';
 import { useNavigation } from '@/context/NavigationContext';
 import { getPlayerInfo } from '@/api/sofascore';
-import type { Player } from '@/types';
+import type { Player, PlayerFilterState } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
@@ -56,7 +56,7 @@ interface PlayerPageProps {
 }
 
 export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: PlayerPageProps) {
-  const { state, navigateTo } = useNavigation();
+  const { state, navigateTo, updatePanelFilters } = useNavigation();
   const [resolvedPlayer, setResolvedPlayer] = useState<Player | undefined>(playerData);
 
   useEffect(() => {
@@ -71,6 +71,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     });
     return () => { cancelled = true; };
   }, [playerId]);
+
+  const savedFilters = state.panels[panelIndex]?.filterState;
+  const handleFiltersChange = useCallback(
+    (fs: PlayerFilterState) => updatePanelFilters(panelIndex, fs),
+    [panelIndex, updatePanelFilters],
+  );
 
   const {
     tournamentSeasons,
@@ -97,7 +103,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setSufferedLine,
     showStartersOnly,
     setShowStartersOnly,
-  } = usePlayerData(playerId);
+  } = usePlayerData(playerId, savedFilters, handleFiltersChange);
 
   // All tournaments available for the current season year (used in 'season' mode)
   const allTournamentsForSeason = tournamentSeasons

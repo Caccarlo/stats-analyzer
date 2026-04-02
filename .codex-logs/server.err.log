@@ -1,0 +1,16 @@
+node:internal/child_process:420
+    throw new ErrnoException(err, 'spawn');
+          ^
+
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:420:11)
+    at spawn (node:child_process:796:9)
+    at start (node:internal/main/watch_mode:97:11)
+    at init (node:internal/main/watch_mode:177:15)
+    at node:internal/main/watch_mode:189:1 {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
+
+Node.js v25.7.0

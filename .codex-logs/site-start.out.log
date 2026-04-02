@@ -1,0 +1,4 @@
+
+> stats-analyzer@1.0.0 start
+> concurrently "npm run dev:server" "npm run dev:client"
+

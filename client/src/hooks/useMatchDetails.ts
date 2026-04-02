@@ -159,7 +159,10 @@ export function createSeededMatchDetails(seed?: MatchDetailsSeed): CachedMatchDe
   };
 }
 
-function mergeWithSeed(cached: CachedMatchDetails, seed?: MatchDetailsSeed): CachedMatchDetails {
+export function mergeMatchDetailsWithSeed(
+  cached: CachedMatchDetails,
+  seed?: MatchDetailsSeed,
+): CachedMatchDetails {
   if (!seed) return cached;
   return {
     ...cached,
@@ -329,7 +332,7 @@ export async function fetchMatchDetails(
 ): Promise<CachedMatchDetails> {
   const key = `${eventId}-${playerId}`;
   const cached = matchDetailsCache.get(key);
-  if (cached) return mergeWithSeed(cached, seed);
+  if (cached) return mergeMatchDetailsWithSeed(cached, seed);
 
   const commentsPromise = matchCommentsCache.has(eventId)
     ? Promise.resolve(matchCommentsCache.get(eventId)!)
@@ -438,7 +441,7 @@ export function useMatchDetails(
     const key = `${eventId}-${playerId}`;
     const cached = matchDetailsCache.get(key);
     if (cached) {
-      setDetails(mergeWithSeed(cached, seed));
+      setDetails(mergeMatchDetailsWithSeed(cached, seed));
       return;
     }
 

@@ -188,13 +188,16 @@ After `events/last` returns the event list plus seeds, `useMatchTimeline` runs f
 
 1. officialStats for all matches, batch size 8
 2. lineups for all matches, batch size 5
-3. rich comments for the latest 5 matches, batch size 2
+3. rich comments for the first 5 non-`didNotPlay` matches, batch size 2
 4. lazy rich comments for other selected cards through `requestRichDetails(eventId)`
 
 Other current behavior:
 
 - In season mode, the pager can stop after the first irrelevant page once it has already found relevant season matches.
 - In cross-season `Ultime N`, that early stop is disabled.
+- `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKey, maxEvents}`.
+- When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.
+- Queue effects exit immediately when their corresponding `all*Loaded` flag is already true, and artificial inter-batch delays are skipped when the whole batch was cache hits.
 - PlayerPage shows a section loader while `loadingEvents || !allOfficialStatsLoaded || !allLineupsLoaded || !recentRichLoaded`.
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
 

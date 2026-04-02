@@ -176,24 +176,18 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   const seasonClubMap = useMemo(() => {
     const seasonsToTeams = new Map<string, Team[]>();
     const sortedEvents = [...allEvents].sort((a, b) => a.startTimestamp - b.startTimestamp);
-    const currentTeamId = resolvedPlayer?.team?.id;
 
     for (const event of sortedEvents) {
       const year = event.season?.year;
       if (!year) continue;
 
       const playerSide = detailsMap.get(event.id)?.playerSide;
-      let playerTeam: Team | undefined;
-
-      if (playerSide === 'home') {
-        playerTeam = event.homeTeam;
-      } else if (playerSide === 'away') {
-        playerTeam = event.awayTeam;
-      } else if (currentTeamId && event.homeTeam.id === currentTeamId) {
-        playerTeam = event.homeTeam;
-      } else if (currentTeamId && event.awayTeam.id === currentTeamId) {
-        playerTeam = event.awayTeam;
-      }
+      const playerTeam =
+        playerSide === 'home'
+          ? event.homeTeam
+          : playerSide === 'away'
+            ? event.awayTeam
+            : undefined;
 
       if (!playerTeam || playerTeam.national) continue;
 
@@ -206,7 +200,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     }
 
     return seasonsToTeams;
-  }, [allEvents, detailsMap, resolvedPlayer?.team?.id]);
+  }, [allEvents, detailsMap]);
 
   // Tournament list for the filter UI:
   // 'last' mode → unique tournaments extracted from the current last-N valid matches

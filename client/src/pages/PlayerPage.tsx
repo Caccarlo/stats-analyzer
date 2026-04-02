@@ -159,7 +159,6 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     loadingEvents,
     allOfficialStatsLoaded,
     allLineupsLoaded,
-    recentRichLoaded,
     requestRichDetails,
   } = useMatchTimeline(playerId, validSeasonIds, maxEvents, minPlayedEvents);
 
@@ -530,8 +529,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   const pageSectionLoading =
     loadingEvents ||
     !allOfficialStatsLoaded ||
-    !allLineupsLoaded ||
-    !recentRichLoaded;
+    !allLineupsLoaded;
 
   // ── Stato di caricamento per filtro Titolare ──
   const displayPlayer: Player = resolvedPlayer ?? {

@@ -53,13 +53,6 @@ function buildSeed(
   };
 }
 
-function getRecentRichTargets(
-  events: MatchEvent[],
-  details: Map<number, CachedMatchDetails>,
-): MatchEvent[] {
-  return events.filter((event) => !details.get(event.id)?.didNotPlay).slice(0, 5);
-}
-
 function hasSeedOnlyOfficialStats(details: CachedMatchDetails | undefined): boolean {
   return Boolean(
     details &&
@@ -137,11 +130,6 @@ function buildSnapshotFromEvents(
     const details = sortedDetails.get(event.id);
     return details?.lineupsStatus !== 'idle';
   });
-  const recentRichTargets = getRecentRichTargets(sortedEvents, sortedDetails);
-  const richReady = recentRichTargets.every((event) => {
-    const details = sortedDetails.get(event.id);
-    return details?.commentsStatus !== 'idle';
-  });
   const preloadedLineups = new Set(
     sortedEvents
       .filter((event) => sortedDetails.get(event.id)?.lineupsStatus !== 'idle')
@@ -154,7 +142,7 @@ function buildSnapshotFromEvents(
     lineupsLoadedIds: preloadedLineups,
     allOfficialStatsLoaded: allOfficialReady,
     allLineupsLoaded: allLineupsReady,
-    recentRichLoaded: richReady,
+    recentRichLoaded: true,
   };
 }
 
@@ -266,11 +254,10 @@ export function useMatchTimeline(
   const [allOfficialStatsLoaded, setAllOfficialStatsLoaded] = useState(false);
   const [lineupsLoadedIds, setLineupsLoadedIds] = useState<Set<number>>(new Set());
   const [allLineupsLoaded, setAllLineupsLoaded] = useState(false);
-  const [recentRichLoaded, setRecentRichLoaded] = useState(false);
+  const [recentRichLoaded, setRecentRichLoaded] = useState(true);
 
   const statsLoadingRef = useRef(false);
   const lineupsLoadingRef = useRef(false);
-  const richLoadingRef = useRef(false);
   const detailsMapRef = useRef(detailsMap);
   const playerIdRef = useRef(playerId);
 
@@ -288,7 +275,6 @@ export function useMatchTimeline(
     let cancelled = false;
     statsLoadingRef.current = false;
     lineupsLoadingRef.current = false;
-    richLoadingRef.current = false;
 
     const cachedContext = timelineContextCache.get(contextKey);
     if (cachedContext) {
@@ -298,7 +284,7 @@ export function useMatchTimeline(
       setLineupsLoadedIds(snapshot.lineupsLoadedIds);
       setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
       setAllLineupsLoaded(snapshot.allLineupsLoaded);
-      setRecentRichLoaded(snapshot.recentRichLoaded);
+      setRecentRichLoaded(true);
       setLoadingEvents(false);
       return () => { cancelled = true; };
     }
@@ -317,7 +303,7 @@ export function useMatchTimeline(
       setLineupsLoadedIds(snapshot.lineupsLoadedIds);
       setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
       setAllLineupsLoaded(snapshot.allLineupsLoaded);
-      setRecentRichLoaded(snapshot.recentRichLoaded);
+      setRecentRichLoaded(true);
       setLoadingEvents(false);
       return () => { cancelled = true; };
     }
@@ -328,7 +314,7 @@ export function useMatchTimeline(
     setAllOfficialStatsLoaded(false);
     setLineupsLoadedIds(new Set());
     setAllLineupsLoaded(false);
-    setRecentRichLoaded(false);
+    setRecentRichLoaded(true);
 
     async function loadPages() {
       let page = 0;
@@ -419,7 +405,7 @@ export function useMatchTimeline(
       setLineupsLoadedIds(snapshot.lineupsLoadedIds);
       setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
       setAllLineupsLoaded(snapshot.allLineupsLoaded);
-      setRecentRichLoaded(snapshot.recentRichLoaded);
+      setRecentRichLoaded(true);
       setLoadingEvents(false);
     }
 
@@ -586,81 +572,6 @@ export function useMatchTimeline(
     loadAllLineups();
     return () => { cancelled = true; };
   }, [allEvents, allLineupsLoaded]);
-
-  useEffect(() => {
-    if (allEvents.length === 0) return;
-    if (recentRichLoaded) return;
-    if (richLoadingRef.current) return;
-    richLoadingRef.current = true;
-
-    let cancelled = false;
-    const richTargets = getRecentRichTargets(allEvents, detailsMapRef.current);
-
-    async function loadRichForRecent() {
-      const BATCH = 2;
-      const DELAY = 200;
-
-      for (let i = 0; i < richTargets.length; i += BATCH) {
-        if (cancelled) return;
-
-        const batch = richTargets.slice(i, i + BATCH);
-        const batchResults: { eventId: number; patch: Partial<CachedMatchDetails> }[] = [];
-        let batchDidFetch = false;
-
-        await Promise.all(
-          batch.map(async (event) => {
-            const existing = detailsMapRef.current.get(event.id);
-            if (existing?.commentsStatus !== 'idle') {
-              batchResults.push({ eventId: event.id, patch: {} });
-              return;
-            }
-
-            batchDidFetch = true;
-            const result = await fetchMatchRichData(event.id, playerId, null);
-            if (cancelled) return;
-
-            const patch: Partial<CachedMatchDetails> = {
-              fouls: result.fouls,
-              commentsStatus: result.commentsStatus,
-              commentsAvailable: result.commentsAvailable,
-              substituteInMinute: result.substituteInMinute,
-              substituteOutMinute: result.substituteOutMinute,
-              cardInfo: result.cardInfo ?? existing?.cardInfo ?? null,
-              cardInfoStatus: result.cardInfoStatus,
-            };
-            patchMatchDetailsCache(event.id, playerId, patch);
-            batchResults.push({ eventId: event.id, patch });
-          }),
-        );
-
-        if (cancelled) return;
-
-        setDetailsMap((prev) => {
-          const next = new Map(prev);
-          for (const { eventId, patch } of batchResults) {
-            const cur = next.get(eventId);
-            if (cur && Object.keys(patch).length > 0) {
-              next.set(eventId, { ...cur, ...patch });
-            }
-          }
-          mergeSnapshotIntoCache(contextKey, { detailsMap: next });
-          return next;
-        });
-
-        if (batchDidFetch && i + BATCH < richTargets.length) {
-          await new Promise((resolve) => setTimeout(resolve, DELAY));
-        }
-      }
-
-      if (!cancelled) {
-        setRecentRichLoaded(true);
-        mergeSnapshotIntoCache(contextKey, { recentRichLoaded: true });
-      }
-    }
-
-    loadRichForRecent();
-    return () => { cancelled = true; };
-  }, [allEvents, recentRichLoaded]);
 
   const requestRichDetails = useCallback((eventId: number) => {
     setDetailsMap((prev) => {

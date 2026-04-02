@@ -224,7 +224,7 @@ export default function PlayerFilters({
               </button>
 
               {periodOpen && (
-                <div className="absolute top-full left-0 mt-1 min-w-44 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+                <div className="absolute top-full left-0 mt-1 w-full bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
                   <div className="py-1">
                     {LAST_N_OPTIONS.map((n) => {
                       const active = selectedPeriod.type === 'last' && selectedPeriod.count === n;

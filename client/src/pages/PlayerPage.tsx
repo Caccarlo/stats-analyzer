@@ -14,6 +14,7 @@ import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
 
 const AUTO_SELECTED_MATCH_COUNT = 3;
+const LAST_N_OPTIONS = [5, 10, 15, 20, 30] as const;
 
 function getTeamIdentityKey(team: Team): string {
   if (team.nameCode) return `code:${team.nameCode.toLowerCase()}`;
@@ -162,17 +163,23 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     requestRichDetails,
   } = useMatchTimeline(playerId, validSeasonIds, maxEvents, minPlayedEvents);
 
+  const playedEvents = useMemo(
+    () => (
+      [...allEvents]
+        .sort((a, b) => b.startTimestamp - a.startTimestamp)
+        .filter((event) => {
+          const details = detailsMap.get(event.id);
+          if (!details) return true;
+          return !details.didNotPlay;
+        })
+    ),
+    [allEvents, detailsMap],
+  );
+
   const lastPeriodBaseEvents = useMemo(() => {
     if (selectedPeriod.type !== 'last') return [];
-
-    return allEvents
-      .filter((e) => {
-        const details = detailsMap.get(e.id);
-        if (!details) return true;
-        return !details.didNotPlay;
-      })
-      .slice(0, selectedPeriod.count);
-  }, [selectedPeriod, allEvents, detailsMap]);
+    return playedEvents.slice(0, selectedPeriod.count);
+  }, [selectedPeriod, playedEvents]);
 
   const seasonClubMap = useMemo(() => {
     const seasonsToTeams = new Map<string, Team[]>();
@@ -202,6 +209,39 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
     return seasonsToTeams;
   }, [allEvents, detailsMap]);
+
+  const lastNClubMap = useMemo(() => {
+    const periodsToTeams = new Map<number, Team[]>();
+
+    for (const n of LAST_N_OPTIONS) {
+      const teams: Team[] = [];
+      const seen = new Set<string>();
+
+      for (const event of playedEvents.slice(0, n)) {
+        const playerSide = detailsMap.get(event.id)?.playerSide;
+        const playerTeam =
+          playerSide === 'home'
+            ? event.homeTeam
+            : playerSide === 'away'
+              ? event.awayTeam
+              : undefined;
+
+        if (!playerTeam || playerTeam.national) continue;
+
+        const teamKey = getTeamIdentityKey(playerTeam);
+        if (seen.has(teamKey)) continue;
+
+        seen.add(teamKey);
+        teams.push(playerTeam);
+
+        if (teams.length === 2) break;
+      }
+
+      periodsToTeams.set(n, teams);
+    }
+
+    return periodsToTeams;
+  }, [playedEvents, detailsMap]);
 
   // Tournament list for the filter UI:
   // 'last' mode → unique tournaments extracted from the current last-N valid matches
@@ -516,6 +556,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             availableSeasonYears={availableSeasonYears}
             selectedPeriod={selectedPeriod}
             seasonClubMap={seasonClubMap}
+            lastNClubMap={lastNClubMap}
             onPeriodChange={handlePeriodChange}
             selectedTournaments={activeFilterTournaments}
             onToggleTournament={toggleTournament}

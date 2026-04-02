@@ -10,6 +10,7 @@ interface PlayerFiltersProps {
   availableSeasonYears: string[];
   selectedPeriod: SelectedPeriod;
   seasonClubMap: Map<string, Team[]>;
+  lastNClubMap: Map<number, Team[]>;
   onPeriodChange: (p: SelectedPeriod) => void;
   selectedTournaments: { tournamentId: number; tournamentName: string }[];
   onToggleTournament: (tournamentId: number) => void;
@@ -59,6 +60,7 @@ export default function PlayerFilters({
   availableSeasonYears,
   selectedPeriod,
   seasonClubMap,
+  lastNClubMap,
   onPeriodChange,
   selectedTournaments,
   onToggleTournament,
@@ -95,13 +97,13 @@ export default function PlayerFilters({
     [selectedPeriod],
   );
 
-  const selectedSeasonTeams = useMemo(
+  const selectedPeriodTeams = useMemo(
     () => (
       selectedPeriod.type === 'season'
         ? seasonClubMap.get(selectedPeriod.year)
-        : undefined
+        : lastNClubMap.get(selectedPeriod.count)
     ),
-    [selectedPeriod, seasonClubMap],
+    [selectedPeriod, seasonClubMap, lastNClubMap],
   );
 
   useEffect(() => {
@@ -208,13 +210,13 @@ export default function PlayerFilters({
               <button
                 type="button"
                 onClick={() => setPeriodOpen((prev) => !prev)}
-                className={`min-w-36 bg-surface border rounded-lg px-2 py-1 text-xs transition-colors text-left flex items-center justify-between gap-3 ${
+                className={`min-w-32 bg-surface border rounded-lg px-2 py-1 text-xs transition-colors text-left flex items-center justify-between gap-3 ${
                   periodOpen ? 'border-neon text-text-primary' : 'border-border text-text-primary'
                 }`}
               >
                 <span className="flex items-center justify-between gap-3 min-w-0 flex-1">
                   <span className="truncate">{periodLabel}</span>
-                  <SeasonClubLogos teams={selectedSeasonTeams} />
+                  <SeasonClubLogos teams={selectedPeriodTeams} />
                 </span>
                 <span className={`text-text-muted transition-transform shrink-0 ${periodOpen ? 'rotate-180' : ''}`}>
                   v
@@ -222,7 +224,7 @@ export default function PlayerFilters({
               </button>
 
               {periodOpen && (
-                <div className="absolute top-full left-0 mt-1 min-w-52 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+                <div className="absolute top-full left-0 mt-1 min-w-44 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
                   <div className="py-1">
                     {LAST_N_OPTIONS.map((n) => {
                       const active = selectedPeriod.type === 'last' && selectedPeriod.count === n;

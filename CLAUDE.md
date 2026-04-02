@@ -219,6 +219,7 @@ Additional rules:
 
 - Lives in `usePlayerData` as `selectedPeriod`.
 - Renders as a custom dropdown: `Ultime N` first, then season years.
+- The selected `Ultime N` value can show up to two club logos derived from the latest played matches in that N-window; the opened dropdown list remains text-only.
 - Season options can show up to two club logos derived from loaded match lineups for that year; when lineup data is unavailable, the year remains text-only.
 - The `Titolare` toggle is rendered below the period select, not inline to its right.
 - Changing period resets venue/show/cards/starter toggles in PlayerPage.

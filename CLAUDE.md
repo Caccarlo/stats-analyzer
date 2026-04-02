@@ -200,17 +200,24 @@ Other current behavior:
 - Queue effects exit immediately when their corresponding `all*Loaded` flag is already true, and artificial inter-batch delays are skipped when the whole batch was cache hits.
 - PlayerPage shows a section loader while `loadingEvents || !allOfficialStatsLoaded || !allLineupsLoaded || !recentRichLoaded`.
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
+- In timeline cards, foul badges show `0` when official stats loaded a real zero, and `-` only when the foul value is still unavailable after loading.
+- In `MatchCard`, the mini foul counters beside the field/heatmap show a spinner while the selected comparison player is still loading, then show either a real number (including `0`) or `-` when the stat is unavailable.
 
 ## Filters
 
 ### Filter state persistence
 
-All user-set filter values (`selectedPeriod`, `showCommitted`, `showSuffered`, `showHome`, `showAway`, `showCards`, `showStartersOnly`, `committedLine`, `sufferedLine`) are persisted inside the panel's `PanelState.filterState` in NavigationContext via `updatePanelFilters`. `usePlayerData` accepts `initialFilterState` and `onFiltersChange` to read/write this state. Because `PanelState` travels with the panel during `CLOSE_SPLIT`, filters survive split↔fullscreen transitions. When a panel is truly closed (the other side of a split close), its `PanelState` is discarded and the next open starts from defaults.
+All user-set filter values (`selectedPeriod`, `enabledTournaments`, `showCommitted`, `showSuffered`, `showHome`, `showAway`, `showCards`, `showStartersOnly`, `committedLine`, `sufferedLine`) are persisted inside the panel's `PanelState.filterState` in NavigationContext via `updatePanelFilters`. `usePlayerData` accepts `initialFilterState` and `onFiltersChange` to read/write this state. Because `PanelState` travels with the panel during `CLOSE_SPLIT`, filters survive split↔fullscreen transitions. When a panel is truly closed (the other side of a split close), its `PanelState` is discarded and the next open starts from defaults.
+
+Additional rules:
+- `SET_VIEW` clears `filterState` when `playerId` changes, so navigating to a different player always starts from defaults.
+- The tournament auto-enable effect in `usePlayerData` skips execution while `tournamentSeasons` is still empty (preventing it from overwriting restored state before the API responds), and also skips on the very first load if saved `enabledTournaments` are present.
 
 ### Periodo
 
 - Lives in `usePlayerData` as `selectedPeriod`.
 - Renders grouped options: `Ultime N` first, then season years.
+- The `Titolare` toggle is rendered below the period select, not inline to its right.
 - Changing period resets venue/show/cards/starter toggles in PlayerPage.
 
 ### Competizioni

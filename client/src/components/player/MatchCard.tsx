@@ -29,6 +29,7 @@ interface MatchCardProps {
 
 type CardLayout = 'single' | 'double' | 'multi';
 type PositionsStatus = 'idle' | 'loading' | 'loaded' | 'unavailable';
+type PlayerStatsStatus = 'idle' | 'loading' | 'loaded' | 'unavailable';
 
 const CardIcon = ({ type }: { type: CardType }) => {
   if (type === 'yellow') {
@@ -67,6 +68,20 @@ function getDisplayCount(value: number | undefined): string {
   return typeof value === 'number' ? String(value) : '—';
 }
 
+function renderFieldStatValue(value: number | null, loading: boolean, colorClass: string) {
+  if (loading) {
+    return <span className={`inline-block w-3 h-3 border border-current border-t-transparent rounded-full animate-spin ${colorClass}`} />;
+  }
+  return value != null ? value : '—';
+}
+
+function renderAverageStatValue(value: string | null, loading: boolean, colorClass: string) {
+  if (loading) {
+    return <span className={`inline-block w-3 h-3 border border-current border-t-transparent rounded-full animate-spin ${colorClass}`} />;
+  }
+  return value ?? '—';
+}
+
 export default function MatchCard({
   event,
   playerId,
@@ -86,7 +101,9 @@ export default function MatchCard({
   const [positions, setPositions] = useState<{ home: PlayerPosition[]; away: PlayerPosition[] } | null>(null);
   const [positionsStatus, setPositionsStatus] = useState<PositionsStatus>('idle');
   const [activePlayerSeasonStats, setActivePlayerSeasonStats] = useState<PlayerSeasonStats | null>(null);
+  const [activePlayerSeasonStatsStatus, setActivePlayerSeasonStatsStatus] = useState<PlayerStatsStatus>('idle');
   const [activePlayerOwnFouls, setActivePlayerOwnFouls] = useState<{ committed: number; suffered: number } | null>(null);
+  const [activePlayerOwnFoulsStatus, setActivePlayerOwnFoulsStatus] = useState<PlayerStatsStatus>('idle');
   const [fieldWidth, setFieldWidth] = useState(0);
 
   const fieldRef = useRef<HTMLDivElement>(null);
@@ -251,15 +268,20 @@ export default function MatchCard({
 
   const activePlayerIsMain = activePlayerId === playerId;
   const selectedTournamentsKey = selectedTournaments.map((t) => `${t.tournamentId}:${t.seasonId}`).join(',');
+  const activePlayerSeasonStatsLoading = !activePlayerIsMain && activePlayerSeasonStatsStatus === 'loading';
+  const activePlayerOwnFoulsLoading = !activePlayerIsMain && activePlayerOwnFoulsStatus === 'loading';
 
   useEffect(() => {
     setActivePlayerSeasonStats(null);
+    setActivePlayerSeasonStatsStatus('idle');
     setActivePlayerOwnFouls(null);
+    setActivePlayerOwnFoulsStatus('idle');
     if (activePlayerIsMain || selectedTournaments.length === 0) return;
 
     let cancelled = false;
 
     const fetchStats = async () => {
+      setActivePlayerSeasonStatsStatus('loading');
       const results = await Promise.all(
         selectedTournaments.map((t) => getPlayerSeasonStats(activePlayerId, t.tournamentId, t.seasonId))
       );
@@ -280,11 +302,15 @@ export default function MatchCard({
           { fouls: 0, wasFouled: 0, minutesPlayed: 0, appearances: 0, matchesStarted: 0, yellowCards: 0, redCards: 0, rating: 0 }
         );
         setActivePlayerSeasonStats(aggregated);
+        setActivePlayerSeasonStatsStatus('loaded');
+      } else {
+        setActivePlayerSeasonStatsStatus('unavailable');
       }
     };
 
     fetchStats();
 
+    setActivePlayerOwnFoulsStatus('loading');
     fetchMatchDetails(event.id, activePlayerId)
       .then((matchDetails) => {
         if (cancelled) return;
@@ -292,7 +318,13 @@ export default function MatchCard({
         const suffered = matchDetails.officialStats?.wasFouled;
         if (typeof committed === 'number' || typeof suffered === 'number') {
           setActivePlayerOwnFouls({ committed: committed ?? 0, suffered: suffered ?? 0 });
+          setActivePlayerOwnFoulsStatus('loaded');
+        } else {
+          setActivePlayerOwnFoulsStatus('unavailable');
         }
+      })
+      .catch(() => {
+        if (!cancelled) setActivePlayerOwnFoulsStatus('unavailable');
       });
 
     return () => { cancelled = true; };
@@ -384,10 +416,10 @@ export default function MatchCard({
 
   const renderStatBoxes = (cols: 1 | 2 = 1) => {
     const s = activePlayerSeasonStats;
-    const committedPerGame = s && s.appearances > 0 ? (s.fouls / s.appearances).toFixed(2) : '—';
-    const committedPer90 = s && s.minutesPlayed > 0 ? (s.fouls * 90 / s.minutesPlayed).toFixed(2) : '—';
-    const sufferedPerGame = s && s.appearances > 0 ? (s.wasFouled / s.appearances).toFixed(2) : '—';
-    const sufferedPer90 = s && s.minutesPlayed > 0 ? (s.wasFouled * 90 / s.minutesPlayed).toFixed(2) : '—';
+    const committedPerGame = s && s.appearances > 0 ? (s.fouls / s.appearances).toFixed(2) : s ? '—' : null;
+    const committedPer90 = s && s.minutesPlayed > 0 ? (s.fouls * 90 / s.minutesPlayed).toFixed(2) : s ? '—' : null;
+    const sufferedPerGame = s && s.appearances > 0 ? (s.wasFouled / s.appearances).toFixed(2) : s ? '—' : null;
+    const sufferedPer90 = s && s.minutesPlayed > 0 ? (s.wasFouled * 90 / s.minutesPlayed).toFixed(2) : s ? '—' : null;
     const colClass = cols === 2 ? 'grid-cols-2' : 'grid-cols-1';
     return (
       <div className={`grid ${colClass} gap-1 w-fit flex-shrink-0`}>
@@ -395,11 +427,11 @@ export default function MatchCard({
           <>
             <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./p</p>
-              <p className="text-negative text-xs font-bold">{committedPerGame}</p>
+              <p className="text-negative text-xs font-bold">{renderAverageStatValue(committedPerGame, activePlayerSeasonStatsLoading, 'text-negative')}</p>
             </div>
             <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./90</p>
-              <p className="text-negative text-xs font-bold">{committedPer90}</p>
+              <p className="text-negative text-xs font-bold">{renderAverageStatValue(committedPer90, activePlayerSeasonStatsLoading, 'text-negative')}</p>
             </div>
           </>
         )}
@@ -407,11 +439,11 @@ export default function MatchCard({
           <>
             <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./p</p>
-              <p className="text-neon text-xs font-bold">{sufferedPerGame}</p>
+              <p className="text-neon text-xs font-bold">{renderAverageStatValue(sufferedPerGame, activePlayerSeasonStatsLoading, 'text-neon')}</p>
             </div>
             <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./90</p>
-              <p className="text-neon text-xs font-bold">{sufferedPer90}</p>
+              <p className="text-neon text-xs font-bold">{renderAverageStatValue(sufferedPer90, activePlayerSeasonStatsLoading, 'text-neon')}</p>
             </div>
           </>
         )}
@@ -425,7 +457,7 @@ export default function MatchCard({
         <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
           <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm.</p>
           <p className="text-negative text-xs font-bold">
-            {activePlayerOwnFouls != null ? activePlayerOwnFouls.committed : '—'}
+            {renderFieldStatValue(activePlayerOwnFouls?.committed ?? null, activePlayerOwnFoulsLoading, 'text-negative')}
           </p>
         </div>
       )}
@@ -433,7 +465,7 @@ export default function MatchCard({
         <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
           <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub.</p>
           <p className="text-neon text-xs font-bold">
-            {activePlayerOwnFouls != null ? activePlayerOwnFouls.suffered : '—'}
+            {renderFieldStatValue(activePlayerOwnFouls?.suffered ?? null, activePlayerOwnFoulsLoading, 'text-neon')}
           </p>
         </div>
       )}

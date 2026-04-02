@@ -24,6 +24,12 @@ function getFoulCounts(
   details: CachedMatchDetails | undefined,
 ): { committed: number | null; suffered: number | null } | null {
   if (!details) return null;
+  if (details.officialStatsStatus === 'loaded') {
+    return {
+      committed: typeof details.officialStats?.fouls === 'number' ? details.officialStats.fouls : 0,
+      suffered: typeof details.officialStats?.wasFouled === 'number' ? details.officialStats.wasFouled : 0,
+    };
+  }
   const committed = details.officialStats?.fouls;
   const suffered = details.officialStats?.wasFouled;
   if (typeof committed !== 'number' && typeof suffered !== 'number') return null;
@@ -31,6 +37,10 @@ function getFoulCounts(
     committed: typeof committed === 'number' ? committed : null,
     suffered: typeof suffered === 'number' ? suffered : null,
   };
+}
+
+function renderCount(value: number | null) {
+  return value != null ? value : '—';
 }
 
 export default function MatchTimeline({
@@ -153,19 +163,19 @@ export default function MatchTimeline({
                       {showCommitted && showSuffered ? (
                         <>
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
-                            {counts.committed ?? '—'}
+                            {renderCount(counts.committed)}
                           </span>
                           <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
-                            {counts.suffered ?? '—'}
+                            {renderCount(counts.suffered)}
                           </span>
                         </>
                       ) : showCommitted ? (
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
-                          {counts.committed ?? '—'}
+                          {renderCount(counts.committed)}
                         </span>
                       ) : showSuffered ? (
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
-                          {counts.suffered ?? '—'}
+                          {renderCount(counts.suffered)}
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">

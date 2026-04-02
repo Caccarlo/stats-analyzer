@@ -160,7 +160,7 @@ export default function PlayerFilters({
         </div>
         <div>
           <label className="text-text-muted text-xs mb-2 block">Periodo:</label>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-start gap-2">
             <select
               value={periodValue}
               onChange={(e) => handlePeriodChange(e.target.value)}

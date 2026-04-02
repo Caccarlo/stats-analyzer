@@ -3,6 +3,7 @@ import type {
   Season,
   TournamentSeason,
   PlayerSeasonStats,
+  NationalTeamStat,
   PlayerMatchStatistics,
   PlayerEventIncidents,
   MatchEvent,
@@ -129,6 +130,17 @@ export async function getPlayerSeasons(playerId: number): Promise<TournamentSeas
     `player/${playerId}/statistics/seasons`
   );
   return data.uniqueTournamentSeasons ?? [];
+}
+
+export async function getPlayerNationalStats(playerId: number): Promise<NationalTeamStat[]> {
+  try {
+    const data = await apiFetch<{ statistics?: NationalTeamStat[] }>(
+      `player/${playerId}/national-team-statistics`
+    );
+    return [...(data.statistics ?? [])].sort((a, b) => a.debutTimestamp - b.debutTimestamp);
+  } catch {
+    return [];
+  }
 }
 
 export async function getPlayerSeasonStats(

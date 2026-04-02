@@ -136,6 +136,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 | `event/{id}/player/{id}/statistics` | Official player match stats | useMatchDetails, useMatchTimeline |
 | `event/{id}/average-positions` | Average positions | MatchCard |
 | `player/{id}` | Player info, including current team | PlayerPage |
+| `player/{id}/national-team-statistics` | Player national-team history | PlayerPage |
 | `player/{id}/statistics/seasons` | Player tournament/season list | usePlayerData |
 | `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Aggregated season stats | usePlayerData, MatchCard |
 | `player/{id}/events/last/{page}` | Match history plus statistics/incidents/onBench seeds | useMatchTimeline |
@@ -202,6 +203,7 @@ Other current behavior:
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
 - In timeline cards, foul badges show `0` when official stats loaded a real zero, and `-` only when the foul value is still unavailable after loading.
 - In `MatchCard`, the mini foul counters beside the field/heatmap show a spinner while the selected comparison player is still loading, then show either a real number (including `0`) or `-` when the stat is unavailable.
+- `PlayerPage` derives season club badges from `allEvents` plus progressively-loaded `playerSide` lineup data, so season logos in the period dropdown can appear incrementally as lineups finish loading.
 
 ## Filters
 
@@ -216,9 +218,15 @@ Additional rules:
 ### Periodo
 
 - Lives in `usePlayerData` as `selectedPeriod`.
-- Renders grouped options: `Ultime N` first, then season years.
+- Renders as a custom dropdown: `Ultime N` first, then season years.
+- Season options can show up to two club logos derived from loaded match lineups for that year; when lineup data is unavailable, the year remains text-only.
 - The `Titolare` toggle is rendered below the period select, not inline to its right.
 - Changing period resets venue/show/cards/starter toggles in PlayerPage.
+
+### Player Header
+
+- `PlayerHeader` can show the current club badge plus up to two national-team badges in debut order.
+- National-team data comes from `player/{id}/national-team-statistics`; if missing, the header falls back to the existing club-only layout.
 
 ### Competizioni
 

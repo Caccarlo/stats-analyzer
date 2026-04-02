@@ -1,4 +1,6 @@
-import type { TournamentSeason } from '@/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { getTeamImageUrl } from '@/api/sofascore';
+import type { TournamentSeason, Team } from '@/types';
 import type { SelectedPeriod } from '@/hooks/usePlayerData';
 
 const LAST_N_OPTIONS: Array<5 | 10 | 15 | 20 | 30> = [5, 10, 15, 20, 30];
@@ -7,6 +9,7 @@ interface PlayerFiltersProps {
   tournamentSeasons: TournamentSeason[];
   availableSeasonYears: string[];
   selectedPeriod: SelectedPeriod;
+  seasonClubMap: Map<string, Team[]>;
   onPeriodChange: (p: SelectedPeriod) => void;
   selectedTournaments: { tournamentId: number; tournamentName: string }[];
   onToggleTournament: (tournamentId: number) => void;
@@ -31,9 +34,31 @@ interface PlayerFiltersProps {
   isSplitView?: boolean;
 }
 
+function SeasonClubLogos({ teams }: { teams: Team[] | undefined }) {
+  if (!teams || teams.length === 0) return null;
+
+  return (
+    <span className="flex items-center gap-1 shrink-0">
+      {teams.slice(0, 2).map((team, index) => (
+        <span key={team.id} className="flex items-center gap-1">
+          {index > 0 && <span className="text-text-muted">/</span>}
+          <img
+            src={getTeamImageUrl(team.id)}
+            alt=""
+            title={team.name}
+            className="w-4 h-4 object-contain rounded-sm border border-border"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export default function PlayerFilters({
   availableSeasonYears,
   selectedPeriod,
+  seasonClubMap,
   onPeriodChange,
   selectedTournaments,
   onToggleTournament,
@@ -57,22 +82,41 @@ export default function PlayerFilters({
   allTournamentsForSeason,
   isSplitView = false,
 }: PlayerFiltersProps) {
+  const [periodOpen, setPeriodOpen] = useState(false);
   const selectedIds = new Set(selectedTournaments.map((t) => t.tournamentId));
+  const periodRef = useRef<HTMLDivElement>(null);
 
-  // Serialize SelectedPeriod to/from a string for the HTML <select>
-  const periodValue =
-    selectedPeriod.type === 'last'
-      ? `last:${selectedPeriod.count}`
-      : `season:${selectedPeriod.year}`;
+  const periodLabel = useMemo(
+    () => (
+      selectedPeriod.type === 'last'
+        ? `Ultime ${selectedPeriod.count}`
+        : selectedPeriod.year
+    ),
+    [selectedPeriod],
+  );
 
-  const handlePeriodChange = (value: string) => {
-    if (value.startsWith('last:')) {
-      const count = parseInt(value.split(':')[1]) as 5 | 10 | 15 | 20 | 30;
-      onPeriodChange({ type: 'last', count });
-    } else {
-      const year = value.replace('season:', '');
-      onPeriodChange({ type: 'season', year });
-    }
+  const selectedSeasonTeams = useMemo(
+    () => (
+      selectedPeriod.type === 'season'
+        ? seasonClubMap.get(selectedPeriod.year)
+        : undefined
+    ),
+    [selectedPeriod, seasonClubMap],
+  );
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (periodRef.current && !periodRef.current.contains(e.target as Node)) {
+        setPeriodOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handlePeriodSelect = (period: SelectedPeriod) => {
+    onPeriodChange(period);
+    setPeriodOpen(false);
   };
 
   const handleToggleTournament = (tournamentId: number) => {
@@ -108,7 +152,6 @@ export default function PlayerFilters({
 
   return (
     <div className={`grid grid-cols-3 gap-6 ${isSplitView ? 'w-full' : 'w-1/2'}`}>
-      {/* Colonna 1 — Competizioni */}
       <div>
         <label className="text-text-muted text-xs mb-2 block">Competizioni:</label>
         <div className="flex flex-col gap-2 items-start">
@@ -131,7 +174,6 @@ export default function PlayerFilters({
         </div>
       </div>
 
-      {/* Colonna 2 — Sede + Periodo */}
       <div className="flex flex-col gap-4">
         <div>
           <label className="text-text-muted text-xs mb-2 block">Sede:</label>
@@ -158,31 +200,77 @@ export default function PlayerFilters({
             </button>
           </div>
         </div>
+
         <div>
           <label className="text-text-muted text-xs mb-2 block">Periodo:</label>
           <div className="flex flex-col items-start gap-2">
-            <select
-              value={periodValue}
-              onChange={(e) => handlePeriodChange(e.target.value)}
-              className="w-fit bg-surface border border-border rounded-lg px-2 py-1 text-xs text-text-primary focus:outline-none focus:border-neon"
-            >
-              <optgroup label="Ultime partite">
-                {LAST_N_OPTIONS.map((n) => (
-                  <option key={n} value={`last:${n}`}>
-                    Ultime {n}
-                  </option>
-                ))}
-              </optgroup>
-              {availableSeasonYears.length > 0 && (
-                <optgroup label="Stagione">
-                  {availableSeasonYears.map((year) => (
-                    <option key={year} value={`season:${year}`}>
-                      {year}
-                    </option>
-                  ))}
-                </optgroup>
+            <div ref={periodRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setPeriodOpen((prev) => !prev)}
+                className={`min-w-36 bg-surface border rounded-lg px-2 py-1 text-xs transition-colors text-left flex items-center justify-between gap-3 ${
+                  periodOpen ? 'border-neon text-text-primary' : 'border-border text-text-primary'
+                }`}
+              >
+                <span className="flex items-center justify-between gap-3 min-w-0 flex-1">
+                  <span className="truncate">{periodLabel}</span>
+                  <SeasonClubLogos teams={selectedSeasonTeams} />
+                </span>
+                <span className={`text-text-muted transition-transform shrink-0 ${periodOpen ? 'rotate-180' : ''}`}>
+                  v
+                </span>
+              </button>
+
+              {periodOpen && (
+                <div className="absolute top-full left-0 mt-1 min-w-52 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+                  <div className="py-1">
+                    {LAST_N_OPTIONS.map((n) => {
+                      const active = selectedPeriod.type === 'last' && selectedPeriod.count === n;
+                      return (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => handlePeriodSelect({ type: 'last', count: n })}
+                          className={`w-full px-3 py-2 text-xs text-left transition-colors ${
+                            active
+                              ? 'text-neon bg-neon/10'
+                              : 'text-text-primary hover:bg-bg'
+                          }`}
+                        >
+                          Ultime {n}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {availableSeasonYears.length > 0 && (
+                    <>
+                      <div className="h-px bg-border mx-2" />
+                      <div className="py-1">
+                        {availableSeasonYears.map((year) => {
+                          const active = selectedPeriod.type === 'season' && selectedPeriod.year === year;
+                          return (
+                            <button
+                              key={year}
+                              type="button"
+                              onClick={() => handlePeriodSelect({ type: 'season', year })}
+                              className={`w-full px-3 py-2 text-xs transition-colors text-left ${
+                                active
+                                  ? 'text-neon bg-neon/10'
+                                  : 'text-text-primary hover:bg-bg'
+                              }`}
+                            >
+                              <span>{year}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
-            </select>
+            </div>
+
             <button
               type="button"
               disabled={!startersFilterEnabled}
@@ -206,7 +294,6 @@ export default function PlayerFilters({
         </div>
       </div>
 
-      {/* Colonna 3 — Mostra */}
       <div>
         <label className="text-text-muted text-xs mb-2 block">Mostra:</label>
         <div className="flex flex-col gap-2 items-start">
@@ -236,6 +323,7 @@ export default function PlayerFilters({
               ))}
             </select>
           </div>
+
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => handleToggleShow(1)}
@@ -262,6 +350,7 @@ export default function PlayerFilters({
               ))}
             </select>
           </div>
+
           <button
             onClick={() => handleToggleShow(2)}
             className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${

@@ -4,8 +4,8 @@ import type { SelectedPeriod } from '@/hooks/usePlayerData';
 import { useMatchTimeline } from '@/hooks/useMatchTimeline';
 import { useSplitCardSync } from '@/hooks/useSplitCardSync';
 import { useNavigation } from '@/context/NavigationContext';
-import { getPlayerInfo } from '@/api/sofascore';
-import type { Player, PlayerFilterState } from '@/types';
+import { getPlayerInfo, getPlayerNationalStats } from '@/api/sofascore';
+import type { Player, PlayerFilterState, NationalTeamStat, Team } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
@@ -14,6 +14,12 @@ import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
 
 const AUTO_SELECTED_MATCH_COUNT = 3;
+
+function getTeamIdentityKey(team: Team): string {
+  if (team.nameCode) return `code:${team.nameCode.toLowerCase()}`;
+  if (team.shortName) return `short:${team.shortName.toLowerCase()}`;
+  return `name:${team.name.toLowerCase()}`;
+}
 
 function getCommittedCount(details: CachedMatchDetails | undefined): number | null {
   const value = details?.officialStats?.fouls;
@@ -58,6 +64,7 @@ interface PlayerPageProps {
 export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: PlayerPageProps) {
   const { state, navigateTo, updatePanelFilters } = useNavigation();
   const [resolvedPlayer, setResolvedPlayer] = useState<Player | undefined>(playerData);
+  const [nationalStats, setNationalStats] = useState<NationalTeamStat[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +75,15 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       if (info.team && panel?.teamId !== info.team.id) {
         navigateTo(panelIndex, 'player', { teamId: info.team.id, teamName: info.team.name });
       }
+    });
+    return () => { cancelled = true; };
+  }, [playerId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getPlayerNationalStats(playerId).then((stats) => {
+      if (cancelled) return;
+      setNationalStats(stats);
     });
     return () => { cancelled = true; };
   }, [playerId]);
@@ -156,6 +172,41 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       })
       .slice(0, selectedPeriod.count);
   }, [selectedPeriod, allEvents, detailsMap]);
+
+  const seasonClubMap = useMemo(() => {
+    const seasonsToTeams = new Map<string, Team[]>();
+    const sortedEvents = [...allEvents].sort((a, b) => a.startTimestamp - b.startTimestamp);
+    const currentTeamId = resolvedPlayer?.team?.id;
+
+    for (const event of sortedEvents) {
+      const year = event.season?.year;
+      if (!year) continue;
+
+      const playerSide = detailsMap.get(event.id)?.playerSide;
+      let playerTeam: Team | undefined;
+
+      if (playerSide === 'home') {
+        playerTeam = event.homeTeam;
+      } else if (playerSide === 'away') {
+        playerTeam = event.awayTeam;
+      } else if (currentTeamId && event.homeTeam.id === currentTeamId) {
+        playerTeam = event.homeTeam;
+      } else if (currentTeamId && event.awayTeam.id === currentTeamId) {
+        playerTeam = event.awayTeam;
+      }
+
+      if (!playerTeam || playerTeam.national) continue;
+
+      const seasonTeams = seasonsToTeams.get(year) ?? [];
+      const playerTeamKey = getTeamIdentityKey(playerTeam);
+      if (!seasonTeams.some((team) => getTeamIdentityKey(team) === playerTeamKey)) {
+        seasonTeams.push(playerTeam);
+      }
+      seasonsToTeams.set(year, seasonTeams.slice(0, 2));
+    }
+
+    return seasonsToTeams;
+  }, [allEvents, detailsMap, resolvedPlayer?.team?.id]);
 
   // Tournament list for the filter UI:
   // 'last' mode → unique tournaments extracted from the current last-N valid matches
@@ -459,7 +510,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     <div className="min-w-0">
       {/* Header */}
       <div className="pb-4 border-b border-border">
-        <PlayerHeader player={displayPlayer} />
+        <PlayerHeader player={displayPlayer} nationalStats={nationalStats} />
       </div>
 
       {/* Filtri */}
@@ -469,6 +520,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             tournamentSeasons={tournamentSeasons}
             availableSeasonYears={availableSeasonYears}
             selectedPeriod={selectedPeriod}
+            seasonClubMap={seasonClubMap}
             onPeriodChange={handlePeriodChange}
             selectedTournaments={activeFilterTournaments}
             onToggleTournament={toggleTournament}

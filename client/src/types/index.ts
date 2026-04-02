@@ -18,6 +18,7 @@ export interface Team {
   slug: string;
   shortName?: string;
   nameCode?: string;
+  national?: boolean;
 }
 
 export interface Tournament {
@@ -57,6 +58,12 @@ export interface PlayerSeasonStats {
   yellowCards: number;
   redCards: number;
   rating: number;
+}
+
+export interface NationalTeamStat {
+  team: Team;
+  appearances: number;
+  debutTimestamp: number;
 }
 
 export interface PlayerMatchStatistics {

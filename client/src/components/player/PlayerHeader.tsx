@@ -19,7 +19,7 @@ function TeamBadge({ teamId, teamName }: { teamId: number; teamName: string }) {
       src={getTeamImageUrl(teamId)}
       alt=""
       title={teamName}
-      className="w-5 h-5 object-contain rounded-sm border border-border"
+      className="w-5 h-5 object-contain"
       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
     />
   );

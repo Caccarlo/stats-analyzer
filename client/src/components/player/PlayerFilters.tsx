@@ -46,7 +46,7 @@ function SeasonClubLogos({ teams }: { teams: Team[] | undefined }) {
             src={getTeamImageUrl(team.id)}
             alt=""
             title={team.name}
-            className="w-4 h-4 object-contain rounded-sm border border-border"
+            className="w-[18px] h-[18px] object-contain"
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
         </span>

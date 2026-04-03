@@ -109,6 +109,7 @@ home -> leagues -> teams -> team -> player
 - `OPEN_SPLIT`
 - `CLOSE_SPLIT`
 - `SWAP_SPLIT_AND_OPEN`
+- `UPDATE_PANEL_FILTERS`
 - `RESET`
 
 ### Split View Rules
@@ -190,7 +191,7 @@ After `events/last` returns the event list plus seeds, `useMatchTimeline` runs t
 1. officialStats for all matches, batch size 8, delay 100ms between batches
 2. lineups for all matches, batch size 5, delay 150ms between batches
 
-Rich comments are not loaded automatically. They are loaded on-demand only through `requestRichDetails(eventId)` when the user opens a specific match card.
+Rich comments are not loaded automatically. They are loaded on-demand only through `requestRichDetails(eventId)` when a selected `MatchCard` is rendered with `commentsStatus === 'idle'`.
 
 Other current behavior:
 
@@ -201,9 +202,12 @@ Other current behavior:
 - Queue effects exit immediately when their corresponding `all*Loaded` flag is already true, and artificial inter-batch delays are skipped when the whole batch was cache hits.
 - PlayerPage shows a section loader while `loadingEvents || !allOfficialStatsLoaded || !allLineupsLoaded`.
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
+- `PlayerPage` auto-selects the first visible timeline matches when the selection context changes: 3 cards on desktop, 1 card on mobile, with per-match overrides plus select-all / deselect-all controls layered on top.
 - In timeline cards, foul badges show `0` when official stats loaded a real zero, and `-` only when the foul value is still unavailable after loading.
 - In `MatchCard`, the mini foul counters beside the field/heatmap show a spinner while the selected comparison player is still loading, then show either a real number (including `0`) or `-` when the stat is unavailable.
 - In `MatchCard`, aggregated season averages for the selected comparison player are cached in a module-level in-memory LRU map keyed by `{activePlayerId, selectedTournamentsKey}` (with in-flight dedupe and cached `unavailable` outcomes), so reopening the same player+tournaments context reuses data immediately without spinner.
+- In `MatchCard`, clicking a fouled/fouling player, a player dot on the field map, or the active-player name switches `activePlayerId` locally, updating the heatmap plus contextual season/match foul stats for that player.
+- In `MatchCard`, clicking the opponent team or a linked player can open or swap the opposite split panel on desktop; on mobile it navigates in-place.
 - `PlayerPage` derives season club badges from `allEvents` plus progressively-loaded `playerSide` lineup data, so season logos in the period dropdown can appear incrementally as lineups finish loading.
 
 ## Filters
@@ -214,6 +218,7 @@ All user-set filter values (`selectedPeriod`, `enabledTournaments`, `showCommitt
 
 Additional rules:
 - `SET_VIEW` clears `filterState` when `playerId` changes, so navigating to a different player always starts from defaults.
+- `UPDATE_PANEL_FILTERS` is the reducer action that writes the latest player-filter state back into the owning panel.
 - The tournament auto-enable effect in `usePlayerData` skips execution while `tournamentSeasons` is still empty (preventing it from overwriting restored state before the API responds), and also skips on the very first load if saved `enabledTournaments` are present.
 
 ### Periodo

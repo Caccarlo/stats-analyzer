@@ -8,6 +8,7 @@ import {
   getPlayerImageUrl,
 } from '@/api/sofascore';
 import { getFormationPositions } from '@/utils/positionMapping';
+import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import { COUNTRIES } from '@/components/navigation/CountryList';
 import type { Player, MatchEvent, LineupPlayer } from '@/types';
 
@@ -96,6 +97,7 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
   const opponent = nextEvent
     ? (isHome ? nextEvent.awayTeam : nextEvent.homeTeam)
     : null;
+  const roundLabel = nextEvent ? getMatchRoundLabel(nextEvent.roundInfo, 'full') : null;
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
@@ -197,8 +199,8 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
           {nextEvent.tournament && (
             <span> · {nextEvent.tournament.name}</span>
           )}
-          {nextEvent.roundInfo && (
-            <span> G.{nextEvent.roundInfo.round}</span>
+          {roundLabel && (
+            <span> {roundLabel}</span>
           )}
           {formation && (
             <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded bg-neon/15 text-neon text-xs font-medium">

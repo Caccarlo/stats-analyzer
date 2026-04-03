@@ -5,6 +5,7 @@ import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import { getPlayerSeasonStats, getMatchAveragePositions, getTeamImageUrl } from '@/api/sofascore';
 import { COUNTRIES } from '@/components/navigation/CountryList';
+import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
 
@@ -721,6 +722,7 @@ export default function MatchCard({
       )}
     </div>
   );
+  const roundLabel = getMatchRoundLabel(event.roundInfo, 'full');
 
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col">
@@ -728,7 +730,7 @@ export default function MatchCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <span>{event.tournament?.name}</span>
-            {event.roundInfo && <span>G.{event.roundInfo.round}</span>}
+            {roundLabel && <span>{roundLabel}</span>}
             <span>· {dateStr}</span>
           </div>
           <div className="text-text-primary font-medium mt-0.5 flex items-center gap-2 flex-wrap">

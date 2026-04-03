@@ -142,7 +142,11 @@ export interface MatchEvent {
     uniqueTournament: Tournament;
   };
   season: Season;
-  roundInfo?: { round: number };
+  roundInfo?: {
+    round: number;
+    name?: string;
+    slug?: string;
+  };
   homeTeam: Team;
   awayTeam: Team;
   homeScore: MatchScore;

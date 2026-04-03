@@ -16,6 +16,14 @@ function translateZone(text: string): string {
   return '';
 }
 
+function invertZone(zone: string): string {
+  if (zone === 'propria metà') return 'metà avversaria';
+  if (zone === 'metà avversaria') return 'propria metà';
+  if (zone === 'fascia sinistra') return 'fascia destra';
+  if (zone === 'fascia destra') return 'fascia sinistra';
+  return zone;
+}
+
 function extractMinute(text: string, fallbackTime?: number): number | undefined {
   const match = text.match(/(\d+)'/);
   if (match) return parseInt(match[1], 10);
@@ -56,11 +64,12 @@ export function extractFoulsForPlayer(
         zoneText = next.text;
       }
 
+      const committedZone = invertZone(translateZone(zoneText || comment.text));
       results.push({
         type: 'committed',
         minute: extractMinute(comment.text, comment.time),
         playerFouled: victim ?? undefined,
-        zoneText: translateZone(zoneText || comment.text),
+        zoneText: committedZone,
         rawText: comment.text,
       });
     }

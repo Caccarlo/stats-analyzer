@@ -2,6 +2,7 @@ import { getTeamImageUrl } from '@/api/sofascore';
 import type { MatchDurationMetadata, MatchEvent, Team } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { getPlayerMatchIsHome } from '@/utils/playerMatchVenue';
+import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 
 interface MatchTimelineProps {
   events: MatchEvent[];
@@ -131,7 +132,7 @@ function getPlayedSegment(
 
   return {
     startPct: 0,
-    endPct: (clampMinute(minutesPlayed, matchDuration) / matchDuration) * 100,
+    endPct: 100,
   };
 }
 
@@ -175,17 +176,61 @@ function OpponentCrest({ team }: { team: Team }) {
   );
 }
 
-function VenueBadge({ isHome }: { isHome: boolean | null }) {
+function abbreviateTournamentName(name: string): string {
+  if (!name) return '';
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length === 1) return words[0].substring(0, 3).toUpperCase();
+  return words.map((word) => word[0]?.toUpperCase() ?? '').join('.');
+}
+
+function getCompactVenueMeta(event: MatchEvent): {
+  compactTournament: string | null;
+  roundLabel: string | null;
+} {
+  const tournamentName = event.tournament?.name?.trim();
+  const compactTournament = tournamentName
+    ? abbreviateTournamentName(tournamentName)
+    : null;
+  const roundLabel = getMatchRoundLabel(event.roundInfo, 'compact');
+
+  return {
+    compactTournament,
+    roundLabel,
+  };
+}
+
+function getVenueMetaLabel(event: MatchEvent): string | null {
+  const tournamentName = event.tournament?.name?.trim();
+  const roundLabel = getMatchRoundLabel(event.roundInfo, 'full');
+
+  if (tournamentName && roundLabel) return `${tournamentName} · ${roundLabel}`;
+  if (tournamentName) return tournamentName;
+  return roundLabel;
+}
+
+function VenueBadge({
+  isHome,
+  tournamentLabel,
+  roundLabel,
+  titleLabel,
+}: {
+  isHome: boolean | null;
+  tournamentLabel?: string | null;
+  roundLabel?: string | null;
+  titleLabel?: string | null;
+}) {
   if (isHome === null) return null;
 
   return (
     <div
-      className="absolute top-2 left-2 z-10 flex items-center justify-center text-text-secondary"
+      className="absolute top-1.5 left-1 right-8 z-10 flex items-center gap-1 text-text-secondary pointer-events-none"
       title={isHome ? 'Partita in casa' : 'Partita in trasferta'}
       aria-label={isHome ? 'Partita in casa' : 'Partita in trasferta'}
     >
+      <span className="flex h-[11px] w-[11px] flex-shrink-0 items-center justify-center">
       {isHome ? (
-        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <svg className="h-[11px] w-[11px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 11.5 12 4l9 7.5" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 10.5V20h11v-9.5" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M10 20v-5h4v5" />
@@ -193,6 +238,21 @@ function VenueBadge({ isHome }: { isHome: boolean | null }) {
       ) : (
         <span className="text-[11px] leading-none">✈</span>
       )}
+      </span>
+      {(tournamentLabel || roundLabel) ? (
+        <span className="flex min-w-0 items-center gap-1 text-[8px] font-medium leading-none" title={titleLabel ?? undefined}>
+          {tournamentLabel ? (
+            <span className="min-w-0 overflow-hidden whitespace-nowrap">
+              {tournamentLabel}
+            </span>
+          ) : null}
+          {roundLabel ? (
+            <span className="flex-shrink-0 whitespace-nowrap">
+              {roundLabel}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -255,6 +315,8 @@ export default function MatchTimeline({
             const isHome = getPlayerMatchIsHome(event, details, playerTeamId);
             const opponentTeam = isHome ? event.awayTeam : event.homeTeam;
             const scoreline = `${getTeamTag(event.homeTeam)} ${event.homeScore.current} - ${event.awayScore.current} ${getTeamTag(event.awayTeam)}`;
+            const venueMeta = getCompactVenueMeta(event);
+            const venueMetaTitle = getVenueMetaLabel(event);
 
             return (
               <button
@@ -275,7 +337,12 @@ export default function MatchTimeline({
                   />
                 )}
 
-                <VenueBadge isHome={isHome} />
+                <VenueBadge
+                  isHome={isHome}
+                  tournamentLabel={venueMeta.compactTournament}
+                  roundLabel={venueMeta.roundLabel}
+                  titleLabel={venueMetaTitle}
+                />
 
                 {playedMinutesLabel && (
                   <div className="absolute top-1.5 right-1.5 z-10 text-[8px] leading-none font-medium tabular-nums text-white/75 drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)] pointer-events-none">
@@ -315,7 +382,7 @@ export default function MatchTimeline({
                   </div>
                 )}
 
-                <div className="relative z-10 mt-2 mb-0.5">
+                <div className="relative z-10 mt-4 mb-0.5">
                   <OpponentCrest team={opponentTeam} />
                 </div>
                 <div className="relative z-10 text-[11px] leading-tight text-text-secondary font-medium whitespace-nowrap">

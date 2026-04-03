@@ -5,6 +5,7 @@ import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import { getPlayerSeasonStats, getMatchAveragePositions, getTeamImageUrl } from '@/api/sofascore';
 import { COUNTRIES } from '@/components/navigation/CountryList';
+import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
 
@@ -40,6 +41,9 @@ interface CachedAggregatedSeasonStats {
 const aggregatedSeasonStatsCache = new Map<string, CachedAggregatedSeasonStats>();
 const aggregatedSeasonStatsInFlight = new Map<string, Promise<CachedAggregatedSeasonStats>>();
 const MAX_AGGREGATED_SEASON_STATS_CACHE_ENTRIES = 300;
+const MIN_LANDSCAPE_LAYOUT_WIDTH = 620;
+const MIN_SIDE_STATS_LAYOUT_WIDTH = 620;
+const MIN_SIDE_STATS_EXTRA_CLEARANCE = 360;
 
 function normalizeSelectedTournaments(selectedTournaments: TournamentFilter[]): TournamentFilter[] {
   const deduped = new Map<string, TournamentFilter>();
@@ -210,10 +214,19 @@ export default function MatchCard({
   const [activePlayerSeasonStatsStatus, setActivePlayerSeasonStatsStatus] = useState<PlayerStatsStatus>('idle');
   const [activePlayerOwnFouls, setActivePlayerOwnFouls] = useState<{ committed: number; suffered: number } | null>(null);
   const [activePlayerOwnFoulsStatus, setActivePlayerOwnFoulsStatus] = useState<PlayerStatsStatus>('idle');
+  const [positionsSectionWidth, setPositionsSectionWidth] = useState(0);
+  const [rightColWidth, setRightColWidth] = useState(0);
   const [fieldWidth, setFieldWidth] = useState(0);
 
+  const positionsSectionRef = useRef<HTMLDivElement>(null);
+  const rightColRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const details = detailsMap.get(event.id);
+  const layoutMode: CardLayout = cardCount === 1 ? 'single' : cardCount === 2 ? 'double' : 'multi';
+  const useLandscapePositions =
+    layoutMode === 'single' && positionsSectionWidth >= MIN_LANDSCAPE_LAYOUT_WIDTH;
+  const singleCardOrientation = useLandscapePositions ? 'landscape' : 'portrait';
+  const fieldMaxWidthClass = useLandscapePositions ? 'max-w-[367px]' : 'max-w-[238px]';
 
   // Lazy fetch: se la card viene renderizzata e i dati rich non sono ancora stati caricati, li richiede ora
   useEffect(() => {
@@ -227,6 +240,16 @@ export default function MatchCard({
   }, [playerId]);
 
   useEffect(() => {
+    const el = positionsSectionRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      setPositionsSectionWidth(entries[0].contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [positions, layoutMode]);
+
+  useEffect(() => {
     const el = fieldRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
@@ -234,7 +257,17 @@ export default function MatchCard({
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [positions, layoutMode, singleCardOrientation]);
+
+  useEffect(() => {
+    const el = rightColRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      setRightColWidth(entries[0].contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [positions, layoutMode, singleCardOrientation]);
 
   useEffect(() => {
     if (!details) return;
@@ -314,7 +347,6 @@ export default function MatchCard({
   }, [involvedKey, playerId]);
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
-  const layoutMode: CardLayout = cardCount === 1 ? 'single' : cardCount === 2 ? 'double' : 'multi';
 
   const buildNavContext = () => {
     if (!event.tournament?.uniqueTournament) return undefined;
@@ -603,9 +635,12 @@ export default function MatchCard({
   const renderPositionsSection = () => {
     if (!positions) return null;
 
-    const leftCol = (portrait: boolean) => (
-      <div className="flex items-center justify-center">
-        <div ref={fieldRef} className={`w-full ${portrait ? 'max-w-[238px]' : 'max-w-[367px]'}`}>
+    const leftCol = (orientation: 'portrait' | 'landscape') => (
+      <div className="flex items-center justify-center h-full py-8">
+        <div
+          ref={fieldRef}
+          className={`w-full ${orientation === 'landscape' ? 'max-w-[367px]' : 'max-w-[238px]'}`}
+        >
           <FieldMap
             homePositions={positions.home}
             awayPositions={positions.away}
@@ -613,7 +648,7 @@ export default function MatchCard({
             activePlayerId={activePlayerId}
             involvedPlayerIds={involvedPlayerIds}
             onActivePlayerChange={setActivePlayerId}
-            orientation={portrait ? 'portrait' : 'landscape'}
+            orientation={orientation}
           />
         </div>
       </div>
@@ -622,22 +657,50 @@ export default function MatchCard({
     const rightCol = (orientation: 'portrait' | 'landscape', statCols: 1 | 2) => {
       const isLandscape = orientation === 'landscape';
       const effectiveHeatmapWidth = heatmapMaxWidth ?? (isLandscape ? 200 : 119);
+      const heatmapHeight = Math.round(effectiveHeatmapWidth * (isLandscape ? 68 / 105 : 105 / 68));
+      const heatmapHalfHeight = Math.round(heatmapHeight / 2);
+      const NAME_HEIGHT = 28;
+      const minimumSideStatsWidth = Math.max(
+        MIN_SIDE_STATS_LAYOUT_WIDTH,
+        effectiveHeatmapWidth + MIN_SIDE_STATS_EXTRA_CLEARANCE,
+      );
+      const useSideStatsLayout = !activePlayerIsMain && rightColWidth >= minimumSideStatsWidth;
 
       return (
-        <div className="relative flex items-center justify-center">
+        <div ref={rightColRef} className="relative flex items-center justify-center">
           <div className="absolute top-0 left-1/2 -translate-x-1/2">
             {playerNameRow}
           </div>
-          {!activePlayerIsMain && (
+          {!activePlayerIsMain && useSideStatsLayout && (
             <div className="absolute inset-0 flex items-center pointer-events-none">
-              <div className="flex-1 flex items-center justify-center pointer-events-auto">
+              <div className="flex-1 flex items-center justify-center pointer-events-auto min-w-0">
                 {renderStatBoxes(statCols)}
               </div>
               <div className="flex-shrink-0" style={{ width: effectiveHeatmapWidth }} />
-              <div className="flex-1 flex items-center justify-center pointer-events-auto">
+              <div className="flex-1 flex items-center justify-center pointer-events-auto min-w-0">
                 {renderMatchFoulCounts()}
               </div>
             </div>
+          )}
+          {!activePlayerIsMain && !useSideStatsLayout && (
+            <>
+              <div
+                className="absolute left-0 right-0 pointer-events-none flex items-center justify-center"
+                style={{ top: `${NAME_HEIGHT}px`, bottom: `calc(50% + ${heatmapHalfHeight}px)` }}
+              >
+                <div className="pointer-events-auto">
+                  {renderStatBoxes(2)}
+                </div>
+              </div>
+              <div
+                className="absolute left-0 right-0 pointer-events-none flex items-center justify-center"
+                style={{ top: `calc(50% + ${heatmapHalfHeight}px)`, bottom: 0 }}
+              >
+                <div className="pointer-events-auto">
+                  {renderMatchFoulCounts()}
+                </div>
+              </div>
+            </>
           )}
           <HeatmapField
             eventId={event.id}
@@ -652,17 +715,29 @@ export default function MatchCard({
 
     if (layoutMode === 'single') {
       return (
-        <div className="grid grid-cols-2 gap-3 mb-10 items-stretch pt-3">
-          {leftCol(false)}
-          {rightCol('landscape', 2)}
+        <div ref={positionsSectionRef} className="grid grid-cols-2 gap-3 mb-3 items-stretch pt-3">
+          <div className="flex items-center justify-center h-full py-8">
+            <div ref={fieldRef} className={`w-full ${fieldMaxWidthClass}`}>
+              <FieldMap
+                homePositions={positions.home}
+                awayPositions={positions.away}
+                selectedPlayerId={playerId}
+                activePlayerId={activePlayerId}
+                involvedPlayerIds={involvedPlayerIds}
+                onActivePlayerChange={setActivePlayerId}
+                orientation={singleCardOrientation}
+              />
+            </div>
+          </div>
+          {rightCol(singleCardOrientation, useLandscapePositions ? 2 : 1)}
         </div>
       );
     }
 
     if (layoutMode === 'double') {
       return (
-        <div className="grid grid-cols-2 gap-3 mb-14 items-stretch pt-3">
-          {leftCol(true)}
+        <div ref={positionsSectionRef} className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
+          {leftCol('portrait')}
           {rightCol('portrait', 1)}
         </div>
       );
@@ -672,9 +747,9 @@ export default function MatchCard({
     const multiHalfHeight = Math.round((multiHeatmapWidth * 105 / 68) / 2);
     const NAME_HEIGHT = 28;
     return (
-      <div className="grid grid-cols-2 gap-3 mb-14 items-stretch pt-3">
-        {leftCol(true)}
-        <div className="relative flex items-center justify-center">
+      <div ref={positionsSectionRef} className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
+        {leftCol('portrait')}
+        <div ref={rightColRef} className="relative flex items-center justify-center">
           <div className="absolute top-0 left-1/2 -translate-x-1/2">
             {playerNameRow}
           </div>
@@ -721,6 +796,7 @@ export default function MatchCard({
       )}
     </div>
   );
+  const roundLabel = getMatchRoundLabel(event.roundInfo, 'full');
 
   return (
     <div className="bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col">
@@ -728,7 +804,7 @@ export default function MatchCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <span>{event.tournament?.name}</span>
-            {event.roundInfo && <span>G.{event.roundInfo.round}</span>}
+            {roundLabel && <span>{roundLabel}</span>}
             <span>· {dateStr}</span>
           </div>
           <div className="text-text-primary font-medium mt-0.5 flex items-center gap-2 flex-wrap">

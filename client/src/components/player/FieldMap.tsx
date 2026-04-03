@@ -50,6 +50,11 @@ export default function FieldMap({
   const field = { width: FIELD_W, height: FIELD_H };
 
   if (orientation === 'landscape') {
+    const allDots = [
+      ...homeDots.map((p) => ({ p, pos: homeToScreenLandscape(p.averageX, p.averageY) })),
+      ...awayDots.map((p) => ({ p, pos: awayToScreenLandscape(p.averageX, p.averageY) })),
+    ].sort((a, b) => (a.p.player.id === activePlayerId ? 1 : 0) - (b.p.player.id === activePlayerId ? 1 : 0));
+
     return (
       <div className="w-full">
         <svg
@@ -69,44 +74,28 @@ export default function FieldMap({
           <rect x="875" y="138" width="165" height="404" fill="none" stroke="#2a5535" strokeWidth="2" />
           <rect x="985" y="218" width="55" height="244" fill="none" stroke="#2a5535" strokeWidth="2" />
 
-          {homeDots.map((p) => {
-            const pos = homeToScreenLandscape(p.averageX, p.averageY);
-            const isPagePlayer = p.player.id === selectedPlayerId;
-            const isHighlighted = p.player.id === activePlayerId;
-            return (
-              <PlayerDot
-                key={p.player.id}
-                x={pos.x}
-                y={pos.y}
-                number={p.player.jerseyNumber}
-                color={isPagePlayer ? '#4ade80' : '#e0e0e0'}
-                highlighted={isHighlighted}
-                onClick={() => onActivePlayerChange(p.player.id)}
-              />
-            );
-          })}
-          {awayDots.map((p) => {
-            const pos = awayToScreenLandscape(p.averageX, p.averageY);
-            const isPagePlayer = p.player.id === selectedPlayerId;
-            const isHighlighted = p.player.id === activePlayerId;
-            return (
-              <PlayerDot
-                key={p.player.id}
-                x={pos.x}
-                y={pos.y}
-                number={p.player.jerseyNumber}
-                color={isPagePlayer ? '#4ade80' : '#e0e0e0'}
-                highlighted={isHighlighted}
-                onClick={() => onActivePlayerChange(p.player.id)}
-              />
-            );
-          })}
+          {allDots.map(({ p, pos }) => (
+            <PlayerDot
+              key={p.player.id}
+              x={pos.x}
+              y={pos.y}
+              number={p.player.jerseyNumber}
+              color={p.player.id === selectedPlayerId ? '#4ade80' : '#e0e0e0'}
+              highlighted={p.player.id === activePlayerId}
+              onClick={() => onActivePlayerChange(p.player.id)}
+            />
+          ))}
         </svg>
       </div>
     );
   }
 
   // Portrait (default)
+  const allDots = [
+    ...homeDots.map((p) => ({ p, pos: homeToScreen(p.averageX, p.averageY, field) })),
+    ...awayDots.map((p) => ({ p, pos: awayToScreen(p.averageX, p.averageY, field) })),
+  ].sort((a, b) => (a.p.player.id === activePlayerId ? 1 : 0) - (b.p.player.id === activePlayerId ? 1 : 0));
+
   return (
     <div>
       <svg
@@ -123,38 +112,17 @@ export default function FieldMap({
         <rect x="138" y="875" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
         <rect x="218" y="985" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
 
-        {homeDots.map((p) => {
-          const pos = homeToScreen(p.averageX, p.averageY, field);
-          const isPagePlayer = p.player.id === selectedPlayerId;
-          const isHighlighted = p.player.id === activePlayerId;
-          return (
-            <PlayerDot
-              key={p.player.id}
-              x={pos.x}
-              y={pos.y}
-              number={p.player.jerseyNumber}
-              color={isPagePlayer ? '#4ade80' : '#e0e0e0'}
-              highlighted={isHighlighted}
-              onClick={() => onActivePlayerChange(p.player.id)}
-            />
-          );
-        })}
-        {awayDots.map((p) => {
-          const pos = awayToScreen(p.averageX, p.averageY, field);
-          const isPagePlayer = p.player.id === selectedPlayerId;
-          const isHighlighted = p.player.id === activePlayerId;
-          return (
-            <PlayerDot
-              key={p.player.id}
-              x={pos.x}
-              y={pos.y}
-              number={p.player.jerseyNumber}
-              color={isPagePlayer ? '#4ade80' : '#e0e0e0'}
-              highlighted={isHighlighted}
-              onClick={() => onActivePlayerChange(p.player.id)}
-            />
-          );
-        })}
+        {allDots.map(({ p, pos }) => (
+          <PlayerDot
+            key={p.player.id}
+            x={pos.x}
+            y={pos.y}
+            number={p.player.jerseyNumber}
+            color={p.player.id === selectedPlayerId ? '#4ade80' : '#e0e0e0'}
+            highlighted={p.player.id === activePlayerId}
+            onClick={() => onActivePlayerChange(p.player.id)}
+          />
+        ))}
       </svg>
     </div>
   );

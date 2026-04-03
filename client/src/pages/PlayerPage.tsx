@@ -156,6 +156,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   const {
     allEvents,
     detailsMap,
+    eventDurationMetadataMap,
     detailsLoadedIds,
     loadingEvents,
     allOfficialStatsLoaded,
@@ -597,6 +598,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                 events={displayEvents}
                 selectedEventIds={selectedEventIds}
                 detailsMap={detailsMap}
+                eventDurationMetadataMap={eventDurationMetadataMap}
                 detailsLoadedIds={detailsLoadedIds}
                 showCommitted={showCommitted}
                 showSuffered={showSuffered}

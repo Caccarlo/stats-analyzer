@@ -133,6 +133,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 | `unique-tournament/{id}/season/{id}/standings/total` | Teams from standings | TeamGrid |
 | `team/{id}/players` | Team roster | TeamView |
 | `team/{id}/events/next/0` | Next match | TeamView |
+| `event/{id}` | Match metadata (duration, score periods, venue/referee details) | useMatchTimeline |
 | `event/{id}/lineups` | Formation + players | TeamView, useMatchDetails |
 | `event/{id}/comments` | Match chronicle and foul narrative | useMatchDetails |
 | `event/{id}/player/{id}/statistics` | Official player match stats | useMatchDetails, useMatchTimeline |
@@ -187,12 +188,14 @@ Matches marked `didNotPlay` are removed from PlayerPage display and statistics.
 
 ## Current Loading Model
 
-After `events/last` returns the event list plus seeds, `useMatchTimeline` runs two queues:
+After `events/last` returns the event list plus seeds, `useMatchTimeline` runs four queues:
 
 1. officialStats for all matches, batch size 8, delay 100ms between batches
-2. lineups for all matches, batch size 5, delay 150ms between batches
+2. match duration metadata from `event/{id}` for all matches, batch size 10, delay 50ms between batches; this queue is non-blocking and never holds the PlayerPage section loader open
+3. substitution timing extraction from `event/{id}/comments` for all matches, batch size 8, delay 75ms between batches; this queue reuses the comments cache but only patches `substituteInMinute` / `substituteOutMinute` for timeline positioning
+4. lineups for all matches, batch size 5, delay 150ms between batches
 
-Rich comments are not loaded automatically. They are loaded on-demand only through `requestRichDetails(eventId)` when a selected `MatchCard` is rendered with `commentsStatus === 'idle'`.
+Rich comments for foul narrative are not loaded automatically into `detailsMap`. `MatchCard` still promotes them on-demand through `requestRichDetails(eventId)` when rendered with `commentsStatus === 'idle'`, while `useMatchTimeline` may prefetch raw comments only to extract substitution timing and populate the shared comments cache.
 
 Other current behavior:
 
@@ -205,7 +208,9 @@ Other current behavior:
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
 - `PlayerPage` auto-selects the first visible timeline matches when the selection context changes: 3 cards on desktop, 1 card on mobile, with per-match overrides plus select-all / deselect-all controls layered on top.
 - In timeline cards, foul badges show `0` when official stats loaded a real zero, and `-` only when the foul value is still unavailable after loading.
-- In timeline cards, the compact match UI shows a neutral home/away badge at top-left, any card icon at top-right, the opponent crest in the center, a compact scoreline row below it, and foul badges underneath.
+- In timeline cards, the compact match UI shows a neutral home/away badge at top-left, a tiny played-minutes label plus any card icon at top-right, the opponent crest in the center, a compact scoreline row below it, foul badges underneath, and a subtle background segment positioned on the match timeline according to `substituteInMinute`, `substituteOutMinute`, `minutesPlayed`, and `matchDuration`.
+- Timeline fill duration prefers `event/{id}` metadata (`defaultPeriodCount`, `defaultPeriodLength`, `defaultOvertimeLength`, `time.injuryTime*`) and falls back to 90 minutes if that metadata is still missing or unavailable.
+- For subentrati without a parsed substitution minute, timeline cards fall back to right-aligning the played segment using `minutesPlayed` once lineups confirm `isStarter === false`.
 - In `MatchCard`, the mini foul counters beside the field/heatmap show a spinner while the selected comparison player is still loading, then show either a real number (including `0`) or `-` when the stat is unavailable.
 - In `MatchCard`, the header shows the home-team crest before the home name and the away-team crest after the away name, matching the `PlayerHeader` team-badge size.
 - In `MatchCard`, aggregated season averages for the selected comparison player are cached in a module-level in-memory LRU map keyed by `{activePlayerId, selectedTournamentsKey}` (with in-flight dedupe and cached `unavailable` outcomes), so reopening the same player+tournaments context reuses data immediately without spinner.

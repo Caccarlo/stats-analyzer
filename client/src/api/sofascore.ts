@@ -7,6 +7,7 @@ import type {
   PlayerMatchStatistics,
   PlayerEventIncidents,
   MatchEvent,
+  MatchDurationMetadata,
   MatchComment,
   MatchLineups,
   PlayerPosition,
@@ -215,6 +216,27 @@ export async function getMatchLineups(eventId: number): Promise<MatchLineups | n
       `event/${eventId}/lineups`
     );
     return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function getMatchDurationMetadata(
+  eventId: number
+): Promise<MatchDurationMetadata | null> {
+  try {
+    const data = await apiFetch<{ event?: MatchDurationMetadata }>(
+      `event/${eventId}`
+    );
+    if (!data.event) return null;
+    return {
+      defaultPeriodCount: data.event.defaultPeriodCount,
+      defaultPeriodLength: data.event.defaultPeriodLength,
+      defaultOvertimeLength: data.event.defaultOvertimeLength,
+      time: data.event.time,
+      homeScore: data.event.homeScore,
+      awayScore: data.event.awayScore,
+    };
   } catch {
     return null;
   }

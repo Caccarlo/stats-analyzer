@@ -276,6 +276,33 @@ export async function fetchMatchLineupsOnly(
 
 // ── Fetch solo rich data: comments + derivati (fouls, cardInfo, subInfo) ──
 // Non tocca lineups né officialStats.
+export async function fetchMatchSubstitutionInfo(
+  eventId: number,
+  playerId: number,
+): Promise<{ substituteInMinute: number | undefined; substituteOutMinute: number | undefined }> {
+  let comments: MatchComment[];
+
+  if (matchCommentsCache.has(eventId)) {
+    comments = matchCommentsCache.get(eventId)!;
+  } else {
+    try {
+      comments = await getMatchComments(eventId);
+      matchCommentsCache.set(eventId, comments);
+    } catch {
+      return {
+        substituteInMinute: undefined,
+        substituteOutMinute: undefined,
+      };
+    }
+  }
+
+  const subInfo = extractSubstitutionInfo(comments, playerId);
+  return {
+    substituteInMinute: subInfo.inMinute,
+    substituteOutMinute: subInfo.outMinute,
+  };
+}
+
 export async function fetchMatchRichData(
   eventId: number,
   playerId: number,

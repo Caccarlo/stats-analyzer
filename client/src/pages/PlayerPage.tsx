@@ -615,6 +615,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                 onToggleMatch={toggleMatch}
                 toggleMode={toggleMode}
                 onToggleAll={handleToggleAll}
+                playerTeamId={resolvedPlayer?.team?.id}
               />
 
               {selectedEvents.length > 0 && (

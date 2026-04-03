@@ -1,4 +1,5 @@
-import type { MatchEvent } from '@/types';
+import { getTeamImageUrl } from '@/api/sofascore';
+import type { MatchEvent, Team } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 
 interface MatchTimelineProps {
@@ -11,13 +12,7 @@ interface MatchTimelineProps {
   onToggleMatch: (eventId: number) => void;
   toggleMode: 'select' | 'deselect';
   onToggleAll: () => void;
-}
-
-function abbreviateTournament(name: string): string {
-  if (!name) return '';
-  const words = name.split(/\s+/);
-  if (words.length === 1) return words[0].substring(0, 3).toUpperCase();
-  return words.map((w) => w[0]?.toUpperCase() ?? '').join('.');
+  playerTeamId?: number;
 }
 
 function getFoulCounts(
@@ -43,6 +38,45 @@ function renderCount(value: number | null) {
   return value != null ? value : '—';
 }
 
+function getTeamTag(team: Team): string {
+  return team.nameCode ?? team.shortName ?? team.name;
+}
+
+function OpponentCrest({ team }: { team: Team }) {
+  return (
+    <div className="flex items-center justify-center min-h-[30px]">
+      <img
+        src={getTeamImageUrl(team.id)}
+        alt={team.name}
+        className="w-[18px] h-[18px] object-contain"
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.display = 'none';
+        }}
+      />
+    </div>
+  );
+}
+
+function VenueBadge({ isHome }: { isHome: boolean }) {
+  return (
+    <div
+      className="absolute top-2 left-2 flex items-center justify-center text-text-secondary"
+      title={isHome ? 'Partita in casa' : 'Partita in trasferta'}
+      aria-label={isHome ? 'Partita in casa' : 'Partita in trasferta'}
+    >
+      {isHome ? (
+        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 11.5 12 4l9 7.5" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 10.5V20h11v-9.5" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M10 20v-5h4v5" />
+        </svg>
+      ) : (
+        <span className="text-[11px] leading-none">✈</span>
+      )}
+    </div>
+  );
+}
+
 export default function MatchTimeline({
   events,
   selectedEventIds,
@@ -53,6 +87,7 @@ export default function MatchTimeline({
   onToggleMatch,
   toggleMode,
   onToggleAll,
+  playerTeamId,
 }: MatchTimelineProps) {
   if (events.length === 0) return null;
 
@@ -92,11 +127,9 @@ export default function MatchTimeline({
             const isLoaded = detailsLoadedIds.has(event.id);
             const counts = getFoulCounts(details);
             const cardInfo = details?.cardInfo ?? null;
-
-            const homeCode = event.homeTeam.nameCode ?? event.homeTeam.shortName ?? event.homeTeam.name.substring(0, 3).toUpperCase();
-            const awayCode = event.awayTeam.nameCode ?? event.awayTeam.shortName ?? event.awayTeam.name.substring(0, 3).toUpperCase();
-            const tournamentAbbr = abbreviateTournament(event.tournament?.uniqueTournament?.name ?? event.tournament?.name ?? '');
-            const round = event.roundInfo?.round;
+            const isHome = playerTeamId != null ? event.homeTeam.id === playerTeamId : false;
+            const opponentTeam = isHome ? event.awayTeam : event.homeTeam;
+            const scoreline = `${getTeamTag(event.homeTeam)} ${event.homeScore.current} - ${event.awayScore.current} ${getTeamTag(event.awayTeam)}`;
 
             return (
               <button
@@ -108,48 +141,46 @@ export default function MatchTimeline({
                     : 'border-border bg-surface hover:bg-surface-hover'
                 }`}
               >
+                <VenueBadge isHome={isHome} />
+
                 {/* Cartellino in alto a destra */}
                 {cardInfo && (
                   <div className="absolute top-1.5 right-1.5">
                     {cardInfo.type === 'yellow' && (
                       <div
                         className="rounded-sm"
-                        style={{ width: '10px', height: '14px', backgroundColor: '#facc15' }}
+                        style={{ width: '9px', height: '12px', backgroundColor: '#facc15' }}
                         title="Cartellino giallo"
                       />
                     )}
                     {cardInfo.type === 'red' && (
                       <div
                         className="rounded-sm"
-                        style={{ width: '10px', height: '14px', backgroundColor: '#ef4444' }}
+                        style={{ width: '9px', height: '12px', backgroundColor: '#ef4444' }}
                         title="Cartellino rosso"
                       />
                     )}
                     {cardInfo.type === 'yellowRed' && (
-                      <div className="relative" style={{ width: '16px', height: '16px' }} title="Doppio cartellino">
+                      <div className="relative" style={{ width: '14px', height: '14px' }} title="Doppio cartellino">
                         <div
                           className="absolute rounded-sm"
-                          style={{ width: '10px', height: '14px', backgroundColor: '#facc15', bottom: 0, left: 0 }}
+                          style={{ width: '9px', height: '12px', backgroundColor: '#facc15', bottom: 0, left: 0 }}
                         />
                         <div
                           className="absolute rounded-sm"
-                          style={{ width: '10px', height: '14px', backgroundColor: '#ef4444', top: 0, right: 0 }}
+                          style={{ width: '9px', height: '12px', backgroundColor: '#ef4444', top: 0, right: 0 }}
                         />
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Torneo + giornata */}
-                <span className="text-[10px] text-text-muted leading-tight truncate max-w-full">
-                  {tournamentAbbr}
-                  {round != null && ` G.${round}`}
-                </span>
-
-                {/* Squadre */}
-                <span className="text-xs text-text-primary font-medium leading-tight mt-0.5">
-                  {homeCode} - {awayCode}
-                </span>
+                <div className="mt-2 mb-0.5">
+                  <OpponentCrest team={opponentTeam} />
+                </div>
+                <div className="text-[11px] leading-tight text-text-secondary font-medium whitespace-nowrap">
+                  {scoreline}
+                </div>
 
                 {/* Badge falli */}
                 <div className="mt-1 flex items-center gap-1">

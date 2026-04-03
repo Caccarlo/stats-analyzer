@@ -7,6 +7,7 @@ import { useNavigation } from '@/context/NavigationContext';
 import { getPlayerInfo, getPlayerNationalStats } from '@/api/sofascore';
 import type { Player, PlayerFilterState, NationalTeamStat, Team } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
+import { getPlayerMatchIsHome } from '@/utils/playerMatchVenue';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
 import StatsOverview from '@/components/player/StatsOverview';
@@ -304,21 +305,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
     // 4. Venue filter
     if (!showHome || !showAway) {
-      const teamId = resolvedPlayer?.team?.id;
       events = events.filter((e) => {
-        // Primo: usa playerSide dalle lineup (affidabile anche per le nazionali)
-        const side = detailsMap.get(e.id)?.playerSide;
-        let isHome: boolean | null;
-        if (side !== undefined) {
-          isHome = side === 'home';
-        } else if (teamId) {
-          // Fallback: confronto per team ID (funziona per i club, non per le nazionali)
-          if (e.homeTeam.id === teamId) isHome = true;
-          else if (e.awayTeam.id === teamId) isHome = false;
-          else isHome = null; // lineups non ancora caricate e team non riconosciuto
-        } else {
-          isHome = null;
-        }
+        const isHome = getPlayerMatchIsHome(e, detailsMap.get(e.id), resolvedPlayer?.team?.id);
         if (isHome === null) return true; // includi finché non abbiamo certezza
         if (showHome && isHome) return true;
         if (showAway && !isHome) return true;

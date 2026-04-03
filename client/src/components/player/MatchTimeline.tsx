@@ -1,6 +1,7 @@
 import { getTeamImageUrl } from '@/api/sofascore';
 import type { MatchEvent, Team } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
+import { getPlayerMatchIsHome } from '@/utils/playerMatchVenue';
 
 interface MatchTimelineProps {
   events: MatchEvent[];
@@ -57,7 +58,9 @@ function OpponentCrest({ team }: { team: Team }) {
   );
 }
 
-function VenueBadge({ isHome }: { isHome: boolean }) {
+function VenueBadge({ isHome }: { isHome: boolean | null }) {
+  if (isHome === null) return null;
+
   return (
     <div
       className="absolute top-2 left-2 flex items-center justify-center text-text-secondary"
@@ -127,7 +130,7 @@ export default function MatchTimeline({
             const isLoaded = detailsLoadedIds.has(event.id);
             const counts = getFoulCounts(details);
             const cardInfo = details?.cardInfo ?? null;
-            const isHome = playerTeamId != null ? event.homeTeam.id === playerTeamId : false;
+            const isHome = getPlayerMatchIsHome(event, details, playerTeamId);
             const opponentTeam = isHome ? event.awayTeam : event.homeTeam;
             const scoreline = `${getTeamTag(event.homeTeam)} ${event.homeScore.current} - ${event.awayScore.current} ${getTeamTag(event.awayTeam)}`;
 

@@ -52,6 +52,7 @@ stats-analyzer/
         |   `-- useSplitCardSync.ts  # Cross-panel card height sync
         |-- utils/
         |   |-- foulPairing.ts
+        |   |-- playerMatchVenue.ts
         |   |-- statsCalculator.ts
         |   `-- positionMapping.ts
         |-- pages/
@@ -248,6 +249,7 @@ Additional rules:
 - Controlled by `showHome` and `showAway`.
 - Venue detection prefers `playerSide` derived from lineups.
 - If lineups are not ready, PlayerPage temporarily falls back to current team ID matching.
+- The home/away badge in `MatchTimeline` uses that same venue-resolution helper, so national-team matches no longer default to the club-based fallback icon.
 
 ### Titolare
 

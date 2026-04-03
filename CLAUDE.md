@@ -203,6 +203,7 @@ Other current behavior:
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
 - In timeline cards, foul badges show `0` when official stats loaded a real zero, and `-` only when the foul value is still unavailable after loading.
 - In `MatchCard`, the mini foul counters beside the field/heatmap show a spinner while the selected comparison player is still loading, then show either a real number (including `0`) or `-` when the stat is unavailable.
+- In `MatchCard`, aggregated season averages for the selected comparison player are cached in a module-level in-memory LRU map keyed by `{activePlayerId, selectedTournamentsKey}` (with in-flight dedupe and cached `unavailable` outcomes), so reopening the same player+tournaments context reuses data immediately without spinner.
 - `PlayerPage` derives season club badges from `allEvents` plus progressively-loaded `playerSide` lineup data, so season logos in the period dropdown can appear incrementally as lineups finish loading.
 
 ## Filters

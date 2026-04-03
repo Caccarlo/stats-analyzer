@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import type { MatchEvent, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
-import { fetchMatchDetails } from '@/hooks/useMatchDetails';
+import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import { getPlayerSeasonStats, getMatchAveragePositions } from '@/api/sofascore';
 import { COUNTRIES } from '@/components/navigation/CountryList';
 import FieldMap from './FieldMap';
@@ -30,6 +30,100 @@ interface MatchCardProps {
 type CardLayout = 'single' | 'double' | 'multi';
 type PositionsStatus = 'idle' | 'loading' | 'loaded' | 'unavailable';
 type PlayerStatsStatus = 'idle' | 'loading' | 'loaded' | 'unavailable';
+type PlayerStatsResolvedStatus = Exclude<PlayerStatsStatus, 'idle' | 'loading'>;
+
+interface CachedAggregatedSeasonStats {
+  status: PlayerStatsResolvedStatus;
+  stats: PlayerSeasonStats | null;
+}
+
+const aggregatedSeasonStatsCache = new Map<string, CachedAggregatedSeasonStats>();
+const aggregatedSeasonStatsInFlight = new Map<string, Promise<CachedAggregatedSeasonStats>>();
+const MAX_AGGREGATED_SEASON_STATS_CACHE_ENTRIES = 300;
+
+function normalizeSelectedTournaments(selectedTournaments: TournamentFilter[]): TournamentFilter[] {
+  const deduped = new Map<string, TournamentFilter>();
+  selectedTournaments.forEach((t) => {
+    const key = `${t.tournamentId}:${t.seasonId}`;
+    if (!deduped.has(key)) deduped.set(key, t);
+  });
+
+  return [...deduped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, value]) => value);
+}
+
+function buildSelectedTournamentsKey(selectedTournaments: TournamentFilter[]): string {
+  return selectedTournaments.map((t) => `${t.tournamentId}:${t.seasonId}`).join(',');
+}
+
+function aggregateSeasonStats(results: Array<PlayerSeasonStats | null>): CachedAggregatedSeasonStats {
+  const valid = results.filter((r): r is PlayerSeasonStats => r !== null);
+  if (valid.length === 0) {
+    return { status: 'unavailable', stats: null };
+  }
+
+  const aggregated = valid.reduce<PlayerSeasonStats>(
+    (acc, s) => ({
+      fouls: acc.fouls + s.fouls,
+      wasFouled: acc.wasFouled + s.wasFouled,
+      minutesPlayed: acc.minutesPlayed + s.minutesPlayed,
+      appearances: acc.appearances + s.appearances,
+      matchesStarted: acc.matchesStarted + s.matchesStarted,
+      yellowCards: acc.yellowCards + s.yellowCards,
+      redCards: acc.redCards + s.redCards,
+      rating: 0,
+    }),
+    { fouls: 0, wasFouled: 0, minutesPlayed: 0, appearances: 0, matchesStarted: 0, yellowCards: 0, redCards: 0, rating: 0 }
+  );
+
+  return { status: 'loaded', stats: aggregated };
+}
+
+function getCachedAggregatedSeasonStats(cacheKey: string): CachedAggregatedSeasonStats | null {
+  const cached = aggregatedSeasonStatsCache.get(cacheKey);
+  if (!cached) return null;
+  // Touch entry per semplice comportamento LRU.
+  aggregatedSeasonStatsCache.delete(cacheKey);
+  aggregatedSeasonStatsCache.set(cacheKey, cached);
+  return cached;
+}
+
+function setCachedAggregatedSeasonStats(cacheKey: string, value: CachedAggregatedSeasonStats): void {
+  if (aggregatedSeasonStatsCache.has(cacheKey)) {
+    aggregatedSeasonStatsCache.delete(cacheKey);
+  }
+  aggregatedSeasonStatsCache.set(cacheKey, value);
+
+  while (aggregatedSeasonStatsCache.size > MAX_AGGREGATED_SEASON_STATS_CACHE_ENTRIES) {
+    const oldestKey = aggregatedSeasonStatsCache.keys().next().value;
+    if (!oldestKey) break;
+    aggregatedSeasonStatsCache.delete(oldestKey);
+  }
+}
+
+async function fetchAggregatedSeasonStats(
+  cacheKey: string,
+  activePlayerId: number,
+  selectedTournaments: TournamentFilter[],
+): Promise<CachedAggregatedSeasonStats> {
+  const inFlight = aggregatedSeasonStatsInFlight.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const request: Promise<CachedAggregatedSeasonStats> = Promise.all(
+    selectedTournaments.map((t) => getPlayerSeasonStats(activePlayerId, t.tournamentId, t.seasonId)),
+  )
+    .then((results) => aggregateSeasonStats(results))
+    .catch((): CachedAggregatedSeasonStats => ({ status: 'unavailable', stats: null }))
+    .finally(() => {
+      aggregatedSeasonStatsInFlight.delete(cacheKey);
+    });
+
+  aggregatedSeasonStatsInFlight.set(cacheKey, request);
+  const resolved = await request;
+  setCachedAggregatedSeasonStats(cacheKey, resolved);
+  return resolved;
+}
 
 const CardIcon = ({ type }: { type: CardType }) => {
   if (type === 'yellow') {
@@ -267,65 +361,85 @@ export default function MatchCard({
     : isHome;
 
   const activePlayerIsMain = activePlayerId === playerId;
-  const selectedTournamentsKey = selectedTournaments.map((t) => `${t.tournamentId}:${t.seasonId}`).join(',');
+  const normalizedSelectedTournaments = useMemo(
+    () => normalizeSelectedTournaments(selectedTournaments),
+    [selectedTournaments],
+  );
+  const selectedTournamentsKey = useMemo(
+    () => buildSelectedTournamentsKey(normalizedSelectedTournaments),
+    [normalizedSelectedTournaments],
+  );
   const activePlayerSeasonStatsLoading = !activePlayerIsMain && activePlayerSeasonStatsStatus === 'loading';
   const activePlayerOwnFoulsLoading = !activePlayerIsMain && activePlayerOwnFoulsStatus === 'loading';
 
   useEffect(() => {
-    setActivePlayerSeasonStats(null);
-    setActivePlayerSeasonStatsStatus('idle');
-    setActivePlayerOwnFouls(null);
-    setActivePlayerOwnFoulsStatus('idle');
-    if (activePlayerIsMain || selectedTournaments.length === 0) return;
+    if (activePlayerIsMain || selectedTournamentsKey.length === 0) {
+      setActivePlayerSeasonStats(null);
+      setActivePlayerSeasonStatsStatus('idle');
+      setActivePlayerOwnFouls(null);
+      setActivePlayerOwnFoulsStatus('idle');
+      return;
+    }
 
     let cancelled = false;
+    const seasonStatsCacheKey = `${activePlayerId}|${selectedTournamentsKey}`;
+    const cachedSeasonStats = getCachedAggregatedSeasonStats(seasonStatsCacheKey);
 
-    const fetchStats = async () => {
+    if (cachedSeasonStats) {
+      setActivePlayerSeasonStats(cachedSeasonStats.stats);
+      setActivePlayerSeasonStatsStatus(cachedSeasonStats.status);
+    } else {
+      setActivePlayerSeasonStats(null);
       setActivePlayerSeasonStatsStatus('loading');
-      const results = await Promise.all(
-        selectedTournaments.map((t) => getPlayerSeasonStats(activePlayerId, t.tournamentId, t.seasonId))
-      );
-      if (cancelled) return;
-      const valid = results.filter((r): r is PlayerSeasonStats => r !== null);
-      if (valid.length > 0) {
-        const aggregated = valid.reduce<PlayerSeasonStats>(
-          (acc, s) => ({
-            fouls: acc.fouls + s.fouls,
-            wasFouled: acc.wasFouled + s.wasFouled,
-            minutesPlayed: acc.minutesPlayed + s.minutesPlayed,
-            appearances: acc.appearances + s.appearances,
-            matchesStarted: acc.matchesStarted + s.matchesStarted,
-            yellowCards: acc.yellowCards + s.yellowCards,
-            redCards: acc.redCards + s.redCards,
-            rating: 0,
-          }),
-          { fouls: 0, wasFouled: 0, minutesPlayed: 0, appearances: 0, matchesStarted: 0, yellowCards: 0, redCards: 0, rating: 0 }
-        );
-        setActivePlayerSeasonStats(aggregated);
-        setActivePlayerSeasonStatsStatus('loaded');
+      fetchAggregatedSeasonStats(seasonStatsCacheKey, activePlayerId, normalizedSelectedTournaments)
+        .then((resolved) => {
+          if (cancelled) return;
+          setActivePlayerSeasonStats(resolved.stats);
+          setActivePlayerSeasonStatsStatus(resolved.status);
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setActivePlayerSeasonStats(null);
+            setActivePlayerSeasonStatsStatus('unavailable');
+          }
+        });
+    }
+
+    const matchDetailsKey = `${event.id}-${activePlayerId}`;
+    const cachedMatchDetails = matchDetailsCache.get(matchDetailsKey);
+    if (cachedMatchDetails) {
+      const committed = cachedMatchDetails.officialStats?.fouls;
+      const suffered = cachedMatchDetails.officialStats?.wasFouled;
+      if (typeof committed === 'number' || typeof suffered === 'number') {
+        setActivePlayerOwnFouls({ committed: committed ?? 0, suffered: suffered ?? 0 });
+        setActivePlayerOwnFoulsStatus('loaded');
       } else {
-        setActivePlayerSeasonStatsStatus('unavailable');
+        setActivePlayerOwnFouls(null);
+        setActivePlayerOwnFoulsStatus('unavailable');
       }
-    };
-
-    fetchStats();
-
-    setActivePlayerOwnFoulsStatus('loading');
-    fetchMatchDetails(event.id, activePlayerId)
-      .then((matchDetails) => {
-        if (cancelled) return;
-        const committed = matchDetails.officialStats?.fouls;
-        const suffered = matchDetails.officialStats?.wasFouled;
-        if (typeof committed === 'number' || typeof suffered === 'number') {
-          setActivePlayerOwnFouls({ committed: committed ?? 0, suffered: suffered ?? 0 });
-          setActivePlayerOwnFoulsStatus('loaded');
-        } else {
-          setActivePlayerOwnFoulsStatus('unavailable');
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setActivePlayerOwnFoulsStatus('unavailable');
-      });
+    } else {
+      setActivePlayerOwnFouls(null);
+      setActivePlayerOwnFoulsStatus('loading');
+      fetchMatchDetails(event.id, activePlayerId)
+        .then((matchDetails) => {
+          if (cancelled) return;
+          const committed = matchDetails.officialStats?.fouls;
+          const suffered = matchDetails.officialStats?.wasFouled;
+          if (typeof committed === 'number' || typeof suffered === 'number') {
+            setActivePlayerOwnFouls({ committed: committed ?? 0, suffered: suffered ?? 0 });
+            setActivePlayerOwnFoulsStatus('loaded');
+          } else {
+            setActivePlayerOwnFouls(null);
+            setActivePlayerOwnFoulsStatus('unavailable');
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setActivePlayerOwnFouls(null);
+            setActivePlayerOwnFoulsStatus('unavailable');
+          }
+        });
+    }
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -132,7 +132,7 @@ function getPlayedSegment(
 
   return {
     startPct: 0,
-    endPct: (clampMinute(minutesPlayed, matchDuration) / matchDuration) * 100,
+    endPct: 100,
   };
 }
 

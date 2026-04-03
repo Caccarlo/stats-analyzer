@@ -604,7 +604,7 @@ export default function MatchCard({
     if (!positions) return null;
 
     const leftCol = (portrait: boolean) => (
-      <div className="flex items-center justify-center">
+      <div className="flex items-center justify-center h-full py-8">
         <div ref={fieldRef} className={`w-full ${portrait ? 'max-w-[238px]' : 'max-w-[367px]'}`}>
           <FieldMap
             homePositions={positions.home}
@@ -652,7 +652,7 @@ export default function MatchCard({
 
     if (layoutMode === 'single') {
       return (
-        <div className="grid grid-cols-2 gap-3 mb-10 items-stretch pt-3">
+        <div className="grid grid-cols-2 gap-3 mb-3 items-stretch pt-3">
           {leftCol(false)}
           {rightCol('landscape', 2)}
         </div>
@@ -661,7 +661,7 @@ export default function MatchCard({
 
     if (layoutMode === 'double') {
       return (
-        <div className="grid grid-cols-2 gap-3 mb-14 items-stretch pt-3">
+        <div className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
           {leftCol(true)}
           {rightCol('portrait', 1)}
         </div>
@@ -672,7 +672,7 @@ export default function MatchCard({
     const multiHalfHeight = Math.round((multiHeatmapWidth * 105 / 68) / 2);
     const NAME_HEIGHT = 28;
     return (
-      <div className="grid grid-cols-2 gap-3 mb-14 items-stretch pt-3">
+      <div className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
         {leftCol(true)}
         <div className="relative flex items-center justify-center">
           <div className="absolute top-0 left-1/2 -translate-x-1/2">

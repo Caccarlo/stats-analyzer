@@ -176,21 +176,21 @@ Matches marked `didNotPlay` are removed from PlayerPage display and statistics.
 
 ### Ultime N
 
-- `selectedPeriod` can be either `{ type: 'last', count }` or `{ type: 'season', year }`.
-- In `Ultime N`, PlayerPage passes all player season IDs to `useMatchTimeline` plus `minPlayedEvents = N` and `maxEvents = N * 2` (safety cap).
-- `useMatchTimeline` keeps paging across seasons until it reaches `minPlayedEvents` matches with `onBench === false`, hits `maxEvents`, or the API ends.
+- `selectedPeriod` can be either `{ type: 'last', count }` or `{ type: 'season', year }`. Supported `count` values: `5 | 10 | 15 | 20 | 30 | 50 | 75`.
+- In `Ultime N`, PlayerPage passes all player season IDs to `useMatchTimeline` plus `minPlayedEvents = N` and `maxEvents = N * 2` (safety cap on total events fetched, including didNotPlay).
+- `minPlayedEvents` is the real stopper: `useMatchTimeline` counts only events with `onBench === false` and stops paging when it reaches N of those, hits `maxEvents`, or the API ends.
 - `PlayerPage` builds `lastPeriodBaseEvents = allEvents -> exclude didNotPlay -> slice(N)`.
 - Tournament options in `Ultime N` are derived from that same `lastPeriodBaseEvents` base.
 - Tournament, venue, and starter filters are applied locally on that fixed `N`-match base without refetching.
 
 ## Current Loading Model
 
-After `events/last` returns the event list plus seeds, `useMatchTimeline` runs four queues:
+After `events/last` returns the event list plus seeds, `useMatchTimeline` runs two queues:
 
-1. officialStats for all matches, batch size 8
-2. lineups for all matches, batch size 5
-3. rich comments for the first 5 non-`didNotPlay` matches, batch size 2
-4. lazy rich comments for other selected cards through `requestRichDetails(eventId)`
+1. officialStats for all matches, batch size 8, delay 100ms between batches
+2. lineups for all matches, batch size 5, delay 150ms between batches
+
+Rich comments are not loaded automatically. They are loaded on-demand only through `requestRichDetails(eventId)` when the user opens a specific match card.
 
 Other current behavior:
 
@@ -199,7 +199,7 @@ Other current behavior:
 - `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKey, maxEvents, minPlayedEvents}`.
 - When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.
 - Queue effects exit immediately when their corresponding `all*Loaded` flag is already true, and artificial inter-batch delays are skipped when the whole batch was cache hits.
-- PlayerPage shows a section loader while `loadingEvents || !allOfficialStatsLoaded || !allLineupsLoaded || !recentRichLoaded`.
+- PlayerPage shows a section loader while `loadingEvents || !allOfficialStatsLoaded || !allLineupsLoaded`.
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
 - In timeline cards, foul badges show `0` when official stats loaded a real zero, and `-` only when the foul value is still unavailable after loading.
 - In `MatchCard`, the mini foul counters beside the field/heatmap show a spinner while the selected comparison player is still loading, then show either a real number (including `0`) or `-` when the stat is unavailable.

@@ -3,7 +3,7 @@ import { getTeamImageUrl } from '@/api/sofascore';
 import type { TournamentSeason, Team } from '@/types';
 import type { SelectedPeriod } from '@/hooks/usePlayerData';
 
-const LAST_N_OPTIONS: Array<5 | 10 | 15 | 20 | 30> = [5, 10, 15, 20, 30];
+const LAST_N_OPTIONS: Array<5 | 10 | 15 | 20 | 30 | 50 | 75> = [5, 10, 15, 20, 30, 50, 75];
 
 interface PlayerFiltersProps {
   tournamentSeasons: TournamentSeason[];

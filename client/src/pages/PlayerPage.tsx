@@ -14,7 +14,7 @@ import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
 
 const AUTO_SELECTED_MATCH_COUNT = 3;
-const LAST_N_OPTIONS = [5, 10, 15, 20, 30] as const;
+const LAST_N_OPTIONS = [5, 10, 15, 20, 30, 50, 75] as const;
 
 function getTeamIdentityKey(team: Team): string {
   if (team.nameCode) return `code:${team.nameCode.toLowerCase()}`;

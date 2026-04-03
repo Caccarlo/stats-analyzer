@@ -3,7 +3,7 @@ import { useNavigation } from '@/context/NavigationContext';
 import type { MatchEvent, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
-import { getPlayerSeasonStats, getMatchAveragePositions } from '@/api/sofascore';
+import { getPlayerSeasonStats, getMatchAveragePositions, getTeamImageUrl } from '@/api/sofascore';
 import { COUNTRIES } from '@/components/navigation/CountryList';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
@@ -157,6 +157,18 @@ const CardIcon = ({ type }: { type: CardType }) => {
     </div>
   );
 };
+
+const MatchTeamBadge = ({ team }: { team: Team }) => (
+  <img
+    src={getTeamImageUrl(team.id)}
+    alt=""
+    title={team.name}
+    className="w-5 h-5 object-contain flex-shrink-0 transition-transform duration-150 group-hover:scale-105"
+    onError={(e) => {
+      (e.target as HTMLImageElement).style.display = 'none';
+    }}
+  />
+);
 
 function getDisplayCount(value: number | undefined): string {
   return typeof value === 'number' ? String(value) : '—';
@@ -719,16 +731,20 @@ export default function MatchCard({
             {event.roundInfo && <span>G.{event.roundInfo.round}</span>}
             <span>· {dateStr}</span>
           </div>
-          <div className="text-text-primary font-medium mt-0.5">
+          <div className="text-text-primary font-medium mt-0.5 flex items-center gap-2 flex-wrap">
             {isHome ? (
-              <span>{event.homeTeam.shortName ?? event.homeTeam.name}</span>
-            ) : (
-              <button
-                onClick={() => handleTeamClick(event.homeTeam)}
-                className="text-text-primary hover:text-neon hover:underline transition-colors"
-              >
-                {event.homeTeam.shortName ?? event.homeTeam.name}
-              </button>
+              <>
+                <MatchTeamBadge team={event.homeTeam} />
+                <span>{event.homeTeam.shortName ?? event.homeTeam.name}</span>
+              </>
+              ) : (
+                <button
+                  onClick={() => handleTeamClick(event.homeTeam)}
+                  className="group flex items-center gap-2 text-text-primary hover:text-neon hover:underline transition-colors"
+                >
+                  <MatchTeamBadge team={event.homeTeam} />
+                  {event.homeTeam.shortName ?? event.homeTeam.name}
+                </button>
             )}{' '}
             <span className="text-text-muted">
               {event.homeScore.current} - {event.awayScore.current}
@@ -736,12 +752,16 @@ export default function MatchCard({
             {isHome ? (
               <button
                 onClick={() => handleTeamClick(event.awayTeam)}
-                className="text-text-primary hover:text-neon hover:underline transition-colors"
+                className="group flex items-center gap-2 text-text-primary hover:text-neon hover:underline transition-colors"
               >
                 {event.awayTeam.shortName ?? event.awayTeam.name}
+                <MatchTeamBadge team={event.awayTeam} />
               </button>
             ) : (
-              <span>{event.awayTeam.shortName ?? event.awayTeam.name}</span>
+              <>
+                <span>{event.awayTeam.shortName ?? event.awayTeam.name}</span>
+                <MatchTeamBadge team={event.awayTeam} />
+              </>
             )}
           </div>
         </div>

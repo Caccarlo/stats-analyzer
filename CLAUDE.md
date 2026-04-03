@@ -204,7 +204,9 @@ Other current behavior:
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
 - `PlayerPage` auto-selects the first visible timeline matches when the selection context changes: 3 cards on desktop, 1 card on mobile, with per-match overrides plus select-all / deselect-all controls layered on top.
 - In timeline cards, foul badges show `0` when official stats loaded a real zero, and `-` only when the foul value is still unavailable after loading.
+- In timeline cards, the compact match UI shows a neutral home/away badge at top-left, any card icon at top-right, the opponent crest in the center, a compact scoreline row below it, and foul badges underneath.
 - In `MatchCard`, the mini foul counters beside the field/heatmap show a spinner while the selected comparison player is still loading, then show either a real number (including `0`) or `-` when the stat is unavailable.
+- In `MatchCard`, the header shows the home-team crest before the home name and the away-team crest after the away name, matching the `PlayerHeader` team-badge size.
 - In `MatchCard`, aggregated season averages for the selected comparison player are cached in a module-level in-memory LRU map keyed by `{activePlayerId, selectedTournamentsKey}` (with in-flight dedupe and cached `unavailable` outcomes), so reopening the same player+tournaments context reuses data immediately without spinner.
 - In `MatchCard`, clicking a fouled/fouling player, a player dot on the field map, or the active-player name switches `activePlayerId` locally, updating the heatmap plus contextual season/match foul stats for that player.
 - In `MatchCard`, clicking the opponent team or a linked player can open or swap the opposite split panel on desktop; on mobile it navigates in-place.

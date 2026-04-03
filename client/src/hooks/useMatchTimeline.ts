@@ -1,23 +1,25 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { getPlayerEvents } from '@/api/sofascore';
+import { getPlayerEvents, getMatchDurationMetadata } from '@/api/sofascore';
 import {
   matchDetailsCache,
   mergeMatchDetailsWithSeed,
   patchMatchDetailsCache,
   fetchMatchOfficialStats,
   fetchMatchLineupsOnly,
+  fetchMatchSubstitutionInfo,
   fetchMatchRichData,
   createSeededMatchDetails,
   type CachedMatchDetails,
   type MatchDetailsSeed,
 } from '@/hooks/useMatchDetails';
-import type { MatchEvent } from '@/types';
+import type { MatchDurationMetadata, MatchEvent } from '@/types';
 
 type PlayerEventsPageResult = Awaited<ReturnType<typeof getPlayerEvents>>;
 
 interface TimelineSnapshot {
   allEvents: MatchEvent[];
   detailsMap: Map<number, CachedMatchDetails>;
+  eventDurationMetadataMap: Map<number, MatchDurationMetadata | null>;
   lineupsLoadedIds: Set<number>;
   allOfficialStatsLoaded: boolean;
   allLineupsLoaded: boolean;
@@ -26,10 +28,12 @@ interface TimelineSnapshot {
 
 const playerEventsPageCache = new Map<string, PlayerEventsPageResult>();
 const timelineContextCache = new Map<string, TimelineSnapshot>();
+const matchDurationMetadataCache = new Map<number, MatchDurationMetadata | null>();
 
 export interface UseMatchTimelineResult {
   allEvents: MatchEvent[];
   detailsMap: Map<number, CachedMatchDetails>;
+  eventDurationMetadataMap: Map<number, MatchDurationMetadata | null>;
   detailsLoadedIds: Set<number>;
   lineupsLoadedIds: Set<number>;
   loadingEvents: boolean;
@@ -88,10 +92,41 @@ function cloneDetailsMap(source: Map<number, CachedMatchDetails>): Map<number, C
   );
 }
 
+function cloneDurationMetadata(
+  metadata: MatchDurationMetadata | null,
+): MatchDurationMetadata | null {
+  if (!metadata) return null;
+  return {
+    ...metadata,
+    time: metadata.time ? { ...metadata.time } : undefined,
+    homeScore: metadata.homeScore ? { ...metadata.homeScore } : undefined,
+    awayScore: metadata.awayScore ? { ...metadata.awayScore } : undefined,
+  };
+}
+
+function cloneEventDurationMetadataMap(
+  source: Map<number, MatchDurationMetadata | null>,
+): Map<number, MatchDurationMetadata | null> {
+  return new Map(
+    [...source.entries()].map(([eventId, metadata]) => [eventId, cloneDurationMetadata(metadata)]),
+  );
+}
+
+function buildDurationMetadataMap(
+  events: MatchEvent[],
+): Map<number, MatchDurationMetadata | null> {
+  return new Map(
+    events
+      .filter((event) => matchDurationMetadataCache.has(event.id))
+      .map((event) => [event.id, cloneDurationMetadata(matchDurationMetadataCache.get(event.id) ?? null)]),
+  );
+}
+
 function cloneTimelineSnapshot(snapshot: TimelineSnapshot): TimelineSnapshot {
   return {
     allEvents: [...snapshot.allEvents],
     detailsMap: cloneDetailsMap(snapshot.detailsMap),
+    eventDurationMetadataMap: cloneEventDurationMetadataMap(snapshot.eventDurationMetadataMap),
     lineupsLoadedIds: new Set(snapshot.lineupsLoadedIds),
     allOfficialStatsLoaded: snapshot.allOfficialStatsLoaded,
     allLineupsLoaded: snapshot.allLineupsLoaded,
@@ -117,6 +152,7 @@ function buildSnapshotFromEvents(
 ): TimelineSnapshot {
   const sortedEvents = [...events].sort((a, b) => b.startTimestamp - a.startTimestamp);
   const sortedDetails = new Map<number, CachedMatchDetails>();
+  const durationMetadataMap = buildDurationMetadataMap(sortedEvents);
   sortedEvents.forEach((event) => {
     const details = combinedDetails.get(event.id);
     if (details) sortedDetails.set(event.id, details);
@@ -139,6 +175,7 @@ function buildSnapshotFromEvents(
   return {
     allEvents: sortedEvents,
     detailsMap: sortedDetails,
+    eventDurationMetadataMap: durationMetadataMap,
     lineupsLoadedIds: preloadedLineups,
     allOfficialStatsLoaded: allOfficialReady,
     allLineupsLoaded: allLineupsReady,
@@ -250,6 +287,7 @@ export function useMatchTimeline(
 
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
   const [detailsMap, setDetailsMap] = useState<Map<number, CachedMatchDetails>>(new Map());
+  const [eventDurationMetadataMap, setEventDurationMetadataMap] = useState<Map<number, MatchDurationMetadata | null>>(new Map());
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [allOfficialStatsLoaded, setAllOfficialStatsLoaded] = useState(false);
   const [lineupsLoadedIds, setLineupsLoadedIds] = useState<Set<number>>(new Set());
@@ -258,6 +296,8 @@ export function useMatchTimeline(
 
   const statsLoadingRef = useRef(false);
   const lineupsLoadingRef = useRef(false);
+  const durationLoadingRef = useRef(false);
+  const substitutionLoadingRef = useRef(false);
   const detailsMapRef = useRef(detailsMap);
   const playerIdRef = useRef(playerId);
 
@@ -275,12 +315,15 @@ export function useMatchTimeline(
     let cancelled = false;
     statsLoadingRef.current = false;
     lineupsLoadingRef.current = false;
+    durationLoadingRef.current = false;
+    substitutionLoadingRef.current = false;
 
     const cachedContext = timelineContextCache.get(contextKey);
     if (cachedContext) {
       const snapshot = cloneTimelineSnapshot(cachedContext);
       setAllEvents(snapshot.allEvents);
       setDetailsMap(snapshot.detailsMap);
+      setEventDurationMetadataMap(snapshot.eventDurationMetadataMap);
       setLineupsLoadedIds(snapshot.lineupsLoadedIds);
       setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
       setAllLineupsLoaded(snapshot.allLineupsLoaded);
@@ -300,6 +343,7 @@ export function useMatchTimeline(
       timelineContextCache.set(contextKey, cloneTimelineSnapshot(snapshot));
       setAllEvents(snapshot.allEvents);
       setDetailsMap(snapshot.detailsMap);
+      setEventDurationMetadataMap(snapshot.eventDurationMetadataMap);
       setLineupsLoadedIds(snapshot.lineupsLoadedIds);
       setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
       setAllLineupsLoaded(snapshot.allLineupsLoaded);
@@ -310,6 +354,7 @@ export function useMatchTimeline(
 
     setAllEvents([]);
     setDetailsMap(new Map());
+    setEventDurationMetadataMap(new Map());
     setLoadingEvents(true);
     setAllOfficialStatsLoaded(false);
     setLineupsLoadedIds(new Set());
@@ -402,6 +447,7 @@ export function useMatchTimeline(
 
       setAllEvents(snapshot.allEvents);
       setDetailsMap(snapshot.detailsMap);
+      setEventDurationMetadataMap(snapshot.eventDurationMetadataMap);
       setLineupsLoadedIds(snapshot.lineupsLoadedIds);
       setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
       setAllLineupsLoaded(snapshot.allLineupsLoaded);
@@ -488,6 +534,147 @@ export function useMatchTimeline(
     loadAllOfficialStats();
     return () => { cancelled = true; };
   }, [allEvents, allOfficialStatsLoaded]);
+
+  useEffect(() => {
+    if (allEvents.length === 0) return;
+    if (durationLoadingRef.current) return;
+    durationLoadingRef.current = true;
+
+    let cancelled = false;
+
+    async function loadEventDurationMetadata() {
+      const BATCH = 10;
+      const DELAY = 50;
+
+      for (let i = 0; i < allEvents.length; i += BATCH) {
+        if (cancelled) return;
+
+        const batch = allEvents.slice(i, i + BATCH);
+        const batchResults: Array<{ eventId: number; metadata: MatchDurationMetadata | null }> = [];
+        let batchDidFetch = false;
+
+        await Promise.all(
+          batch.map(async (event) => {
+            if (matchDurationMetadataCache.has(event.id)) {
+              batchResults.push({
+                eventId: event.id,
+                metadata: cloneDurationMetadata(matchDurationMetadataCache.get(event.id) ?? null),
+              });
+              return;
+            }
+
+            batchDidFetch = true;
+            const metadata = await getMatchDurationMetadata(event.id);
+            if (cancelled) return;
+
+            matchDurationMetadataCache.set(event.id, metadata);
+            batchResults.push({ eventId: event.id, metadata: cloneDurationMetadata(metadata) });
+          }),
+        );
+
+        if (cancelled) return;
+
+        setEventDurationMetadataMap((prev) => {
+          const next = new Map(prev);
+          for (const { eventId, metadata } of batchResults) {
+            next.set(eventId, metadata);
+          }
+          mergeSnapshotIntoCache(contextKey, { eventDurationMetadataMap: next });
+          return next;
+        });
+
+        if (batchDidFetch && i + BATCH < allEvents.length) {
+          await new Promise((resolve) => setTimeout(resolve, DELAY));
+        }
+      }
+
+      durationLoadingRef.current = false;
+    }
+
+    loadEventDurationMetadata();
+    return () => {
+      cancelled = true;
+      durationLoadingRef.current = false;
+    };
+  }, [allEvents, contextKey]);
+
+  useEffect(() => {
+    if (allEvents.length === 0) return;
+    if (substitutionLoadingRef.current) return;
+    substitutionLoadingRef.current = true;
+
+    let cancelled = false;
+
+    async function loadSubstitutionInfo() {
+      const BATCH = 8;
+      const DELAY = 75;
+
+      for (let i = 0; i < allEvents.length; i += BATCH) {
+        if (cancelled) return;
+
+        const batch = allEvents.slice(i, i + BATCH);
+        const batchResults: { eventId: number; patch: Partial<CachedMatchDetails> }[] = [];
+        let batchDidFetch = false;
+
+        await Promise.all(
+          batch.map(async (event) => {
+            const existing = detailsMapRef.current.get(event.id);
+            if (!existing) return;
+
+            if (
+              existing.substituteInMinute != null ||
+              existing.substituteOutMinute != null ||
+              existing.commentsStatus === 'loaded' ||
+              existing.commentsStatus === 'unavailable' ||
+              existing.commentsStatus === 'error'
+            ) {
+              batchResults.push({ eventId: event.id, patch: {} });
+              return;
+            }
+
+            batchDidFetch = true;
+            const result = await fetchMatchSubstitutionInfo(event.id, playerId);
+            if (cancelled) return;
+
+            const patch: Partial<CachedMatchDetails> = {};
+            if (result.substituteInMinute != null) patch.substituteInMinute = result.substituteInMinute;
+            if (result.substituteOutMinute != null) patch.substituteOutMinute = result.substituteOutMinute;
+
+            if (Object.keys(patch).length > 0) {
+              patchMatchDetailsCache(event.id, playerId, patch);
+            }
+            batchResults.push({ eventId: event.id, patch });
+          }),
+        );
+
+        if (cancelled) return;
+
+        setDetailsMap((prev) => {
+          const next = new Map(prev);
+          for (const { eventId, patch } of batchResults) {
+            const cur = next.get(eventId);
+            if (cur && Object.keys(patch).length > 0) {
+              next.set(eventId, { ...cur, ...patch });
+            }
+          }
+          mergeSnapshotIntoCache(contextKey, { detailsMap: next });
+          return next;
+        });
+
+        if (batchDidFetch && i + BATCH < allEvents.length) {
+          await new Promise((resolve) => setTimeout(resolve, DELAY));
+        }
+      }
+
+      substitutionLoadingRef.current = false;
+    }
+
+    loadSubstitutionInfo();
+    return () => {
+      cancelled = true;
+      substitutionLoadingRef.current = false;
+    };
+  }, [allEvents, contextKey, playerId]);
 
   useEffect(() => {
     if (allEvents.length === 0) return;
@@ -617,6 +804,7 @@ export function useMatchTimeline(
   return {
     allEvents,
     detailsMap,
+    eventDurationMetadataMap,
     detailsLoadedIds,
     lineupsLoadedIds,
     loadingEvents,

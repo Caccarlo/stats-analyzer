@@ -104,6 +104,35 @@ export interface AggregatedStats {
 
 // === Partite ===
 
+export interface MatchEventTime {
+  injuryTime1?: number;
+  injuryTime2?: number;
+  injuryTime3?: number;
+  injuryTime4?: number;
+  currentPeriodStartTimestamp?: number;
+}
+
+export interface MatchScore {
+  current: number;
+  display?: number;
+  period1?: number;
+  period2?: number;
+  period3?: number;
+  period4?: number;
+  normaltime?: number;
+  extra1?: number;
+  extra2?: number;
+}
+
+export interface MatchDurationMetadata {
+  defaultPeriodCount?: number;
+  defaultPeriodLength?: number;
+  defaultOvertimeLength?: number;
+  time?: MatchEventTime;
+  homeScore?: MatchScore;
+  awayScore?: MatchScore;
+}
+
 export interface MatchEvent {
   id: number;
   slug: string;
@@ -116,9 +145,10 @@ export interface MatchEvent {
   roundInfo?: { round: number };
   homeTeam: Team;
   awayTeam: Team;
-  homeScore: { current: number; period1?: number; period2?: number };
-  awayScore: { current: number; period1?: number; period2?: number };
+  homeScore: MatchScore;
+  awayScore: MatchScore;
   status: { code: number; description: string; type?: string };
+  time?: MatchEventTime;
   hasEventPlayerStatistics?: boolean;
   hasEventPlayerHeatMap?: boolean;
 }

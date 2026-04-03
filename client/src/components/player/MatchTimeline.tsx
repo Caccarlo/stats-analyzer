@@ -1,5 +1,5 @@
 import { getTeamImageUrl } from '@/api/sofascore';
-import type { MatchEvent, Team } from '@/types';
+import type { MatchDurationMetadata, MatchEvent, Team } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { getPlayerMatchIsHome } from '@/utils/playerMatchVenue';
 
@@ -7,6 +7,7 @@ interface MatchTimelineProps {
   events: MatchEvent[];
   selectedEventIds: Set<number>;
   detailsMap: Map<number, CachedMatchDetails>;
+  eventDurationMetadataMap: Map<number, MatchDurationMetadata | null>;
   detailsLoadedIds: Set<number>;
   showCommitted: boolean;
   showSuffered: boolean;
@@ -43,6 +44,122 @@ function getTeamTag(team: Team): string {
   return team.nameCode ?? team.shortName ?? team.name;
 }
 
+function hasExplicitOvertime(score: MatchDurationMetadata['homeScore'] | undefined): boolean {
+  return Boolean(
+    score &&
+    (
+      typeof score.period3 === 'number' ||
+      typeof score.period4 === 'number' ||
+      typeof score.extra1 === 'number' ||
+      typeof score.extra2 === 'number'
+    )
+  );
+}
+
+function getMatchDuration(metadata: MatchDurationMetadata | null | undefined): number {
+  const baseDuration =
+    typeof metadata?.defaultPeriodCount === 'number' &&
+    typeof metadata.defaultPeriodLength === 'number' &&
+    metadata.defaultPeriodCount > 0 &&
+    metadata.defaultPeriodLength > 0
+      ? metadata.defaultPeriodCount * metadata.defaultPeriodLength
+      : 90;
+
+  const stoppageTime =
+    (metadata?.time?.injuryTime1 ?? 0) +
+    (metadata?.time?.injuryTime2 ?? 0) +
+    (metadata?.time?.injuryTime3 ?? 0) +
+    (metadata?.time?.injuryTime4 ?? 0);
+
+  const overtimeDuration =
+    typeof metadata?.defaultOvertimeLength === 'number' &&
+    metadata.defaultOvertimeLength > 0 &&
+    (hasExplicitOvertime(metadata.homeScore) || hasExplicitOvertime(metadata.awayScore))
+      ? metadata.defaultOvertimeLength * 2
+      : 0;
+
+  return Math.max(1, baseDuration + stoppageTime + overtimeDuration);
+}
+
+function clampMinute(value: number, max: number): number {
+  return Math.min(max, Math.max(0, value));
+}
+
+function getPlayedSegment(
+  details: CachedMatchDetails | undefined,
+  matchDuration: number,
+): { startPct: number; endPct: number } | null {
+  const minutesPlayed = details?.officialStats?.minutesPlayed;
+  if (
+    details?.officialStatsStatus !== 'loaded' ||
+    typeof minutesPlayed !== 'number' ||
+    minutesPlayed <= 0
+  ) {
+    return null;
+  }
+
+  const inMinute = details.substituteInMinute;
+  const outMinute = details.substituteOutMinute;
+
+  if (typeof inMinute === 'number') {
+    const startMinute = clampMinute(inMinute, matchDuration);
+    const derivedEndMinute =
+      typeof outMinute === 'number' && outMinute >= startMinute
+        ? clampMinute(outMinute, matchDuration)
+        : matchDuration;
+    return {
+      startPct: (startMinute / matchDuration) * 100,
+      endPct: (Math.max(startMinute, derivedEndMinute) / matchDuration) * 100,
+    };
+  }
+
+  if (typeof outMinute === 'number') {
+    const endMinute = clampMinute(outMinute, matchDuration);
+    return {
+      startPct: 0,
+      endPct: (endMinute / matchDuration) * 100,
+    };
+  }
+
+  if (details.isStarter === false) {
+    const startMinute = clampMinute(matchDuration - minutesPlayed, matchDuration);
+    return {
+      startPct: (startMinute / matchDuration) * 100,
+      endPct: 100,
+    };
+  }
+
+  return {
+    startPct: 0,
+    endPct: (clampMinute(minutesPlayed, matchDuration) / matchDuration) * 100,
+  };
+}
+
+function getPlayedMinutesLabel(
+  details: CachedMatchDetails | undefined,
+  matchDuration: number,
+): string | null {
+  const officialMinutes = details?.officialStats?.minutesPlayed;
+  if (typeof officialMinutes === 'number' && officialMinutes > 0) {
+    return `${officialMinutes}'`;
+  }
+
+  const inMinute = details?.substituteInMinute;
+  const outMinute = details?.substituteOutMinute;
+
+  if (typeof inMinute === 'number' && typeof outMinute === 'number' && outMinute >= inMinute) {
+    return `${outMinute - inMinute}'`;
+  }
+  if (typeof inMinute === 'number') {
+    return `${Math.max(0, matchDuration - inMinute)}'`;
+  }
+  if (typeof outMinute === 'number' && outMinute > 0) {
+    return `${outMinute}'`;
+  }
+
+  return null;
+}
+
 function OpponentCrest({ team }: { team: Team }) {
   return (
     <div className="flex items-center justify-center min-h-[30px]">
@@ -63,7 +180,7 @@ function VenueBadge({ isHome }: { isHome: boolean | null }) {
 
   return (
     <div
-      className="absolute top-2 left-2 flex items-center justify-center text-text-secondary"
+      className="absolute top-2 left-2 z-10 flex items-center justify-center text-text-secondary"
       title={isHome ? 'Partita in casa' : 'Partita in trasferta'}
       aria-label={isHome ? 'Partita in casa' : 'Partita in trasferta'}
     >
@@ -84,6 +201,7 @@ export default function MatchTimeline({
   events,
   selectedEventIds,
   detailsMap,
+  eventDurationMetadataMap,
   detailsLoadedIds,
   showCommitted,
   showSuffered,
@@ -127,9 +245,13 @@ export default function MatchTimeline({
           {events.map((event) => {
             const isSelected = selectedEventIds.has(event.id);
             const details = detailsMap.get(event.id);
+            const durationMetadata = eventDurationMetadataMap.get(event.id);
             const isLoaded = detailsLoadedIds.has(event.id);
             const counts = getFoulCounts(details);
             const cardInfo = details?.cardInfo ?? null;
+            const matchDuration = getMatchDuration(durationMetadata);
+            const playedSegment = getPlayedSegment(details, matchDuration);
+            const playedMinutesLabel = getPlayedMinutesLabel(details, matchDuration);
             const isHome = getPlayerMatchIsHome(event, details, playerTeamId);
             const opponentTeam = isHome ? event.awayTeam : event.homeTeam;
             const scoreline = `${getTeamTag(event.homeTeam)} ${event.homeScore.current} - ${event.awayScore.current} ${getTeamTag(event.awayTeam)}`;
@@ -138,17 +260,32 @@ export default function MatchTimeline({
               <button
                 key={event.id}
                 onClick={() => onToggleMatch(event.id)}
-                className={`relative flex-shrink-0 flex flex-col items-center justify-center px-3 py-2 rounded-lg border text-center transition-colors cursor-pointer min-w-[100px] ${
+                className={`relative overflow-hidden flex-shrink-0 flex flex-col items-center justify-center px-3 py-2 rounded-lg border text-center transition-colors cursor-pointer min-w-[100px] ${
                   isSelected
                     ? 'border-neon bg-neon/5'
                     : 'border-border bg-surface hover:bg-surface-hover'
                 }`}
               >
+                {playedSegment !== null && playedSegment.endPct > playedSegment.startPct && (
+                  <div
+                    className="absolute inset-px z-0 rounded-[7px] pointer-events-none"
+                    style={{
+                      background: `linear-gradient(to right, transparent 0%, transparent ${playedSegment.startPct.toFixed(1)}%, rgba(255,255,255,0.06) ${playedSegment.startPct.toFixed(1)}%, rgba(255,255,255,0.06) ${playedSegment.endPct.toFixed(1)}%, transparent ${playedSegment.endPct.toFixed(1)}%)`,
+                    }}
+                  />
+                )}
+
                 <VenueBadge isHome={isHome} />
+
+                {playedMinutesLabel && (
+                  <div className="absolute top-1.5 right-1.5 z-10 text-[8px] leading-none font-medium tabular-nums text-white/75 drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)] pointer-events-none">
+                    {playedMinutesLabel}
+                  </div>
+                )}
 
                 {/* Cartellino in alto a destra */}
                 {cardInfo && (
-                  <div className="absolute top-1.5 right-1.5">
+                  <div className="absolute top-1 right-5 z-10">
                     {cardInfo.type === 'yellow' && (
                       <div
                         className="rounded-sm"
@@ -178,15 +315,15 @@ export default function MatchTimeline({
                   </div>
                 )}
 
-                <div className="mt-2 mb-0.5">
+                <div className="relative z-10 mt-2 mb-0.5">
                   <OpponentCrest team={opponentTeam} />
                 </div>
-                <div className="text-[11px] leading-tight text-text-secondary font-medium whitespace-nowrap">
+                <div className="relative z-10 text-[11px] leading-tight text-text-secondary font-medium whitespace-nowrap">
                   {scoreline}
                 </div>
 
                 {/* Badge falli */}
-                <div className="mt-1 flex items-center gap-1">
+                <div className="relative z-10 mt-1 flex items-center gap-1">
                   {!isLoaded ? (
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
                       <span className="w-2 h-2 border border-text-muted border-t-transparent rounded-full animate-spin mr-1" />

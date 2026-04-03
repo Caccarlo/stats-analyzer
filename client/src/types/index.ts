@@ -214,7 +214,7 @@ export interface MatchAnalysis {
 export type ViewType = 'home' | 'leagues' | 'teams' | 'team' | 'player';
 
 export type SelectedPeriod =
-  | { type: 'last'; count: 5 | 10 | 15 | 20 | 30 }
+  | { type: 'last'; count: 5 | 10 | 15 | 20 | 30 | 50 | 75 }
   | { type: 'season'; year: string };
 
 export interface PlayerFilterState {

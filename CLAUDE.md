@@ -216,6 +216,8 @@ Other current behavior:
 - In `MatchCard`, aggregated season averages for the selected comparison player are cached in a module-level in-memory LRU map keyed by `{activePlayerId, selectedTournamentsKey}` (with in-flight dedupe and cached `unavailable` outcomes), so reopening the same player+tournaments context reuses data immediately without spinner.
 - In `MatchCard`, clicking a fouled/fouling player, a player dot on the field map, or the active-player name switches `activePlayerId` locally, updating the heatmap plus contextual season/match foul stats for that player.
 - In `MatchCard`, clicking the opponent team or a linked player can open or swap the opposite split panel on desktop; on mobile it navigates in-place.
+- In `MatchCard`, field map and heatmap orientation depend on the measured width of the positions section: multi-card layouts stay portrait, while a single selected card uses landscape only when that section is at least `620px` wide; otherwise both views switch to portrait without changing the two-column layout.
+- In `MatchCard`, the comparison stat boxes around the heatmap are also width-aware: they stay on the left/right sides only when the heatmap column is at least `620px` wide and still has enough extra room beyond the heatmap itself; otherwise the season averages move above the heatmap and the in-match foul counters move below it.
 - `PlayerPage` derives season club badges from `allEvents` plus progressively-loaded `playerSide` lineup data, so season logos in the period dropdown can appear incrementally as lineups finish loading.
 
 ## Filters
@@ -288,6 +290,8 @@ Additional rules:
 
 - Field must always keep `aspect-ratio: 68/105`.
 - Split view is only available above 1024px.
+- MatchCard field/heatmap orientation is width-aware: single-card layouts may render in landscape, but only when the measured positions-section width is at least `620px`; narrower single cards and all double/multi-card layouts use portrait.
+- MatchCard heatmap-side stat placement is width-aware: the heatmap column keeps season averages on the left and match foul counters on the right only when it reaches `620px` and preserves extra clearance around the heatmap; narrower columns switch to averages above and foul counters below.
 - Card widths:
   - 1 card: `100%`
   - 2 cards: `calc(50% - 4px)`

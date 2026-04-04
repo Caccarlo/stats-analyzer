@@ -13,6 +13,7 @@ import type {
   MatchLineups,
   PlayerPosition,
   HeatmapPoint,
+  StandingGroup,
   StandingRow,
   SearchResult,
 } from '@/types';
@@ -199,10 +200,17 @@ export async function getTournamentSeasons(tournamentId: number): Promise<Season
 }
 
 export async function getSeasonStandings(tournamentId: number, seasonId: number): Promise<StandingRow[]> {
-  const data = await apiFetch<{ standings: { rows: StandingRow[] }[] }>(
+  const data = await apiFetch<{ standings: StandingGroup[] }>(
     `unique-tournament/${tournamentId}/season/${seasonId}/standings/total`
   );
   return data.standings?.[0]?.rows ?? [];
+}
+
+export async function getSeasonStandingGroups(tournamentId: number, seasonId: number): Promise<StandingGroup[]> {
+  const data = await apiFetch<{ standings: StandingGroup[] }>(
+    `unique-tournament/${tournamentId}/season/${seasonId}/standings/total`
+  );
+  return data.standings ?? [];
 }
 
 async function getTournamentSeasonEventsByDirection(

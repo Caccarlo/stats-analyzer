@@ -134,7 +134,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 | `category/{categoryId}/unique-tournaments` | All tournaments for a football category | LeagueList |
 | `search/all?q={query}` | Global player search | SearchBar |
 | `unique-tournament/{id}/seasons` | Tournament seasons | TeamGrid |
-| `unique-tournament/{id}/season/{id}/standings/total` | Teams from standings | TeamGrid |
+| `unique-tournament/{id}/season/{id}/standings/total` | Teams from standings, including per-group tables when provided | TeamGrid |
 | `unique-tournament/{id}/season/{id}/events/last/{page}` | Past tournament matches for phase reconstruction | TeamGrid, SidebarTeamList |
 | `unique-tournament/{id}/season/{id}/events/next/{page}` | Upcoming tournament matches for phase reconstruction | TeamGrid, SidebarTeamList |
 | `team/{id}/players` | Team roster | TeamView |
@@ -159,9 +159,20 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 - `TeamGrid` and `SidebarTeamList` both consume `useTournamentViewData`, which resolves the selected/latest season once, reconstructs cup phases or standings once, and keeps a shared in-memory snapshot cache keyed by tournament+season.
 - If the tournament exposes meaningful named phases (for example league phase, group stage, round of 16, quarter-finals, semi-finals, final), the app treats it as a phase-based competition instead of relying on `standings/total`.
 - A single named knockout-style phase such as `Final` is enough to classify the tournament as phase-based, and even a single generic phase is treated as cup-style when it looks like a compact knockout mini-tournament (few teams, few matches, short date span), preventing pointless standings calls for domestic super cups and similar short cups.
-- For phase-based competitions, the teams view shows a phase dropdown ordered by the most recent phase timestamp, and each phase renders the union of home/away teams found in that phase's scheduled or played events.
+- When no season is preselected, `useTournamentViewData` now skips placeholder-only editions and defaults to the most recent season that has at least one visible phase with real participants or a non-empty standings table.
+- For phase-based competitions, the teams view shows a phase dropdown ordered by the most recent phase timestamp, and each phase now renders only the real teams already assigned to that phase's scheduled or played matches, while placeholder slots such as `1A`, `A1`, `W49`, `Winner Match 49`, `1st Group A`, `TBA`, or `Winner Group A` stay hidden.
+- When SofaScore exposes `standings/total` for a phase-based competition, `TeamGrid` reuses those standings inside the matching phase or group section, so league phases and grouped stages can render position, points, and matches played in standings order instead of plain alphabetical team cards.
+- Group-style subphases such as `Group H`, `Group J`, or collapsed generic matchdays are grouped under a single `League phase` entry and rendered in one page with small subsection labels per group/matchday.
+- Qualification subphases such as `Qualification round 1` and `Qualification round 2` are grouped under a single `Qualification` entry and rendered in one page with small subsection labels per round.
+- Phase grouping now includes sub-competition context from `event.tournament.name`, so labels like `Qualification Playoffs - Final` no longer get merged with the main tournament `Final`.
 - `SidebarTeamList` mirrors the same selected phase through `PanelState.tournamentPhaseKey` / `tournamentPhaseName`.
 - Tournament event paging treats `404` on `events/last|next/{page}` as a terminal empty page, so closed mini-tournaments such as domestic super cups do not pay retry backoff for nonexistent future pages.
+
+### Tournament Season Selector
+
+- `TeamGrid` now always renders a season dropdown for both standings-based leagues and phase-based cups.
+- In phase mode, the season selector sits beside a narrower phase selector; in standings mode, it sits to the right of the tournament title.
+- Changing season resets the selected phase for that tournament view and rebuilds teams/phases from the chosen season only.
 
 ### Foul Pairing
 

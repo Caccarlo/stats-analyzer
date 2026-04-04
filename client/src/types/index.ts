@@ -305,10 +305,27 @@ export interface StandingRow {
   points: number;
 }
 
+export interface StandingGroup {
+  name?: string;
+  type?: string;
+  rows: StandingRow[];
+}
+
 export interface TournamentPhase {
   key: string;
   name: string;
   teams: Team[];
+  standings: StandingRow[];
+  events: MatchEvent[];
+  sections: TournamentPhaseSection[];
+  sortTimestamp: number;
+}
+
+export interface TournamentPhaseSection {
+  key: string;
+  label: string;
+  teams: Team[];
+  standings: StandingRow[];
   events: MatchEvent[];
   sortTimestamp: number;
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, type ReactNode } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import { getTeamImageUrl } from '@/api/sofascore';
 import { useTournamentViewData } from '@/hooks/useTournamentViewData';
-import type { Team } from '@/types';
+import type { Season, StandingRow, Team, TournamentPhaseSection } from '@/types';
 
 interface TeamGridProps {
   leagueId: number;
@@ -21,19 +21,107 @@ function TeamCard({
   return (
     <button
       onClick={onClick}
-      className="relative flex flex-col items-center gap-2 bg-surface border border-border rounded-lg p-4 hover:border-neon transition-colors"
+      className="relative flex flex-col items-center gap-1.5 px-3.5 py-2.5 bg-surface border border-border rounded-lg hover:border-neon transition-colors"
     >
       {badge}
       <img
         src={getTeamImageUrl(team.id)}
         alt=""
-        className="w-12 h-12 object-contain"
+        className="w-9 h-9 object-contain"
         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
       />
-      <span className="text-text-primary text-sm font-medium text-center leading-tight">
+      <span className="text-text-primary text-[10.5px] font-medium text-center leading-tight">
         {team.name}
       </span>
     </button>
+  );
+}
+
+function StandingBadge({ row }: { row: StandingRow }) {
+  return (
+    <>
+      <span className="absolute top-1.5 left-1.5 text-[10px] text-text-muted/70 font-medium">
+        {row.position}.
+      </span>
+      <div className="absolute top-1.5 right-1.5 text-right leading-none">
+        <span className="text-[10px] text-text-muted/70 font-medium">
+          {row.points} pts
+        </span>
+        <br />
+        <span className="text-[9px] text-text-muted/60">
+          {row.matches} pg
+        </span>
+      </div>
+    </>
+  );
+}
+
+function getSeasonLabel(season: Season): string {
+  return season.year?.trim() || season.name?.trim() || String(season.id);
+}
+
+function TeamCardGrid({
+  panelIndex,
+  onSelectTeam,
+  teams = [],
+  standings = [],
+}: {
+  panelIndex: number;
+  onSelectTeam: (panel: number, teamId: number, teamName?: string) => void;
+  teams?: Team[];
+  standings?: StandingRow[];
+}) {
+  if (standings.length > 0) {
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {standings.map((row) => (
+          <TeamCard
+            key={row.team.id}
+            team={row.team}
+            onClick={() => onSelectTeam(panelIndex, row.team.id, row.team.name)}
+            badge={<StandingBadge row={row} />}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      {teams.map((team) => (
+        <TeamCard
+          key={team.id}
+          team={team}
+          onClick={() => onSelectTeam(panelIndex, team.id, team.name)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function TeamSection({
+  section,
+  panelIndex,
+  onSelectTeam,
+}: {
+  section: TournamentPhaseSection;
+  panelIndex: number;
+  onSelectTeam: (panel: number, teamId: number, teamName?: string) => void;
+}) {
+  if (section.teams.length === 0 && section.standings.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">
+        {section.label}
+      </p>
+      <TeamCardGrid
+        panelIndex={panelIndex}
+        onSelectTeam={onSelectTeam}
+        teams={section.teams}
+        standings={section.standings}
+      />
+    </section>
   );
 }
 
@@ -43,6 +131,7 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
   const leagueName = panel?.leagueName ?? 'Campionato';
   const {
     seasonId,
+    seasons,
     mode,
     teams,
     phases,
@@ -78,6 +167,16 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
     });
   };
 
+  const handleSeasonChange = (value: string) => {
+    const nextSeasonId = Number(value);
+    if (!Number.isFinite(nextSeasonId) || nextSeasonId === seasonId) return;
+    navigateTo(panelIndex, 'teams', {
+      seasonId: nextSeasonId,
+      tournamentPhaseKey: undefined,
+      tournamentPhaseName: undefined,
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-text-muted">
@@ -93,41 +192,73 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
 
   if (mode === 'phases') {
     const phaseTeams = selectedPhase?.teams ?? [];
+    const phaseStandings = selectedPhase?.standings ?? [];
+    const phaseSections = selectedPhase?.sections ?? [];
 
     return (
       <div>
         <div className="flex flex-col gap-3 mb-4">
           <h2 className="text-lg font-bold text-text-primary">{leagueName}</h2>
-          <div className="max-w-sm">
-            <label className="block text-xs text-text-muted uppercase tracking-wide mb-1.5">
-              Fase
-            </label>
-            <select
-              value={selectedPhase?.key ?? ''}
-              onChange={(e) => handlePhaseChange(e.target.value)}
-              className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-neon"
-            >
-              {phases.map((phase) => (
-                <option key={phase.key} value={phase.key}>
-                  {phase.name}
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-col gap-3 md:flex-row md:items-end">
+            {phases.length > 0 && (
+              <div className="md:flex-1 md:max-w-xs">
+                <label className="block text-xs text-text-muted uppercase tracking-wide mb-1.5">
+                  Fase
+                </label>
+                <select
+                  value={selectedPhase?.key ?? ''}
+                  onChange={(e) => handlePhaseChange(e.target.value)}
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-neon"
+                >
+                  {phases.map((phase) => (
+                    <option key={phase.key} value={phase.key}>
+                      {phase.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="md:w-52">
+              <label className="block text-xs text-text-muted uppercase tracking-wide mb-1.5">
+                Stagione
+              </label>
+              <select
+                value={seasonId ?? ''}
+                onChange={(e) => handleSeasonChange(e.target.value)}
+                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-neon"
+              >
+                {seasons.map((season) => (
+                  <option key={season.id} value={season.id}>
+                    {getSeasonLabel(season)}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
-        {phaseTeams.length === 0 ? (
-          <div className="text-sm text-text-muted">Nessuna squadra disponibile per questa fase.</div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {phaseTeams.map((team) => (
-              <TeamCard
-                key={team.id}
-                team={team}
-                onClick={() => selectTeam(panelIndex, team.id, team.name)}
+        {phases.length === 0 ? (
+          <div className="text-sm text-text-muted">Nessuna fase con squadre reali disponibile per questa stagione.</div>
+        ) : phaseSections.length > 0 ? (
+          <div className="space-y-6">
+            {phaseSections.map((section) => (
+              <TeamSection
+                key={section.key}
+                section={section}
+                panelIndex={panelIndex}
+                onSelectTeam={selectTeam}
               />
             ))}
           </div>
+        ) : phaseTeams.length === 0 && phaseStandings.length === 0 ? (
+          <div className="text-sm text-text-muted">Nessuna squadra disponibile per questa fase.</div>
+        ) : (
+          <TeamCardGrid
+            panelIndex={panelIndex}
+            onSelectTeam={selectTeam}
+            teams={phaseTeams}
+            standings={phaseStandings}
+          />
         )}
       </div>
     );
@@ -135,32 +266,30 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
 
   return (
     <div>
-      <h2 className="text-lg font-bold text-text-primary mb-4">{leagueName}</h2>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {teams.map((row) => (
-          <TeamCard
-            key={row.team.id}
-            team={row.team}
-            onClick={() => selectTeam(panelIndex, row.team.id, row.team.name)}
-            badge={(
-              <>
-                <span className="absolute top-1.5 left-2 text-xs text-text-muted/70 font-medium">
-                  {row.position}.
-                </span>
-                <div className="absolute top-1.5 right-2 text-right leading-none">
-                  <span className="text-[11px] text-text-muted/70 font-medium">
-                    {row.points} pts
-                  </span>
-                  <br />
-                  <span className="text-[10px] text-text-muted/60">
-                    {row.matches} pg
-                  </span>
-                </div>
-              </>
-            )}
-          />
-        ))}
+      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-end sm:justify-between">
+        <h2 className="text-lg font-bold text-text-primary">{leagueName}</h2>
+        <div className="sm:w-52">
+          <label className="block text-xs text-text-muted uppercase tracking-wide mb-1.5">
+            Stagione
+          </label>
+          <select
+            value={seasonId ?? ''}
+            onChange={(e) => handleSeasonChange(e.target.value)}
+            className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-neon"
+          >
+            {seasons.map((season) => (
+              <option key={season.id} value={season.id}>
+                {getSeasonLabel(season)}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
+      <TeamCardGrid
+        panelIndex={panelIndex}
+        onSelectTeam={selectTeam}
+        standings={teams}
+      />
     </div>
   );
 }

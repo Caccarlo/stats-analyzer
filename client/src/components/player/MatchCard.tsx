@@ -4,7 +4,6 @@ import type { MatchEvent, Player, Team, FoulMatchup, PlayerPosition, PlayerSeaso
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import { getPlayerSeasonStats, getMatchAveragePositions, getTeamImageUrl } from '@/api/sofascore';
-import { COUNTRIES } from '@/components/navigation/CountryList';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
@@ -205,7 +204,7 @@ export default function MatchCard({
   cardCount,
   onRequestRichDetails,
 }: MatchCardProps) {
-  const { openSplitPlayer, swapSplitAndOpenPlayer, openSplitTeam, swapSplitAndOpenTeam, selectPlayer } = useNavigation();
+  const { state, openSplitPlayer, swapSplitAndOpenPlayer, openSplitTeam, swapSplitAndOpenTeam, selectPlayer } = useNavigation();
 
   const [activePlayerId, setActivePlayerId] = useState(playerId);
   const [positions, setPositions] = useState<{ home: PlayerPosition[]; away: PlayerPosition[] } | null>(null);
@@ -347,17 +346,20 @@ export default function MatchCard({
   }, [involvedKey, playerId]);
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+  const panel = state.panels[panelIndex];
 
   const buildNavContext = () => {
-    if (!event.tournament?.uniqueTournament) return undefined;
-    const leagueId = event.tournament.uniqueTournament.id;
-    const leagueName = event.tournament.uniqueTournament.name;
-    const country = COUNTRIES.find((c) => c.leagues.some((l) => l.id === leagueId));
+    const leagueId = event.tournament?.uniqueTournament?.id ?? panel?.leagueId;
+    const leagueName = event.tournament?.uniqueTournament?.name ?? panel?.leagueName;
+    if (!leagueId && !leagueName && !panel?.countryId && !panel?.countryCategoryId) return undefined;
     return {
       leagueId,
       leagueName,
-      countryId: country?.id,
-      countryName: country?.name,
+      countryId: panel?.countryId,
+      countryName: panel?.countryName,
+      countryCategoryId: panel?.countryCategoryId,
+      tournamentPhaseKey: panel?.tournamentPhaseKey,
+      tournamentPhaseName: panel?.tournamentPhaseName,
     };
   };
 

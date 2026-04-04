@@ -268,9 +268,12 @@ export interface PanelState {
   view: ViewType;
   countryId?: string;
   countryName?: string;
+  countryCategoryId?: number;
   leagueId?: number;
   leagueName?: string;
   seasonId?: number;
+  tournamentPhaseKey?: string;
+  tournamentPhaseName?: string;
   teamId?: number;
   teamName?: string;
   playerId?: number;
@@ -282,18 +285,12 @@ export interface NavigationState {
   panels: PanelState[];
 }
 
-// === Paesi e campionati hardcoded ===
+// === Categorie top in home ===
 
 export interface CountryConfig {
   id: string;
   name: string;
   categoryId: number;
-  leagues: LeagueConfig[];
-}
-
-export interface LeagueConfig {
-  id: number;
-  name: string;
 }
 
 // === Standings ===
@@ -306,6 +303,14 @@ export interface StandingRow {
   draws: number;
   losses: number;
   points: number;
+}
+
+export interface TournamentPhase {
+  key: string;
+  name: string;
+  teams: Team[];
+  events: MatchEvent[];
+  sortTimestamp: number;
 }
 
 // === Ricerca ===

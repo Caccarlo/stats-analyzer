@@ -9,7 +9,6 @@ import {
 } from '@/api/sofascore';
 import { getFormationPositions } from '@/utils/positionMapping';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
-import { COUNTRIES } from '@/components/navigation/CountryList';
 import type { Player, MatchEvent, LineupPlayer } from '@/types';
 
 interface TeamViewProps {
@@ -21,6 +20,7 @@ interface TeamViewProps {
 export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: TeamViewProps) {
   const { state, selectPlayer, openSplitPlayer, openSplitTeam, swapSplitAndOpenTeam, selectTeam, navigateTo } = useNavigation();
   const hasSplit = state.panels.length > 1;
+  const panel = state.panels[panelIndex];
   const [roster, setRoster] = useState<Player[]>([]);
   const [nextEvent, setNextEvent] = useState<MatchEvent | null>(null);
   const [lineupPlayers, setLineupPlayers] = useState<LineupPlayer[]>([]);
@@ -72,22 +72,31 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
     return () => { cancelled = true; };
   }, [teamId]);
 
-  // Fallback: se il pannello non ha contesto league, ricavalo dal torneo del prossimo evento
+  // Fallback: se il pannello non ha contesto league, ricavalo dal torneo del prossimo evento.
   useEffect(() => {
     if (!nextEvent?.tournament?.uniqueTournament) return;
-    const panel = state.panels[panelIndex];
-    if (panel?.leagueId) return; // Già ha contesto league (es. da Champions League)
+    if (panel?.leagueId) return;
 
-    const leagueId = nextEvent.tournament.uniqueTournament.id;
-    const leagueName = nextEvent.tournament.uniqueTournament.name;
-    const country = COUNTRIES.find(c => c.leagues.some(l => l.id === leagueId));
     navigateTo(panelIndex, 'team', {
-      leagueId,
-      leagueName,
-      countryId: country?.id,
-      countryName: country?.name,
+      leagueId: nextEvent.tournament.uniqueTournament.id,
+      leagueName: nextEvent.tournament.uniqueTournament.name,
+      countryId: panel?.countryId,
+      countryName: panel?.countryName,
+      countryCategoryId: panel?.countryCategoryId,
+      tournamentPhaseKey: panel?.tournamentPhaseKey,
+      tournamentPhaseName: panel?.tournamentPhaseName,
     });
-  }, [nextEvent, panelIndex]);
+  }, [
+    nextEvent,
+    panel?.leagueId,
+    panel?.countryId,
+    panel?.countryName,
+    panel?.countryCategoryId,
+    panel?.tournamentPhaseKey,
+    panel?.tournamentPhaseName,
+    panelIndex,
+    navigateTo,
+  ]);
 
   const starters = lineupPlayers.filter((p) => !p.substitute);
   const starterIds = new Set(starters.map((p) => p.player.id));
@@ -101,14 +110,17 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
 
   const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
 
+  const navContext = {
+    leagueId: panel?.leagueId,
+    leagueName: panel?.leagueName,
+    countryId: panel?.countryId,
+    countryName: panel?.countryName,
+    countryCategoryId: panel?.countryCategoryId,
+    tournamentPhaseKey: panel?.tournamentPhaseKey,
+    tournamentPhaseName: panel?.tournamentPhaseName,
+  };
+
   const handlePlayerClick = (player: Player) => {
-    const panel = state.panels[panelIndex];
-    const navContext = {
-      leagueId: panel?.leagueId,
-      leagueName: panel?.leagueName,
-      countryId: panel?.countryId,
-      countryName: panel?.countryName,
-    };
     if (isDesktop && panelIndex === 0 && !hasSplit) {
       // Desktop panel 0, no split yet: open split with player on right
       openSplitPlayer(player, teamId, teamName, navContext);
@@ -123,22 +135,18 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
 
   const handleOpponentClick = () => {
     if (!opponent || !nextEvent) return;
-    // Ricava contesto di navigazione dal torneo della partita
-    const leagueId = nextEvent.tournament.uniqueTournament.id;
-    const leagueName = nextEvent.tournament.uniqueTournament.name;
-    const country = COUNTRIES.find(c => c.leagues.some(l => l.id === leagueId));
-    const navContext = {
-      leagueId,
-      leagueName,
-      countryId: country?.id,
-      countryName: country?.name,
+    const opponentNavContext = {
+      ...navContext,
+      leagueId: nextEvent.tournament.uniqueTournament.id,
+      leagueName: nextEvent.tournament.uniqueTournament.name,
     };
+
     if (isDesktop) {
       if (hasSplit) {
         // [team | player/team] -> [panel1 | opponent]: swap and open
-        swapSplitAndOpenTeam(opponent.id, opponent.name, navContext);
+        swapSplitAndOpenTeam(opponent.id, opponent.name, opponentNavContext);
       } else {
-        openSplitTeam(opponent.id, opponent.name, navContext);
+        openSplitTeam(opponent.id, opponent.name, opponentNavContext);
       }
     } else {
       selectTeam(0, opponent.id, opponent.name);
@@ -197,7 +205,7 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
             </button>
           ) : teamName}
           {nextEvent.tournament && (
-            <span> · {nextEvent.tournament.name}</span>
+            <span> | {nextEvent.tournament.name}</span>
           )}
           {roundLabel && (
             <span> {roundLabel}</span>

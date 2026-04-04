@@ -1,5 +1,6 @@
 import type {
   Player,
+  Tournament,
   Season,
   TournamentSeason,
   PlayerSeasonStats,
@@ -57,8 +58,8 @@ async function apiFetch<T>(path: string, useCache = true): Promise<T> {
       const data: T = await res.json();
       if (useCache) setCache(path, data);
       return data;
-    } catch (e: any) {
-      lastError = e;
+    } catch (e: unknown) {
+      lastError = e instanceof Error ? e : new Error(String(e));
     }
   }
 
@@ -85,6 +86,27 @@ export async function getCategories(): Promise<{ id: number; name: string; slug:
 
 // === Tornei ===
 
+export async function getCategoryTournaments(categoryId: number): Promise<Tournament[]> {
+  const data = await apiFetch<{
+    groups?: Array<{ uniqueTournaments?: Tournament[] }>;
+    uniqueTournaments?: Tournament[];
+  }>(`category/${categoryId}/unique-tournaments`);
+
+  const tournaments = [
+    ...(data.uniqueTournaments ?? []),
+    ...(data.groups?.flatMap((group) => group.uniqueTournaments ?? []) ?? []),
+  ];
+
+  const deduped = new Map<number, Tournament>();
+  tournaments.forEach((tournament) => {
+    if (!deduped.has(tournament.id)) {
+      deduped.set(tournament.id, tournament);
+    }
+  });
+
+  return [...deduped.values()];
+}
+
 export async function getTournamentSeasons(tournamentId: number): Promise<Season[]> {
   const data = await apiFetch<{ seasons: Season[] }>(
     `unique-tournament/${tournamentId}/seasons`
@@ -97,6 +119,48 @@ export async function getSeasonStandings(tournamentId: number, seasonId: number)
     `unique-tournament/${tournamentId}/season/${seasonId}/standings/total`
   );
   return data.standings?.[0]?.rows ?? [];
+}
+
+async function getTournamentSeasonEventsByDirection(
+  tournamentId: number,
+  seasonId: number,
+  direction: 'last' | 'next',
+): Promise<MatchEvent[]> {
+  const events: MatchEvent[] = [];
+
+  for (let page = 0; page < 20; page++) {
+    try {
+      const data = await apiFetch<{ events?: MatchEvent[]; hasNextPage?: boolean }>(
+        `unique-tournament/${tournamentId}/season/${seasonId}/events/${direction}/${page}`
+      );
+      events.push(...(data.events ?? []));
+      if (!data.hasNextPage) break;
+    } catch (error) {
+      if (page === 0) return [];
+      throw error;
+    }
+  }
+
+  return events;
+}
+
+export async function getTournamentSeasonEvents(
+  tournamentId: number,
+  seasonId: number,
+): Promise<MatchEvent[]> {
+  const [lastEvents, nextEvents] = await Promise.all([
+    getTournamentSeasonEventsByDirection(tournamentId, seasonId, 'last'),
+    getTournamentSeasonEventsByDirection(tournamentId, seasonId, 'next'),
+  ]);
+
+  const deduped = new Map<number, MatchEvent>();
+  [...lastEvents, ...nextEvents].forEach((event) => {
+    if (!deduped.has(event.id)) {
+      deduped.set(event.id, event);
+    }
+  });
+
+  return [...deduped.values()];
 }
 
 // === Squadra ===

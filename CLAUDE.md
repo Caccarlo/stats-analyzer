@@ -64,11 +64,11 @@ stats-analyzer/
             |   |-- ContentPanel.tsx
             |   `-- SearchBar.tsx
             |-- navigation/
-            |   |-- CountryList.tsx
-            |   |-- LeagueList.tsx
-            |   |-- TeamGrid.tsx
+            |   |-- CountryList.tsx     # Top 6 categories pinned first + dynamic full category list from SofaScore
+            |   |-- LeagueList.tsx      # Dynamic tournament list for the selected SofaScore category
+            |   |-- TeamGrid.tsx         # League standings or cup-phase team grid depending on tournament structure
             |   |-- TeamView.tsx
-            |   `-- SidebarTeamList.tsx
+            |   `-- SidebarTeamList.tsx  # Mirrors the selected league/cup phase team list in the sidebar
             |-- player/
             |   |-- PlayerHeader.tsx
             |   |-- PlayerFilters.tsx
@@ -93,6 +93,8 @@ Browser (5173) -> React App -> sofascore.ts
 
 - Server: minimal proxy with browser-like headers and in-memory TTL cache.
 - Client: no React Router; navigation is reducer-driven through `NavigationContext`.
+- Country/category navigation keeps both a UI `countryId` and the SofaScore source-of-truth `countryCategoryId`, so downstream views can keep dynamic country context without relying on hardcoded league mappings.
+- Teams navigation can also persist a selected `tournamentPhaseKey` / `tournamentPhaseName` for cup-style competitions, so the main panel and sidebar stay aligned on the chosen phase.
 - Match details are loaded progressively by `useMatchTimeline`, with cache reuse in `useMatchDetails`.
 
 ## Navigation & Split View
@@ -127,10 +129,13 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 
 | Endpoint | Purpose | Used in |
 |----------|---------|---------|
-| `sport/football/categories` | Football categories list | available, not currently used |
+| `sport/football/categories` | Football categories list | CountryList |
+| `category/{categoryId}/unique-tournaments` | All tournaments for a football category | LeagueList |
 | `search/all?q={query}` | Global player search | SearchBar |
-| `unique-tournament/{id}/seasons` | Tournament seasons | LeagueList, TeamGrid |
+| `unique-tournament/{id}/seasons` | Tournament seasons | TeamGrid |
 | `unique-tournament/{id}/season/{id}/standings/total` | Teams from standings | TeamGrid |
+| `unique-tournament/{id}/season/{id}/events/last/{page}` | Past tournament matches for phase reconstruction | TeamGrid, SidebarTeamList |
+| `unique-tournament/{id}/season/{id}/events/next/{page}` | Upcoming tournament matches for phase reconstruction | TeamGrid, SidebarTeamList |
 | `team/{id}/players` | Team roster | TeamView |
 | `team/{id}/events/next/0` | Next match | TeamView |
 | `event/{id}` | Match metadata (duration, score periods, venue/referee details) | useMatchTimeline |
@@ -147,6 +152,13 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 | `team/{id}/image`, `player/{id}/image`, etc. | Images | `/api/img/*` |
 
 ## Business Logic
+
+### Tournament Structure
+
+- `TeamGrid` first loads the latest season plus season events for the selected tournament.
+- If the tournament exposes meaningful named phases (for example league phase, group stage, round of 16, quarter-finals, semi-finals, final), the app treats it as a phase-based competition instead of relying on `standings/total`.
+- For phase-based competitions, the teams view shows a phase dropdown ordered by the most recent phase timestamp, and each phase renders the union of home/away teams found in that phase's scheduled or played events.
+- `SidebarTeamList` mirrors the same selected phase through `PanelState.tournamentPhaseKey` / `tournamentPhaseName`.
 
 ### Foul Pairing
 

@@ -94,7 +94,7 @@ function AppContent() {
           <div>
             {!hasSplit && <SearchBar panelIndex={panelIndex} />}
             <div className={!hasSplit ? 'mt-6' : ''}>
-              <LeagueList countryId={panel.countryId} panelIndex={panelIndex} />
+              <LeagueList panelIndex={panelIndex} />
             </div>
           </div>
         ) : null;
@@ -118,6 +118,11 @@ function AppContent() {
             <p className="px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide">
               {panel0.leagueName ?? 'Campionato'}
             </p>
+            {panel0.tournamentPhaseName && (
+              <p className="px-4 pb-1 text-[11px] text-text-muted/80">
+                {panel0.tournamentPhaseName}
+              </p>
+            )}
             <SidebarTeamList leagueId={panel0.leagueId} />
           </>
         ) : null;
@@ -157,10 +162,10 @@ function AppContent() {
 
       default:
         return (
-          <>
+          <div className="h-full min-h-0 flex flex-col">
             <p className="px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide">Paesi</p>
-            <CountryList />
-          </>
+            <CountryList scrollOnlyOthers />
+          </div>
         );
     }
   };

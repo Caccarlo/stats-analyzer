@@ -68,9 +68,12 @@ function reducer(state: NavState, action: NavAction): NavState {
       if (prevView === 'home') {
         newPanel.countryId = undefined;
         newPanel.countryName = undefined;
+        newPanel.countryCategoryId = undefined;
         newPanel.leagueId = undefined;
         newPanel.leagueName = undefined;
         newPanel.seasonId = undefined;
+        newPanel.tournamentPhaseKey = undefined;
+        newPanel.tournamentPhaseName = undefined;
         newPanel.teamId = undefined;
         newPanel.teamName = undefined;
         newPanel.playerId = undefined;
@@ -79,6 +82,8 @@ function reducer(state: NavState, action: NavAction): NavState {
         newPanel.leagueId = undefined;
         newPanel.leagueName = undefined;
         newPanel.seasonId = undefined;
+        newPanel.tournamentPhaseKey = undefined;
+        newPanel.tournamentPhaseName = undefined;
         newPanel.teamId = undefined;
         newPanel.teamName = undefined;
         newPanel.playerId = undefined;
@@ -151,7 +156,7 @@ interface NavContextValue {
   openSplitHome: () => void;
   closeSplit: (panel?: number) => void;
   updatePanelFilters: (panel: number, filterState: PlayerFilterState) => void;
-  selectCountry: (panel: number, countryId: string, countryName?: string) => void;
+  selectCountry: (panel: number, countryId: string, countryName?: string, categoryId?: number) => void;
   selectLeague: (panel: number, leagueId: number, leagueName?: string, seasonId?: number) => void;
   selectTeam: (panel: number, teamId: number, teamName?: string) => void;
   selectPlayer: (panel: number, playerId: number, playerData?: Player) => void;
@@ -224,12 +229,18 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'UPDATE_PANEL_FILTERS', panel, filterState });
   };
 
-  const selectCountry = (panel: number, countryId: string, countryName?: string) => {
-    navigateTo(panel, 'leagues', { countryId, countryName });
+  const selectCountry = (panel: number, countryId: string, countryName?: string, categoryId?: number) => {
+    navigateTo(panel, 'leagues', { countryId, countryName, countryCategoryId: categoryId });
   };
 
   const selectLeague = (panel: number, leagueId: number, leagueName?: string, seasonId?: number) => {
-    navigateTo(panel, 'teams', { leagueId, leagueName, seasonId });
+    navigateTo(panel, 'teams', {
+      leagueId,
+      leagueName,
+      seasonId,
+      tournamentPhaseKey: undefined,
+      tournamentPhaseName: undefined,
+    });
   };
 
   const selectTeam = (panel: number, teamId: number, teamName?: string) => {

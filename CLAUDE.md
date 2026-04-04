@@ -63,7 +63,7 @@ stats-analyzer/
             |-- layout/
             |   |-- Sidebar.tsx
             |   |-- ContentPanel.tsx
-            |   `-- SearchBar.tsx
+            |   `-- SearchBar.tsx              # Searches players, teams, and tournaments; routes each type to the correct navigation action
             |-- navigation/
             |   |-- CountryList.tsx     # Top 7 categories pinned first (IT, EN, ES, DE, FR, EU, World) + dynamic full category list from SofaScore
             |   |-- LeagueList.tsx      # Dynamic tournament list for the selected SofaScore category
@@ -96,6 +96,8 @@ Browser (5173) -> React App -> sofascore.ts
 - Client: no React Router; navigation is reducer-driven through `NavigationContext`.
 - Country/category navigation keeps both a UI `countryId` and the SofaScore source-of-truth `countryCategoryId`, so downstream views can keep dynamic country context without relying on hardcoded league mappings.
 - Teams navigation can also persist a selected `tournamentPhaseKey` / `tournamentPhaseName` for cup-style competitions, so the main panel and sidebar stay aligned on the chosen phase.
+- `Tournament` objects in event data include an optional `category` field (id, name, alpha2) exposing country context. `TeamView` uses this in a fallback effect to populate missing `leagueId` and `countryId`/`countryCategoryId` on the panel, so `GO_BACK` can traverse the full hierarchy (player → team → teams → leagues) even when navigation started from search rather than the country list.
+- `SearchResult` is a discriminated union: `PlayerSearchResult | TeamSearchResult | TournamentSearchResult`. Clicking a player calls `selectPlayer`, a team calls `selectTeam`, a tournament calls `navigateTo('teams', ...)` with full country context derived from the result's `category` field.
 - Match details are loaded progressively by `useMatchTimeline`, with cache reuse in `useMatchDetails`.
 
 ## Navigation & Split View
@@ -132,7 +134,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 |----------|---------|---------|
 | `sport/football/categories` | Football categories list | CountryList |
 | `category/{categoryId}/unique-tournaments` | All tournaments for a football category | LeagueList |
-| `search/all?q={query}` | Global player search | SearchBar |
+| `search/all?q={query}` | Global search returning players, teams, and tournaments | SearchBar |
 | `unique-tournament/{id}/seasons` | Tournament seasons | TeamGrid |
 | `unique-tournament/{id}/season/{id}/standings/total` | Teams from standings, including per-group tables when provided | TeamGrid |
 | `unique-tournament/{id}/season/{id}/events/last/{page}` | Past tournament matches for phase reconstruction | TeamGrid, SidebarTeamList |

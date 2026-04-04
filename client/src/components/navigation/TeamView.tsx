@@ -72,23 +72,25 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
     return () => { cancelled = true; };
   }, [teamId]);
 
-  // Fallback: se il pannello non ha contesto league, ricavalo dal torneo del prossimo evento.
+  // Fallback: se il pannello non ha contesto league o paese, ricavalo dal torneo del prossimo evento.
   useEffect(() => {
     if (!nextEvent?.tournament?.uniqueTournament) return;
-    if (panel?.leagueId) return;
+    if (panel?.leagueId && panel?.countryId) return;
 
+    const ut = nextEvent.tournament.uniqueTournament;
     navigateTo(panelIndex, 'team', {
-      leagueId: nextEvent.tournament.uniqueTournament.id,
-      leagueName: nextEvent.tournament.uniqueTournament.name,
-      countryId: panel?.countryId,
-      countryName: panel?.countryName,
-      countryCategoryId: panel?.countryCategoryId,
+      leagueId: panel?.leagueId ?? ut.id,
+      leagueName: panel?.leagueName ?? ut.name,
+      countryId: panel?.countryId ?? ut.category?.alpha2 ?? (ut.category?.id !== undefined ? String(ut.category.id) : undefined),
+      countryName: panel?.countryName ?? ut.category?.name,
+      countryCategoryId: panel?.countryCategoryId ?? ut.category?.id,
       tournamentPhaseKey: panel?.tournamentPhaseKey,
       tournamentPhaseName: panel?.tournamentPhaseName,
     });
   }, [
     nextEvent,
     panel?.leagueId,
+    panel?.leagueName,
     panel?.countryId,
     panel?.countryName,
     panel?.countryCategoryId,

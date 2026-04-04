@@ -16,6 +16,8 @@ import type {
   StandingGroup,
   StandingRow,
   SearchResult,
+  PlayerSearchResult,
+  TeamSearchResult,
 } from '@/types';
 
 // === Cache ===
@@ -153,11 +155,22 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
 
 // === Ricerca ===
 
-export async function searchPlayers(query: string): Promise<SearchResult[]> {
+export async function searchAll(query: string): Promise<SearchResult[]> {
   const data = await apiFetch<{ results?: SearchResult[] }>(
     `search/all?q=${encodeURIComponent(query)}&page=0`
   );
-  return (data.results ?? []).filter((r) => r.type === 'player');
+  return (data.results ?? []).filter((r): r is SearchResult => {
+    if (r.type === 'player') return true;
+    if (r.type === 'team') return (r as TeamSearchResult).entity.sport?.slug === 'football';
+    if (r.type === 'uniqueTournament') return true;
+    return false;
+  });
+}
+
+/** @deprecated Use searchAll instead */
+export async function searchPlayers(query: string): Promise<PlayerSearchResult[]> {
+  const results = await searchAll(query);
+  return results.filter((r): r is PlayerSearchResult => r.type === 'player');
 }
 
 // === Categorie / Paesi ===

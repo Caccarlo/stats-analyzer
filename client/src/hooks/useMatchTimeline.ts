@@ -109,6 +109,14 @@ function isRelevantTimelineEvent(
   if (validSeasonIds === null) return true;
   if (validSeasonIds.has(event.season?.id)) return true;
 
+  // Accept any finished event within the season date window (catches friendlies
+  // whose tournament isn't in the player's registered tournamentSeasons API).
+  if (seasonDateRange &&
+      event.startTimestamp >= seasonDateRange.startTimestamp &&
+      event.startTimestamp <= seasonDateRange.endTimestamp) {
+    return true;
+  }
+
   const tournamentId = event.tournament?.uniqueTournament?.id;
   if (tournamentId == null || !validTournamentIds?.has(tournamentId)) return false;
 
@@ -117,11 +125,7 @@ function isRelevantTimelineEvent(
     return true;
   }
 
-  if (!seasonDateRange) return false;
-  return (
-    event.startTimestamp >= seasonDateRange.startTimestamp &&
-    event.startTimestamp <= seasonDateRange.endTimestamp
-  );
+  return false;
 }
 
 function cloneDetailsMap(source: Map<number, CachedMatchDetails>): Map<number, CachedMatchDetails> {

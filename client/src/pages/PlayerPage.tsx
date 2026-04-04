@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
 import type { SelectedPeriod } from '@/hooks/usePlayerData';
 import { useMatchTimeline } from '@/hooks/useMatchTimeline';
@@ -155,6 +155,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setSufferedLine,
     showStartersOnly,
     setShowStartersOnly,
+    ensureTournamentsEnabled,
   } = usePlayerData(playerId, savedFilters, handleFiltersChange);
 
   // All tournaments available for the current season year (used in 'season' mode)
@@ -314,12 +315,20 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
   // Tournament list for the filter UI:
   // 'last' mode → unique tournaments extracted from the current last-N valid matches
-  // 'season' mode → same as allTournamentsForSeason
+  // 'season' mode → allTournamentsForSeason + extra tournaments from loaded events (e.g. friendlies)
   const tournamentsForFilter = useMemo(() => {
-    if (selectedPeriod.type === 'season') return allTournamentsForSeason;
+    const source = selectedPeriod.type === 'season' ? allEvents : lastPeriodBaseEvents;
     const seen = new Set<number>();
     const result: typeof allTournamentsForSeason = [];
-    for (const event of lastPeriodBaseEvents) {
+    // Start with API-known tournaments in season mode
+    if (selectedPeriod.type === 'season') {
+      for (const t of allTournamentsForSeason) {
+        seen.add(t.tournamentId);
+        result.push(t);
+      }
+    }
+    // Add any extra tournaments found in loaded events (friendlies, etc.)
+    for (const event of source) {
       const tid = event.tournament?.uniqueTournament?.id;
       const tname = event.tournament?.uniqueTournament?.name;
       if (tid && tname && !seen.has(tid)) {
@@ -333,7 +342,28 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       }
     }
     return result;
-  }, [selectedPeriod.type, allTournamentsForSeason, lastPeriodBaseEvents]);
+  }, [selectedPeriod.type, allTournamentsForSeason, allEvents, lastPeriodBaseEvents]);
+
+  // Auto-enable newly discovered tournaments (friendlies, etc.) — only once per ID.
+  // Reset tracking when player or period changes (usePlayerData already resets enabledTournaments).
+  const knownFilterTournaments = useRef(new Set<number>());
+  const prevContextKey = useRef('');
+  useEffect(() => {
+    const contextKey = `${playerId}|${selectedPeriod.type}|${selectedPeriod.type === 'season' ? currentSeasonYear : selectedPeriod.count}`;
+    if (contextKey !== prevContextKey.current) {
+      knownFilterTournaments.current = new Set<number>();
+      prevContextKey.current = contextKey;
+    }
+    if (tournamentsForFilter.length === 0) return;
+    const newIds = new Set<number>();
+    for (const t of tournamentsForFilter) {
+      if (!knownFilterTournaments.current.has(t.tournamentId)) {
+        knownFilterTournaments.current.add(t.tournamentId);
+        newIds.add(t.tournamentId);
+      }
+    }
+    if (newIds.size > 0) ensureTournamentsEnabled(newIds);
+  }, [tournamentsForFilter, ensureTournamentsEnabled, playerId, selectedPeriod, currentSeasonYear]);
 
   // Tournaments currently enabled (subset of tournamentsForFilter)
   const activeFilterTournaments = useMemo(

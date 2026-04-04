@@ -65,7 +65,7 @@ stats-analyzer/
             |   |-- ContentPanel.tsx
             |   `-- SearchBar.tsx
             |-- navigation/
-            |   |-- CountryList.tsx     # Top 6 categories pinned first + dynamic full category list from SofaScore
+            |   |-- CountryList.tsx     # Top 7 categories pinned first (IT, EN, ES, DE, FR, EU, World) + dynamic full category list from SofaScore
             |   |-- LeagueList.tsx      # Dynamic tournament list for the selected SofaScore category
             |   |-- TeamGrid.tsx         # League standings or cup-phase team grid depending on tournament structure
             |   |-- TeamView.tsx
@@ -270,8 +270,10 @@ Additional rules:
 
 ### Competizioni
 
-- In season mode, available competitions come from the current season.
-- In `Ultime N`, available competitions come only from the current `lastPeriodBaseEvents`.
+- In season mode, available competitions come from the current season API data plus any extra tournaments discovered in loaded events (e.g. friendlies whose tournament isn't in the player's `tournamentSeasons` API).
+- In `Ultime N`, available competitions come from the current `lastPeriodBaseEvents`.
+- Tournaments discovered from loaded events are auto-enabled once via `ensureTournamentsEnabled`; the tracking resets on player/period/season change so manual disables within a session are preserved.
+- `isRelevantTimelineEvent` accepts any finished event within the season date window regardless of tournament membership, so friendly matches appear in season mode.
 - If the user disables the only active competition, the next one is auto-enabled first.
 
 ### Casa / Trasferta

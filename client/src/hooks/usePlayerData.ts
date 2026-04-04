@@ -33,6 +33,7 @@ interface PlayerDataResult {
   setShowCards: (v: boolean) => void;
   showStartersOnly: boolean;
   setShowStartersOnly: (v: boolean) => void;
+  ensureTournamentsEnabled: (ids: Set<number>) => void;
   committedLine: number;
   setCommittedLine: (v: number) => void;
   sufferedLine: number;
@@ -222,6 +223,17 @@ export function usePlayerData(
     });
   }, []);
 
+  const ensureTournamentsEnabled = useCallback((ids: Set<number>) => {
+    setEnabledTournaments((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (!next.has(id)) { next.add(id); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
   const selectedTournaments = tournamentsForSeason.filter((t) =>
     enabledTournaments.has(t.tournamentId)
   );
@@ -247,6 +259,7 @@ export function usePlayerData(
     setShowCards,
     showStartersOnly,
     setShowStartersOnly,
+    ensureTournamentsEnabled,
     committedLine,
     setCommittedLine,
     sufferedLine,

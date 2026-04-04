@@ -34,6 +34,11 @@ const TOP_COUNTRIES: CountryConfig[] = [
     name: 'Europa',
     categoryId: 1465,
   },
+  {
+    id: 'WO',
+    name: 'World',
+    categoryId: 1468,
+  },
 ];
 
 function CountryButton({

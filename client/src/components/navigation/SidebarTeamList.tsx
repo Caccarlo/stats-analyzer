@@ -1,84 +1,16 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import { getSeasonStandings, getTournamentSeasonEvents, getTournamentSeasons } from '@/api/sofascore';
-import { buildTournamentPhases, isPhaseBasedCompetition } from '@/utils/tournamentPhases';
-import type { StandingRow, Team, TournamentPhase } from '@/types';
+import { useTournamentViewData } from '@/hooks/useTournamentViewData';
+import type { Team } from '@/types';
 
 interface SidebarTeamListProps {
   leagueId: number;
 }
 
-type CompetitionMode = 'standings' | 'phases';
-
 export default function SidebarTeamList({ leagueId }: SidebarTeamListProps) {
   const { state, selectTeam } = useNavigation();
   const panel = state.panels[0];
-  const [mode, setMode] = useState<CompetitionMode>('standings');
-  const [teams, setTeams] = useState<StandingRow[]>([]);
-  const [phases, setPhases] = useState<TournamentPhase[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-
-    (async () => {
-      try {
-        const seasons = await getTournamentSeasons(leagueId);
-        if (cancelled || !seasons.length) {
-          if (!cancelled) {
-            setTeams([]);
-            setPhases([]);
-            setMode('standings');
-            setLoading(false);
-          }
-          return;
-        }
-
-        const currentSeason = seasons[0];
-        const events = await getTournamentSeasonEvents(leagueId, currentSeason.id);
-        const derivedPhases = buildTournamentPhases(events);
-
-        if (cancelled) return;
-
-        if (isPhaseBasedCompetition(derivedPhases)) {
-          setMode('phases');
-          setPhases(derivedPhases);
-          setTeams([]);
-          setLoading(false);
-          return;
-        }
-
-        try {
-          const standings = await getSeasonStandings(leagueId, currentSeason.id);
-          if (!cancelled) {
-            setMode('standings');
-            setTeams(standings);
-            setPhases([]);
-            setLoading(false);
-          }
-        } catch {
-          if (!cancelled && derivedPhases.length > 0) {
-            setMode('phases');
-            setPhases(derivedPhases);
-            setTeams([]);
-            setLoading(false);
-            return;
-          }
-          throw new Error('Standings non disponibili');
-        }
-      } catch {
-        if (!cancelled) {
-          setTeams([]);
-          setPhases([]);
-          setMode('standings');
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [leagueId]);
+  const { mode, teams, phases, loading } = useTournamentViewData(leagueId, panel?.seasonId);
 
   const selectedPhase = useMemo(() => {
     if (mode !== 'phases' || phases.length === 0) return null;

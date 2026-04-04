@@ -26,6 +26,11 @@ interface TimelineSnapshot {
   recentRichLoaded: boolean;
 }
 
+interface SeasonDateRange {
+  startTimestamp: number;
+  endTimestamp: number;
+}
+
 const playerEventsPageCache = new Map<string, PlayerEventsPageResult>();
 const timelineContextCache = new Map<string, TimelineSnapshot>();
 const matchDurationMetadataCache = new Map<number, MatchDurationMetadata | null>();
@@ -74,16 +79,49 @@ function normalizeSeededOfficialStats(details: CachedMatchDetails): CachedMatchD
   };
 }
 
+function isFinishedEvent(event: MatchEvent): boolean {
+  return event.status?.type === 'finished';
+}
+
 function buildTimelineContextKey(
   playerId: number,
   seasonIdsKey: string,
+  tournamentIdsKey: string,
+  tournamentYearPairsKey: string,
+  seasonDateRangeKey: string,
   maxEvents?: number,
   minPlayedEvents?: number,
 ): string {
   const suffix = minPlayedEvents !== undefined
     ? `p${minPlayedEvents}-m${maxEvents ?? 'all'}`
     : `${maxEvents ?? 'all'}`;
-  return `${playerId}|${seasonIdsKey}|${suffix}`;
+  return `${playerId}|${seasonIdsKey}|${tournamentIdsKey || '-'}|${tournamentYearPairsKey || '-'}|${seasonDateRangeKey || '-'}|${suffix}`;
+}
+
+function isRelevantTimelineEvent(
+  event: MatchEvent,
+  validSeasonIds: Set<number | undefined> | null,
+  validTournamentIds?: Set<number>,
+  validTournamentYearPairs?: Set<string>,
+  seasonDateRange?: SeasonDateRange | null,
+): boolean {
+  if (!isFinishedEvent(event)) return false;
+  if (validSeasonIds === null) return true;
+  if (validSeasonIds.has(event.season?.id)) return true;
+
+  const tournamentId = event.tournament?.uniqueTournament?.id;
+  if (tournamentId == null || !validTournamentIds?.has(tournamentId)) return false;
+
+  const seasonYear = event.season?.year;
+  if (seasonYear && validTournamentYearPairs?.has(`${tournamentId}:${seasonYear}`)) {
+    return true;
+  }
+
+  if (!seasonDateRange) return false;
+  return (
+    event.startTimestamp >= seasonDateRange.startTimestamp &&
+    event.startTimestamp <= seasonDateRange.endTimestamp
+  );
 }
 
 function cloneDetailsMap(source: Map<number, CachedMatchDetails>): Map<number, CachedMatchDetails> {
@@ -185,11 +223,14 @@ function buildSnapshotFromEvents(
 
 function buildSnapshotFromCachedPages(
   playerId: number,
-  validSeasonIds: Set<number>,
+  validSeasonIds: Set<number | undefined> | null,
+  validTournamentIds?: Set<number>,
+  validTournamentYearPairs?: Set<string>,
+  seasonDateRange?: SeasonDateRange | null,
   maxEvents?: number,
   minPlayedEvents?: number,
 ): TimelineSnapshot | null {
-  if (validSeasonIds.size === 0) return null;
+  if (validSeasonIds !== null && validSeasonIds.size === 0) return null;
 
   let page = 0;
   let accumulated: MatchEvent[] = [];
@@ -211,9 +252,15 @@ function buildSnapshotFromCachedPages(
     } = cachedPage;
     Object.assign(combinedOnBenchMap, onBenchMap);
 
-    const relevant = pageEvents.filter(
-      (event) => event.status?.code === 100 && validSeasonIds.has(event.season?.id),
-    );
+    const relevant = pageEvents.filter((event) => (
+      isRelevantTimelineEvent(
+        event,
+        validSeasonIds,
+        validTournamentIds,
+        validTournamentYearPairs,
+        seasonDateRange,
+      )
+    ));
 
     accumulated = [...accumulated, ...relevant];
     for (const event of relevant) {
@@ -263,26 +310,80 @@ function buildSnapshotFromCachedPages(
 
 export function useMatchTimeline(
   playerId: number,
-  validSeasonIds: Set<number>,
+  validSeasonIds: Set<number | undefined> | null,
+  validTournamentIds?: Set<number>,
+  validTournamentYearPairs?: Set<string>,
+  seasonDateRange?: SeasonDateRange | null,
   maxEvents?: number,
   minPlayedEvents?: number,
 ): UseMatchTimelineResult {
   const seasonIdsKey = useMemo(
-    () => [...validSeasonIds].sort().join(','),
+    () => (validSeasonIds === null ? '*' : [...validSeasonIds].sort().join(',')),
     [validSeasonIds],
   );
+  const tournamentIdsKey = useMemo(
+    () => (validTournamentIds ? [...validTournamentIds].sort((a, b) => a - b).join(',') : ''),
+    [validTournamentIds],
+  );
+  const tournamentYearPairsKey = useMemo(
+    () => (validTournamentYearPairs ? [...validTournamentYearPairs].sort().join(',') : ''),
+    [validTournamentYearPairs],
+  );
+  const seasonDateRangeKey = useMemo(
+    () => (seasonDateRange
+      ? `${seasonDateRange.startTimestamp}:${seasonDateRange.endTimestamp}`
+      : ''),
+    [seasonDateRange],
+  );
   const stableSeasonIds = useMemo(
-    () => new Set(
-      seasonIdsKey
-        .split(',')
-        .filter(Boolean)
-        .map((value) => Number(value)),
-    ),
+    () => {
+      if (seasonIdsKey === '*') return null;
+      return new Set(
+        seasonIdsKey
+          .split(',')
+          .filter(Boolean)
+          .map((value) => Number(value)),
+      );
+    },
     [seasonIdsKey],
   );
+  const stableTournamentYearPairs = useMemo(
+    () => (tournamentYearPairsKey
+      ? new Set(tournamentYearPairsKey.split(',').filter(Boolean))
+      : undefined),
+    [tournamentYearPairsKey],
+  );
+  const stableTournamentIds = useMemo(
+    () => (tournamentIdsKey
+      ? new Set(
+        tournamentIdsKey
+          .split(',')
+          .filter(Boolean)
+          .map((value) => Number(value)),
+      )
+      : undefined),
+    [tournamentIdsKey],
+  );
+  const stableSeasonDateRange = useMemo(
+    () => {
+      if (!seasonDateRangeKey) return null;
+      const [startTimestamp, endTimestamp] = seasonDateRangeKey.split(':').map((value) => Number(value));
+      if (!Number.isFinite(startTimestamp) || !Number.isFinite(endTimestamp)) return null;
+      return { startTimestamp, endTimestamp };
+    },
+    [seasonDateRangeKey],
+  );
   const contextKey = useMemo(
-    () => buildTimelineContextKey(playerId, seasonIdsKey, maxEvents, minPlayedEvents),
-    [playerId, seasonIdsKey, maxEvents, minPlayedEvents],
+    () => buildTimelineContextKey(
+      playerId,
+      seasonIdsKey,
+      tournamentIdsKey,
+      tournamentYearPairsKey,
+      seasonDateRangeKey,
+      maxEvents,
+      minPlayedEvents,
+    ),
+    [playerId, seasonIdsKey, tournamentIdsKey, tournamentYearPairsKey, seasonDateRangeKey, maxEvents, minPlayedEvents],
   );
 
   const [allEvents, setAllEvents] = useState<MatchEvent[]>([]);
@@ -310,7 +411,7 @@ export function useMatchTimeline(
   }, [playerId]);
 
   useEffect(() => {
-    if (stableSeasonIds.size === 0) return;
+    if (stableSeasonIds !== null && stableSeasonIds.size === 0) return;
 
     let cancelled = false;
     statsLoadingRef.current = false;
@@ -335,6 +436,9 @@ export function useMatchTimeline(
     const cachedPagesSnapshot = buildSnapshotFromCachedPages(
       playerId,
       stableSeasonIds,
+      stableTournamentIds,
+      stableTournamentYearPairs,
+      stableSeasonDateRange,
       maxEvents,
       minPlayedEvents,
     );
@@ -387,9 +491,15 @@ export function useMatchTimeline(
           Object.assign(combinedOnBenchMap, onBenchMap);
           if (cancelled) return;
 
-          const relevant = pageEvents.filter(
-            (event) => event.status?.code === 100 && stableSeasonIds.has(event.season?.id),
-          );
+          const relevant = pageEvents.filter((event) => (
+            isRelevantTimelineEvent(
+              event,
+              stableSeasonIds,
+              stableTournamentIds,
+              stableTournamentYearPairs,
+              stableSeasonDateRange,
+            )
+          ));
 
           accumulated = [...accumulated, ...relevant];
           for (const event of relevant) {
@@ -457,7 +567,7 @@ export function useMatchTimeline(
 
     loadPages();
     return () => { cancelled = true; };
-  }, [playerId, stableSeasonIds, maxEvents, minPlayedEvents, contextKey]);
+  }, [playerId, stableSeasonIds, stableTournamentIds, stableTournamentYearPairs, stableSeasonDateRange, maxEvents, minPlayedEvents, contextKey]);
 
   useEffect(() => {
     if (allEvents.length === 0) return;
@@ -637,7 +747,10 @@ export function useMatchTimeline(
             if (cancelled) return;
 
             const patch: Partial<CachedMatchDetails> = {};
-            if (result.substituteInMinute != null) patch.substituteInMinute = result.substituteInMinute;
+            if (result.substituteInMinute != null) {
+              patch.substituteInMinute = result.substituteInMinute;
+              patch.didNotPlay = false;
+            }
             if (result.substituteOutMinute != null) patch.substituteOutMinute = result.substituteOutMinute;
 
             if (Object.keys(patch).length > 0) {

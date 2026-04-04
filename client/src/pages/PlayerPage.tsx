@@ -17,6 +17,40 @@ import MatchCard from '@/components/player/MatchCard';
 const AUTO_SELECTED_MATCH_COUNT = 3;
 const LAST_N_OPTIONS = [5, 10, 15, 20, 30, 50, 75] as const;
 
+function parseSeasonDateRange(year: string): { startTimestamp: number; endTimestamp: number } | null {
+  const shortSeasonMatch = year.match(/^(\d{2})\/(\d{2})$/);
+  if (shortSeasonMatch) {
+    const startYear = 2000 + Number(shortSeasonMatch[1]);
+    const endYear = 2000 + Number(shortSeasonMatch[2]);
+    return {
+      startTimestamp: Date.UTC(startYear, 6, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(endYear, 5, 30, 23, 59, 59) / 1000,
+    };
+  }
+
+  const longSeasonMatch = year.match(/^(\d{4})\/(\d{2}|\d{4})$/);
+  if (longSeasonMatch) {
+    const startYear = Number(longSeasonMatch[1]);
+    const rawEndYear = longSeasonMatch[2];
+    const endYear = rawEndYear.length === 2 ? 2000 + Number(rawEndYear) : Number(rawEndYear);
+    return {
+      startTimestamp: Date.UTC(startYear, 6, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(endYear, 5, 30, 23, 59, 59) / 1000,
+    };
+  }
+
+  const singleYearMatch = year.match(/^(\d{4})$/);
+  if (singleYearMatch) {
+    const seasonYear = Number(singleYearMatch[1]);
+    return {
+      startTimestamp: Date.UTC(seasonYear, 0, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(seasonYear, 11, 31, 23, 59, 59) / 1000,
+    };
+  }
+
+  return null;
+}
+
 function getTeamIdentityKey(team: Team): string {
   if (team.nameCode) return `code:${team.nameCode.toLowerCase()}`;
   if (team.shortName) return `short:${team.shortName.toLowerCase()}`;
@@ -145,9 +179,35 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       if (selectedPeriod.type === 'season') {
         return new Set(allTournamentsForSeason.map((t) => t.seasonId));
       }
-      return new Set(tournamentSeasons.flatMap((ts) => ts.seasons.map((s) => s.id)));
+      return null;
     },
-    [selectedPeriod.type, allTournamentsForSeason, tournamentSeasons],
+    [selectedPeriod.type, allTournamentsForSeason],
+  );
+
+  const validTournamentIds = useMemo(
+    () => {
+      if (selectedPeriod.type !== 'season') return undefined;
+      return new Set(allTournamentsForSeason.map((t) => t.tournamentId));
+    },
+    [selectedPeriod.type, allTournamentsForSeason],
+  );
+
+  const validTournamentYearPairs = useMemo(
+    () => {
+      if (selectedPeriod.type !== 'season') return undefined;
+      return new Set(
+        allTournamentsForSeason.map((t) => `${t.tournamentId}:${currentSeasonYear}`),
+      );
+    },
+    [selectedPeriod.type, allTournamentsForSeason, currentSeasonYear],
+  );
+
+  const seasonDateRange = useMemo(
+    () => {
+      if (selectedPeriod.type !== 'season') return null;
+      return parseSeasonDateRange(currentSeasonYear);
+    },
+    [selectedPeriod.type, currentSeasonYear],
   );
 
   const maxEvents = selectedPeriod.type === 'last' ? selectedPeriod.count * 2 : undefined;
@@ -162,7 +222,15 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     allOfficialStatsLoaded,
     allLineupsLoaded,
     requestRichDetails,
-  } = useMatchTimeline(playerId, validSeasonIds, maxEvents, minPlayedEvents);
+  } = useMatchTimeline(
+    playerId,
+    validSeasonIds,
+    validTournamentIds,
+    validTournamentYearPairs,
+    seasonDateRange,
+    maxEvents,
+    minPlayedEvents,
+  );
 
   const playedEvents = useMemo(
     () => (
@@ -337,7 +405,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   const [selectionOverrides, setSelectionOverrides] = useState<Map<number, boolean>>(new Map());
 
   const selectionContextKey = useMemo(() => {
-    const seasonKey = [...validSeasonIds].sort().join(',');
+    const seasonKey = validSeasonIds === null ? '*' : [...validSeasonIds].sort().join(',');
     const periodKey =
       selectedPeriod.type === 'last'
         ? `last:${selectedPeriod.count}`

@@ -19,51 +19,135 @@ import type {
 
 // === Cache ===
 
-const cache = new Map<string, { data: unknown; timestamp: number }>();
+type CacheEntry =
+  | { kind: 'data'; data: unknown; timestamp: number }
+  | { kind: 'absence'; data: unknown; timestamp: number }
+  | { kind: 'error'; error: { message: string; status?: number }; timestamp: number };
+
+interface ApiFetchOptions<T> {
+  useCache?: boolean;
+  notFoundValue?: T;
+}
+
+class ApiFetchError extends Error {
+  status?: number;
+  isTerminal: boolean;
+
+  constructor(message: string, status?: number, isTerminal = false) {
+    super(message);
+    this.name = 'ApiFetchError';
+    this.status = status;
+    this.isTerminal = isTerminal;
+  }
+}
+
+const cache = new Map<string, CacheEntry>();
+const inFlightRequests = new Map<string, Promise<unknown>>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minuti
 
-function getCached<T>(key: string): T | null {
+function isTerminalHttpStatus(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 429;
+}
+
+function getCached(key: string): CacheEntry | null {
   const entry = cache.get(key);
   if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
-    return entry.data as T;
+    return entry;
   }
   cache.delete(key);
   return null;
 }
 
-function setCache(key: string, data: unknown) {
-  cache.set(key, { data, timestamp: Date.now() });
+function setDataCache(key: string, data: unknown) {
+  cache.set(key, { kind: 'data', data, timestamp: Date.now() });
+}
+
+function setAbsenceCache(key: string, data: unknown) {
+  cache.set(key, { kind: 'absence', data, timestamp: Date.now() });
+}
+
+function setErrorCache(key: string, error: ApiFetchError) {
+  cache.set(key, {
+    kind: 'error',
+    error: { message: error.message, status: error.status },
+    timestamp: Date.now(),
+  });
 }
 
 // === Helper con retry e cache ===
 
-async function apiFetch<T>(path: string, useCache = true): Promise<T> {
+async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOptions<T> = true): Promise<T> {
+  const options = typeof useCacheOrOptions === 'boolean'
+    ? { useCache: useCacheOrOptions }
+    : useCacheOrOptions;
+  const useCache = options.useCache ?? true;
+
   if (useCache) {
-    const cached = getCached<T>(path);
-    if (cached) return cached;
-  }
-
-  let lastError: Error | null = null;
-  const delays = [0, 1000, 2000]; // retry con backoff
-
-  for (let attempt = 0; attempt < delays.length; attempt++) {
-    if (delays[attempt] > 0) {
-      await new Promise((r) => setTimeout(r, delays[attempt]));
-    }
-    try {
-      const res = await fetch(`/api/sofascore/${path}`);
-      if (!res.ok) {
-        throw new Error(`API error ${res.status}: ${path}`);
+    const cached = getCached(path);
+    if (cached) {
+      if (cached.kind === 'error') {
+        throw new ApiFetchError(cached.error.message, cached.error.status, true);
       }
-      const data: T = await res.json();
-      if (useCache) setCache(path, data);
-      return data;
-    } catch (e: unknown) {
-      lastError = e instanceof Error ? e : new Error(String(e));
+      return cached.data as T;
     }
   }
 
-  throw lastError ?? new Error(`Failed after retries: ${path}`);
+  const inFlight = inFlightRequests.get(path);
+  if (inFlight) {
+    return inFlight as Promise<T>;
+  }
+
+  const request = (async () => {
+    let lastError: Error | null = null;
+    const delays = [0, 1000, 2000]; // retry con backoff
+
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt] > 0) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+      }
+      try {
+        const res = await fetch(`/api/sofascore/${path}`);
+        if (!res.ok) {
+          if (res.status === 404 && options.notFoundValue !== undefined) {
+            if (useCache) setAbsenceCache(path, options.notFoundValue);
+            return options.notFoundValue;
+          }
+
+          const error = new ApiFetchError(
+            `API error ${res.status}: ${path}`,
+            res.status,
+            isTerminalHttpStatus(res.status),
+          );
+
+          if (error.isTerminal) {
+            if (useCache) setErrorCache(path, error);
+            throw error;
+          }
+
+          lastError = error;
+          continue;
+        }
+        const data: T = await res.json();
+        if (useCache) setDataCache(path, data);
+        return data;
+      } catch (e: unknown) {
+        const error = e instanceof ApiFetchError
+          ? e
+          : new ApiFetchError(String(e));
+        if (error.isTerminal) throw error;
+        lastError = error;
+      }
+    }
+
+    throw lastError ?? new Error(`Failed after retries: ${path}`);
+  })();
+
+  inFlightRequests.set(path, request);
+  try {
+    return await request;
+  } finally {
+    inFlightRequests.delete(path);
+  }
 }
 
 // === Ricerca ===
@@ -131,7 +215,8 @@ async function getTournamentSeasonEventsByDirection(
   for (let page = 0; page < 20; page++) {
     try {
       const data = await apiFetch<{ events?: MatchEvent[]; hasNextPage?: boolean }>(
-        `unique-tournament/${tournamentId}/season/${seasonId}/events/${direction}/${page}`
+        `unique-tournament/${tournamentId}/season/${seasonId}/events/${direction}/${page}`,
+        { notFoundValue: { events: [], hasNextPage: false } },
       );
       events.push(...(data.events ?? []));
       if (!data.hasNextPage) break;

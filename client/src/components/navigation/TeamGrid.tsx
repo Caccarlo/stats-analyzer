@@ -1,18 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import { getSeasonStandings, getTeamImageUrl, getTournamentSeasonEvents, getTournamentSeasons } from '@/api/sofascore';
-import { buildTournamentPhases, isPhaseBasedCompetition } from '@/utils/tournamentPhases';
-import type { StandingRow, Team, TournamentPhase } from '@/types';
+import { getTeamImageUrl } from '@/api/sofascore';
+import { useTournamentViewData } from '@/hooks/useTournamentViewData';
+import type { Team } from '@/types';
 
 interface TeamGridProps {
   leagueId: number;
   panelIndex?: number;
-}
-
-type CompetitionMode = 'standings' | 'phases';
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Errore nel caricamento delle squadre';
 }
 
 function TeamCard({
@@ -46,79 +40,20 @@ function TeamCard({
 export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
   const { state, selectTeam, navigateTo } = useNavigation();
   const panel = state.panels[panelIndex];
-  const [mode, setMode] = useState<CompetitionMode>('standings');
-  const [teams, setTeams] = useState<StandingRow[]>([]);
-  const [phases, setPhases] = useState<TournamentPhase[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const leagueName = panel?.leagueName ?? 'Campionato';
+  const {
+    seasonId,
+    mode,
+    teams,
+    phases,
+    loading,
+    error,
+  } = useTournamentViewData(leagueId, panel?.seasonId);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    (async () => {
-      try {
-        const seasons = await getTournamentSeasons(leagueId);
-        if (cancelled || !seasons.length) {
-          if (!cancelled) {
-            setTeams([]);
-            setPhases([]);
-            setMode('standings');
-            setLoading(false);
-          }
-          return;
-        }
-
-        const currentSeason = seasons[0];
-        const events = await getTournamentSeasonEvents(leagueId, currentSeason.id);
-        const derivedPhases = buildTournamentPhases(events);
-        const usePhaseMode = isPhaseBasedCompetition(derivedPhases);
-
-        if (cancelled) return;
-
-        if (panel?.seasonId !== currentSeason.id) {
-          navigateTo(panelIndex, 'teams', { seasonId: currentSeason.id });
-        }
-
-        if (usePhaseMode) {
-          setMode('phases');
-          setPhases(derivedPhases);
-          setTeams([]);
-          setLoading(false);
-          return;
-        }
-
-        try {
-          const standings = await getSeasonStandings(leagueId, currentSeason.id);
-          if (!cancelled) {
-            setMode('standings');
-            setTeams(standings);
-            setPhases([]);
-            setLoading(false);
-          }
-        } catch (standingsError) {
-          if (!cancelled && derivedPhases.length > 0) {
-            setMode('phases');
-            setPhases(derivedPhases);
-            setTeams([]);
-            setLoading(false);
-            return;
-          }
-          throw standingsError;
-        }
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setError(getErrorMessage(e));
-          setLoading(false);
-        }
-      }
-    })();
-
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leagueId, panel?.seasonId, panelIndex]);
+    if (seasonId == null || panel?.seasonId === seasonId) return;
+    navigateTo(panelIndex, 'teams', { seasonId });
+  }, [seasonId, panel?.seasonId, panelIndex, navigateTo]);
 
   const selectedPhase = useMemo(() => {
     if (mode !== 'phases' || phases.length === 0) return null;

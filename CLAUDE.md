@@ -42,13 +42,14 @@ stats-analyzer/
         |-- App.tsx                  # Root: wraps NavigationProvider, renders Sidebar + ContentPanel
         |-- index.css                # Tailwind imports + theme variables
         |-- types/index.ts           # Shared TypeScript interfaces
-        |-- api/sofascore.ts         # All API functions, client cache, retry with backoff
+        |-- api/sofascore.ts         # All API functions, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
         |-- context/
         |   `-- NavigationContext.tsx
         |-- hooks/
         |   |-- usePlayerData.ts     # Seasons/stats + all player filter state, including selectedPeriod
         |   |-- useMatchDetails.ts   # Shared match-details cache and helpers for officialStats, lineups, rich comments
         |   |-- useMatchTimeline.ts  # events/last loader + progressive officialStats/lineups/rich data queues
+        |   |-- useTournamentViewData.ts # Shared tournament teams/phases loader with snapshot cache for TeamGrid + SidebarTeamList
         |   `-- useSplitCardSync.ts  # Cross-panel card height sync
         |-- utils/
         |   |-- foulPairing.ts
@@ -155,10 +156,12 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 
 ### Tournament Structure
 
-- `TeamGrid` first loads the latest season plus season events for the selected tournament.
+- `TeamGrid` and `SidebarTeamList` both consume `useTournamentViewData`, which resolves the selected/latest season once, reconstructs cup phases or standings once, and keeps a shared in-memory snapshot cache keyed by tournament+season.
 - If the tournament exposes meaningful named phases (for example league phase, group stage, round of 16, quarter-finals, semi-finals, final), the app treats it as a phase-based competition instead of relying on `standings/total`.
+- A single named knockout-style phase such as `Final` is enough to classify the tournament as phase-based, and even a single generic phase is treated as cup-style when it looks like a compact knockout mini-tournament (few teams, few matches, short date span), preventing pointless standings calls for domestic super cups and similar short cups.
 - For phase-based competitions, the teams view shows a phase dropdown ordered by the most recent phase timestamp, and each phase renders the union of home/away teams found in that phase's scheduled or played events.
 - `SidebarTeamList` mirrors the same selected phase through `PanelState.tournamentPhaseKey` / `tournamentPhaseName`.
+- Tournament event paging treats `404` on `events/last|next/{page}` as a terminal empty page, so closed mini-tournaments such as domestic super cups do not pay retry backoff for nonexistent future pages.
 
 ### Foul Pairing
 
@@ -187,12 +190,14 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 - lineups when available
 - substitution comments only as optional support
 
+Bench appearance in lineups alone no longer implies `didNotPlay`; the player is hidden only when all available evidence still says he stayed on the bench.
+
 Matches marked `didNotPlay` are removed from PlayerPage display and statistics.
 
 ### Ultime N
 
 - `selectedPeriod` can be either `{ type: 'last', count }` or `{ type: 'season', year }`. Supported `count` values: `5 | 10 | 15 | 20 | 30 | 50 | 75`.
-- In `Ultime N`, PlayerPage passes all player season IDs to `useMatchTimeline` plus `minPlayedEvents = N` and `maxEvents = N * 2` (safety cap on total events fetched, including didNotPlay).
+- In `Ultime N`, PlayerPage passes no season filter to `useMatchTimeline` plus `minPlayedEvents = N` and `maxEvents = N * 2` (safety cap on total events fetched, including didNotPlay).
 - `minPlayedEvents` is the real stopper: `useMatchTimeline` counts only events with `onBench === false` and stops paging when it reaches N of those, hits `maxEvents`, or the API ends.
 - `PlayerPage` builds `lastPeriodBaseEvents = allEvents -> exclude didNotPlay -> slice(N)`.
 - Tournament options in `Ultime N` are derived from that same `lastPeriodBaseEvents` base.
@@ -213,7 +218,13 @@ Other current behavior:
 
 - In season mode, the pager can stop after the first irrelevant page once it has already found relevant season matches.
 - In cross-season `Ultime N`, that early stop is disabled.
-- `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKey, maxEvents, minPlayedEvents}`.
+- In season mode, `useMatchTimeline` treats an event as relevant when either the season ID matches the player-season list, the pair `{uniqueTournament.id, season.year}` matches the selected season, or the event belongs to a selected tournament and falls inside the selected season's date window. This covers SofaScore cases where the same cup edition gets different season IDs and even different season-year labels across APIs.
+- Timeline relevance now accepts any match with `event.status.type === 'finished'`, so events decided after extra time or penalties are included alongside regular full-time results.
+- In `Ultime N`, `useMatchTimeline` now loads all completed events without filtering by season ID and relies on `minPlayedEvents` / `maxEvents` to stop paging.
+- `apiFetch` deduplicates in-flight requests per path, so parallel consumers such as `TeamGrid` and `SidebarTeamList` share the same pending SofaScore call instead of duplicating retries.
+- `apiFetch` no longer retries terminal `4xx` responses except `429`, caches terminal `404` fallback payloads for endpoints that opt in, and also caches terminal `4xx` errors for the standard TTL.
+- `useTournamentViewData` keeps a shared in-memory tournament snapshot cache keyed by `{tournamentId, seasonId}` plus a latest-season alias, so reopening the same tournament view can hydrate synchronously without rebuilding phases or standings.
+- `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKeyOrWildcard, tournamentIdsKey, tournamentYearPairsKey, seasonDateRangeKey, maxEvents, minPlayedEvents}`.
 - When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.
 - Queue effects exit immediately when their corresponding `all*Loaded` flag is already true, and artificial inter-batch delays are skipped when the whole batch was cache hits.
 - PlayerPage shows a section loader while `loadingEvents || !allOfficialStatsLoaded || !allLineupsLoaded`.

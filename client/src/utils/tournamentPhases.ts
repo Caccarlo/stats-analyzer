@@ -52,6 +52,20 @@ function isGenericRoundName(name: string): boolean {
   return GENERIC_ROUND_PATTERN.test(name.trim());
 }
 
+function isCompactSinglePhaseCup(phase: TournamentPhase): boolean {
+  const uniqueTeamCount = phase.teams.length;
+  const eventCount = phase.events.length;
+  if (uniqueTeamCount < 2 || uniqueTeamCount > 16) return false;
+  if (eventCount < 1 || eventCount > uniqueTeamCount) return false;
+
+  const timestamps = phase.events.map((event) => event.startTimestamp);
+  const minTimestamp = Math.min(...timestamps);
+  const maxTimestamp = Math.max(...timestamps);
+  const spanDays = (maxTimestamp - minTimestamp) / (60 * 60 * 24);
+
+  return spanDays <= 45;
+}
+
 export function buildTournamentPhases(events: MatchEvent[]): TournamentPhase[] {
   const normalizedPhases = events.map((event) => ({
     event,
@@ -106,6 +120,10 @@ export function buildTournamentPhases(events: MatchEvent[]): TournamentPhase[] {
 }
 
 export function isPhaseBasedCompetition(phases: TournamentPhase[]): boolean {
-  if (phases.length < 2) return false;
-  return phases.some((phase) => isSpecialPhaseName(phase.name) || isSpecialPhaseName(phase.key));
+  if (phases.length < 1) return false;
+  if (phases.some((phase) => isSpecialPhaseName(phase.name) || isSpecialPhaseName(phase.key))) {
+    return true;
+  }
+  if (phases.length !== 1) return false;
+  return isCompactSinglePhaseCup(phases[0]);
 }

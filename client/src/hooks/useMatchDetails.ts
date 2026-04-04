@@ -81,8 +81,6 @@ function deriveCardStatus(
 }
 
 function deriveDidNotPlay(
-  playerId: number,
-  lineups: MatchLineups | null,
   onBench: boolean,
   officialStats: PlayerMatchStatistics | null,
   substituteInMinute?: number,
@@ -90,12 +88,6 @@ function deriveDidNotPlay(
   const minutes = officialStats?.minutesPlayed;
   if (typeof minutes === 'number' && minutes > 0) return false;
   if (typeof substituteInMinute === 'number') return false;
-
-  if (lineups) {
-    const allPlayers = [...lineups.home.players, ...lineups.away.players];
-    const inLineup = allPlayers.find((lp) => lp.player.id === playerId);
-    if (inLineup?.substitute === true) return true;
-  }
 
   return onBench && (minutes == null || minutes === 0);
 }
@@ -246,7 +238,7 @@ export async function fetchMatchLineupsOnly(
     return {
       lineupsStatus,
       jerseyMap: buildJerseyMap(lineups),
-      didNotPlay: deriveDidNotPlay(playerId, lineups, onBench, officialStats, undefined),
+      didNotPlay: deriveDidNotPlay(onBench, officialStats, undefined),
       isStarter: deriveStarterFlag(playerId, lineups),
       playerSide: derivePlayerSide(playerId, lineups),
     };
@@ -259,7 +251,7 @@ export async function fetchMatchLineupsOnly(
     return {
       lineupsStatus,
       jerseyMap: buildJerseyMap(lineups),
-      didNotPlay: deriveDidNotPlay(playerId, lineups, onBench, officialStats, undefined),
+      didNotPlay: deriveDidNotPlay(onBench, officialStats, undefined),
       isStarter: deriveStarterFlag(playerId, lineups),
       playerSide: derivePlayerSide(playerId, lineups),
     };
@@ -434,13 +426,7 @@ export async function fetchMatchDetails(
     substituteOutMinute: subInfo.outMinute,
     cardInfo,
     cardInfoStatus: deriveCardStatus(seed?.incidents ?? null, commentCardInfo, commentsStatus),
-    didNotPlay: deriveDidNotPlay(
-      playerId,
-      lineups,
-      Boolean(seed?.onBench),
-      officialStats,
-      subInfo.inMinute,
-    ),
+    didNotPlay: deriveDidNotPlay(Boolean(seed?.onBench), officialStats, subInfo.inMinute),
     isStarter: deriveStarterFlag(playerId, lineups),
     playerSide: derivePlayerSide(playerId, lineups),
     lineupsStatus,

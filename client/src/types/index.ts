@@ -25,6 +25,7 @@ export interface Tournament {
   id: number;
   name: string;
   slug: string;
+  category?: { id: number; name: string; slug?: string; alpha2?: string };
 }
 
 export interface Category {

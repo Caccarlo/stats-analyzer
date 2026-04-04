@@ -332,7 +332,26 @@ export interface TournamentPhaseSection {
 
 // === Ricerca ===
 
-export interface SearchResult {
-  type: string;
-  entity: Player & { team?: Team };
+export interface TeamSearchEntity {
+  id: number;
+  name: string;
+  slug: string;
+  nameCode?: string;
+  sport?: { id: number; slug: string };
 }
+
+export interface TournamentSearchEntity {
+  id: number;
+  name: string;
+  slug: string;
+  category?: { id: number; name: string; alpha2?: string };
+}
+
+export type PlayerSearchResult     = { type: 'player';            entity: Player & { team?: Team } };
+export type TeamSearchResult       = { type: 'team';              entity: TeamSearchEntity };
+export type TournamentSearchResult = { type: 'uniqueTournament';  entity: TournamentSearchEntity };
+
+export type SearchResult =
+  | PlayerSearchResult
+  | TeamSearchResult
+  | TournamentSearchResult;

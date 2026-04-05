@@ -18,7 +18,7 @@ interface TeamViewProps {
 }
 
 export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: TeamViewProps) {
-  const { state, selectPlayer, openSplitPlayer, openSplitTeam, swapSplitAndOpenTeam, selectTeam, navigateTo } = useNavigation();
+  const { state, selectPlayer, openSplitPlayer, openSplitTeam, selectTeam, navigateTo } = useNavigation();
   const hasSplit = state.panels.length > 1;
   const panel = state.panels[panelIndex];
   const [roster, setRoster] = useState<Player[]>([]);
@@ -26,12 +26,17 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
   const [lineupPlayers, setLineupPlayers] = useState<LineupPlayer[]>([]);
   const [formation, setFormation] = useState('');
   const [loading, setLoading] = useState(true);
-  const [teamName, setTeamName] = useState('');
+  const [teamName, setTeamName] = useState(panel?.teamName ?? '');
   const [isHome, setIsHome] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Resetta subito il nome quando cambia squadra
+    setTeamName(panel?.teamName ?? '');
+    setNextEvent(null);
+    setLineupPlayers([]);
+    setFormation('');
 
     (async () => {
       try {
@@ -46,13 +51,15 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
         const players = playersData.map((p) => p.player);
         setRoster(players);
 
-        if (players.length > 0 && players[0].team) {
-          setTeamName(players[0].team.name ?? '');
-        }
-
         if (event) {
           setNextEvent(event);
-          setIsHome(event.homeTeam.id === teamId);
+          const eventIsHome = event.homeTeam.id === teamId;
+          setIsHome(eventIsHome);
+          // Ricava il nome della squadra dall'evento se non già disponibile dal panel
+          if (!panel?.teamName) {
+            const nameFromEvent = eventIsHome ? event.homeTeam.name : event.awayTeam.name;
+            if (nameFromEvent) setTeamName(nameFromEvent);
+          }
 
           // Carica formazione probabile
           const lineups = await getMatchLineups(event.id);
@@ -137,21 +144,58 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
 
   const handleOpponentClick = () => {
     if (!opponent || !nextEvent) return;
-    const opponentNavContext = {
-      ...navContext,
-      leagueId: nextEvent.tournament.uniqueTournament.id,
-      leagueName: nextEvent.tournament.uniqueTournament.name,
+
+    const homeTeam = nextEvent.homeTeam;
+    const awayTeam = nextEvent.awayTeam;
+    const ut = nextEvent.tournament.uniqueTournament;
+    const matchNavContext = {
+      leagueId: ut.id,
+      leagueName: ut.name,
+      countryId: ut.category?.alpha2 ?? (ut.category?.id !== undefined ? String(ut.category.id) : navContext.countryId),
+      countryName: ut.category?.name ?? navContext.countryName,
+      countryCategoryId: ut.category?.id ?? navContext.countryCategoryId,
     };
 
-    if (isDesktop) {
-      if (hasSplit) {
-        // [team | player/team] -> [panel1 | opponent]: swap and open
-        swapSplitAndOpenTeam(opponent.id, opponent.name, opponentNavContext);
-      } else {
-        openSplitTeam(opponent.id, opponent.name, opponentNavContext);
-      }
-    } else {
+    if (!isDesktop) {
       selectTeam(0, opponent.id, opponent.name);
+      return;
+    }
+
+    if (!hasSplit) {
+      // Schermo intero → apri split: casa a sinistra, trasferta a destra
+      navigateTo(0, 'team', { teamId: homeTeam.id, teamName: homeTeam.name, ...matchNavContext });
+      openSplitTeam(awayTeam.id, awayTeam.name, matchNavContext);
+      return;
+    }
+
+    // Split view: cattura i panel prima di qualsiasi dispatch
+    const p0 = state.panels[0];
+    const p1 = state.panels[1];
+
+    // Già corretta: casa a sinistra, trasferta a destra → non fare nulla
+    if (p0?.teamId === homeTeam.id && p1?.teamId === awayTeam.id) return;
+
+    const p0IsPlayer = p0?.view === 'player';
+    const p1IsPlayer = p1?.view === 'player';
+
+    if (p1IsPlayer && p1?.teamId === homeTeam.id) {
+      // Player (home) a destra → spostalo a sinistra, away a destra
+      navigateTo(0, 'player', { ...p1 });
+      navigateTo(1, 'team', { teamId: awayTeam.id, teamName: awayTeam.name, ...matchNavContext });
+    } else if (p1IsPlayer && p1?.teamId === awayTeam.id) {
+      // Player (away) già a destra → home a sinistra, player rimane
+      navigateTo(0, 'team', { teamId: homeTeam.id, teamName: homeTeam.name, ...matchNavContext });
+    } else if (p0IsPlayer && p0?.teamId === homeTeam.id) {
+      // Player (home) già a sinistra → player rimane, away a destra
+      navigateTo(1, 'team', { teamId: awayTeam.id, teamName: awayTeam.name, ...matchNavContext });
+    } else if (p0IsPlayer && p0?.teamId === awayTeam.id) {
+      // Player (away) a sinistra → spostalo a destra, home a sinistra
+      navigateTo(0, 'team', { teamId: homeTeam.id, teamName: homeTeam.name, ...matchNavContext });
+      navigateTo(1, 'player', { ...p0 });
+    } else {
+      // Nessun player rilevante → entrambi i team page
+      navigateTo(0, 'team', { teamId: homeTeam.id, teamName: homeTeam.name, ...matchNavContext });
+      navigateTo(1, 'team', { teamId: awayTeam.id, teamName: awayTeam.name, ...matchNavContext });
     }
   };
 

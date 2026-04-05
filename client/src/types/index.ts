@@ -348,7 +348,7 @@ export interface TournamentSearchEntity {
   category?: { id: number; name: string; alpha2?: string };
 }
 
-export type PlayerSearchResult     = { type: 'player';            entity: Player & { team?: Team } };
+export type PlayerSearchResult     = { type: 'player';            entity: Player & { team?: Team; sport?: { id: number; slug: string } } };
 export type TeamSearchResult       = { type: 'team';              entity: TeamSearchEntity };
 export type TournamentSearchResult = { type: 'uniqueTournament';  entity: TournamentSearchEntity };
 

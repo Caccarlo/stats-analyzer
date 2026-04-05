@@ -147,7 +147,8 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
   const selectedPhase = useMemo(() => {
     if (mode !== 'phases' || phases.length === 0) return null;
     const phaseKey = panel?.tournamentPhaseKey;
-    return phases.find((phase) => phase.key === phaseKey) ?? phases[0];
+    if (phaseKey) return phases.find((phase) => phase.key === phaseKey) ?? phases[0];
+    return phases.find((phase) => phase.key === 'league-phase') ?? phases[0];
   }, [mode, phases, panel?.tournamentPhaseKey]);
 
   useEffect(() => {
@@ -197,18 +198,18 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
 
     return (
       <div>
-        <div className="flex flex-col gap-3 mb-4">
+        <div className="flex flex-col gap-2 mb-4">
           <h2 className="text-lg font-bold text-text-primary">{leagueName}</h2>
-          <div className="flex flex-col gap-3 md:flex-row md:items-end">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end">
             {phases.length > 0 && (
-              <div className="md:flex-1 md:max-w-xs">
-                <label className="block text-xs text-text-muted uppercase tracking-wide mb-1.5">
+              <div className="md:max-w-[200px]">
+                <label className="block text-xs text-text-muted uppercase tracking-wide mb-1">
                   Fase
                 </label>
                 <select
                   value={selectedPhase?.key ?? ''}
                   onChange={(e) => handlePhaseChange(e.target.value)}
-                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-neon"
+                  className="w-full bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-neon"
                 >
                   {phases.map((phase) => (
                     <option key={phase.key} value={phase.key}>
@@ -218,14 +219,14 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
                 </select>
               </div>
             )}
-            <div className="md:w-52">
-              <label className="block text-xs text-text-muted uppercase tracking-wide mb-1.5">
+            <div className="md:w-28">
+              <label className="block text-xs text-text-muted uppercase tracking-wide mb-1">
                 Stagione
               </label>
               <select
                 value={seasonId ?? ''}
                 onChange={(e) => handleSeasonChange(e.target.value)}
-                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-neon"
+                className="w-full bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-neon"
               >
                 {seasons.map((season) => (
                   <option key={season.id} value={season.id}>
@@ -266,16 +267,16 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
 
   return (
     <div>
-      <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-2 mb-4">
         <h2 className="text-lg font-bold text-text-primary">{leagueName}</h2>
-        <div className="sm:w-52">
-          <label className="block text-xs text-text-muted uppercase tracking-wide mb-1.5">
+        <div className="w-28">
+          <label className="block text-xs text-text-muted uppercase tracking-wide mb-1">
             Stagione
           </label>
           <select
             value={seasonId ?? ''}
             onChange={(e) => handleSeasonChange(e.target.value)}
-            className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-neon"
+            className="w-full bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-neon"
           >
             {seasons.map((season) => (
               <option key={season.id} value={season.id}>

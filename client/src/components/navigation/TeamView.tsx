@@ -154,6 +154,7 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
       countryId: ut.category?.alpha2 ?? (ut.category?.id !== undefined ? String(ut.category.id) : navContext.countryId),
       countryName: ut.category?.name ?? navContext.countryName,
       countryCategoryId: ut.category?.id ?? navContext.countryCategoryId,
+      seasonId: undefined,
     };
 
     if (!isDesktop) {

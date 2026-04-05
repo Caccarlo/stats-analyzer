@@ -198,14 +198,12 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 
 ### Did Not Play
 
-`didNotPlay` is derived by combining:
+`didNotPlay` is derived primarily from official minutes:
 
-- `onBenchMap` from `player/{id}/events/last/{page}`
-- official minutes
-- lineups when available
-- substitution comments only as optional support
+- `officialStats.minutesPlayed > 0` => the player is treated as having played
+- missing or zero official minutes => the player is treated as `didNotPlay`
 
-Bench appearance in lineups alone no longer implies `didNotPlay`; the player is hidden only when all available evidence still says he stayed on the bench.
+`onBenchMap`, lineups, and substitution comments are still useful for other UI details, but they no longer override official minutes when deciding whether a match counts as a real appearance.
 
 Matches marked `didNotPlay` are removed from PlayerPage display and statistics.
 
@@ -213,7 +211,7 @@ Matches marked `didNotPlay` are removed from PlayerPage display and statistics.
 
 - `selectedPeriod` can be either `{ type: 'last', count }` or `{ type: 'season', year }`. Supported `count` values: `5 | 10 | 15 | 20 | 30 | 50 | 75`.
 - In `Ultime N`, PlayerPage passes no season filter to `useMatchTimeline` plus `minPlayedEvents = N` and `maxEvents = N * 2` (safety cap on total events fetched, including didNotPlay).
-- `minPlayedEvents` is the real stopper: `useMatchTimeline` counts only events with `onBench === false` and stops paging when it reaches N of those, hits `maxEvents`, or the API ends.
+- `minPlayedEvents` is the real stopper: `useMatchTimeline` counts only events with `officialStats.minutesPlayed > 0` and stops paging when it reaches N of those, hits `maxEvents`, or the API ends.
 - `PlayerPage` builds `lastPeriodBaseEvents = allEvents -> exclude didNotPlay -> slice(N)`.
 - Tournament options in `Ultime N` are derived from that same `lastPeriodBaseEvents` base.
 - Tournament, venue, and starter filters are applied locally on that fixed `N`-match base without refetching.
@@ -243,6 +241,10 @@ Other current behavior:
 - When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.
 - Queue effects exit immediately when their corresponding `all*Loaded` flag is already true, and artificial inter-batch delays are skipped when the whole batch was cache hits.
 - PlayerPage shows a section loader while `loadingEvents || !allOfficialStatsLoaded || !allLineupsLoaded`.
+- If the selected season context resolves to no valid season IDs, `useMatchTimeline` now completes with an explicit empty snapshot instead of leaving the section loader spinning forever.
+- When `player/{id}/statistics/seasons` has no usable data, PlayerPage falls back to loading recent events from `player/{id}/events/last/*` so isolated appearances can still surface without season metadata.
+- Competition filters on PlayerPage are derived only from matches the player actually played in the loaded event set, so tournaments with only did-not-play rows no longer appear as selectable filters.
+- When PlayerPage finishes loading but `displayEvents` is empty, it shows an empty-state message: generic no-data copy when no player matches are available at all, and a filter-based message when matches exist but the current filters exclude them.
 - `MatchTimeline` always shows the visible match count in the header and a select/deselect-all toggle.
 - `PlayerPage` auto-selects the first visible timeline matches when the selection context changes: 3 cards on desktop, 1 card on mobile, with per-match overrides plus select-all / deselect-all controls layered on top.
 - In timeline cards, foul badges show `0` when official stats loaded a real zero, and `-` only when the foul value is still unavailable after loading.

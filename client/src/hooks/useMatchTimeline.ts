@@ -79,6 +79,10 @@ function normalizeSeededOfficialStats(details: CachedMatchDetails): CachedMatchD
   };
 }
 
+function hasPlayedMinutes(details: CachedMatchDetails | undefined): boolean {
+  return (details?.officialStats?.minutesPlayed ?? 0) > 0;
+}
+
 function isFinishedEvent(event: MatchEvent): boolean {
   return event.status?.type === 'finished';
 }
@@ -241,8 +245,6 @@ function buildSnapshotFromCachedPages(
   let foundRelevant = false;
   const stopAfterFirstIrrelevantPage = maxEvents === undefined;
   const combinedDetails = new Map<number, CachedMatchDetails>();
-  const combinedOnBenchMap: Record<string, boolean> = {};
-
   while (true) {
     const cachedPage = playerEventsPageCache.get(`${playerId}-${page}`);
     if (!cachedPage) return null;
@@ -254,8 +256,6 @@ function buildSnapshotFromCachedPages(
       incidentsMap,
       onBenchMap,
     } = cachedPage;
-    Object.assign(combinedOnBenchMap, onBenchMap);
-
     const relevant = pageEvents.filter((event) => (
       isRelevantTimelineEvent(
         event,
@@ -284,10 +284,7 @@ function buildSnapshotFromCachedPages(
       return buildSnapshotFromEvents(accumulated, combinedDetails);
     }
     if (minPlayedEvents !== undefined) {
-      const playedCount = accumulated.filter((event) => {
-        const onBench = combinedOnBenchMap[String(event.id)];
-        return onBench === false;
-      }).length;
+      const playedCount = accumulated.filter((event) => hasPlayedMinutes(combinedDetails.get(event.id))).length;
       if (playedCount >= minPlayedEvents) {
         return buildSnapshotFromEvents(accumulated, combinedDetails);
       }
@@ -415,13 +412,23 @@ export function useMatchTimeline(
   }, [playerId]);
 
   useEffect(() => {
-    if (stableSeasonIds !== null && stableSeasonIds.size === 0) return;
-
     let cancelled = false;
     statsLoadingRef.current = false;
     lineupsLoadingRef.current = false;
     durationLoadingRef.current = false;
     substitutionLoadingRef.current = false;
+
+    if (stableSeasonIds !== null && stableSeasonIds.size === 0) {
+      setAllEvents([]);
+      setDetailsMap(new Map());
+      setEventDurationMetadataMap(new Map());
+      setLineupsLoadedIds(new Set());
+      setLoadingEvents(false);
+      setAllOfficialStatsLoaded(true);
+      setAllLineupsLoaded(true);
+      setRecentRichLoaded(true);
+      return () => { cancelled = true; };
+    }
 
     const cachedContext = timelineContextCache.get(contextKey);
     if (cachedContext) {
@@ -476,8 +483,6 @@ export function useMatchTimeline(
       let foundRelevant = false;
       const stopAfterFirstIrrelevantPage = maxEvents === undefined;
       const combinedDetails = new Map<number, CachedMatchDetails>();
-      const combinedOnBenchMap: Record<string, boolean> = {};
-
       while (hasMore && !cancelled) {
         try {
           const pageCacheKey = `${playerId}-${page}`;
@@ -492,7 +497,6 @@ export function useMatchTimeline(
             incidentsMap,
             onBenchMap,
           } = pageResult;
-          Object.assign(combinedOnBenchMap, onBenchMap);
           if (cancelled) return;
 
           const relevant = pageEvents.filter((event) => (
@@ -526,10 +530,7 @@ export function useMatchTimeline(
             break;
           }
           if (minPlayedEvents !== undefined) {
-            const playedCount = accumulated.filter((event) => {
-              const onBench = combinedOnBenchMap[String(event.id)];
-              return onBench === false;
-            }).length;
+            const playedCount = accumulated.filter((event) => hasPlayedMinutes(combinedDetails.get(event.id))).length;
             if (playedCount >= minPlayedEvents) {
               hasMore = false;
               break;
@@ -611,9 +612,7 @@ export function useMatchTimeline(
             const patch: Partial<CachedMatchDetails> = {
               officialStats: result.officialStats,
               officialStatsStatus: result.officialStatsStatus,
-              didNotPlay: existing?.didNotPlay
-                ? (result.officialStats?.minutesPlayed ?? 0) === 0 && (existing?.onBench ?? false)
-                : false,
+              didNotPlay: (result.officialStats?.minutesPlayed ?? 0) <= 0,
             };
             patchMatchDetailsCache(event.id, playerId, patch);
             batchResults.push({ eventId: event.id, patch });
@@ -824,7 +823,6 @@ export function useMatchTimeline(
             const result = await fetchMatchLineupsOnly(
               event.id,
               playerId,
-              existing?.onBench ?? false,
               existing?.officialStats ?? null,
             );
             if (cancelled) return;

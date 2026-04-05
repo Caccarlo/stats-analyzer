@@ -3,6 +3,7 @@ import type { MatchDurationMetadata, MatchEvent, Team } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { getPlayerMatchIsHome } from '@/utils/playerMatchVenue';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
+import { clampMinute, getMatchDuration, getNominalMatchDuration, isLikelyFullMatch } from '@/utils/matchDuration';
 
 interface MatchTimelineProps {
   events: MatchEvent[];
@@ -45,50 +46,27 @@ function getTeamTag(team: Team): string {
   return team.nameCode ?? team.shortName ?? team.name;
 }
 
-function hasExplicitOvertime(score: MatchDurationMetadata['homeScore'] | undefined): boolean {
-  return Boolean(
-    score &&
-    (
-      typeof score.period3 === 'number' ||
-      typeof score.period4 === 'number' ||
-      typeof score.extra1 === 'number' ||
-      typeof score.extra2 === 'number'
-    )
-  );
-}
+function buildPlayedSegment(
+  startMinute: number,
+  endMinute: number,
+  matchDuration: number,
+): { startPct: number; endPct: number } | null {
+  const clampedStart = clampMinute(startMinute, matchDuration);
+  const clampedEnd = clampMinute(endMinute, matchDuration);
+  const safeEnd = Math.max(clampedStart, clampedEnd);
 
-function getMatchDuration(metadata: MatchDurationMetadata | null | undefined): number {
-  const baseDuration =
-    typeof metadata?.defaultPeriodCount === 'number' &&
-    typeof metadata.defaultPeriodLength === 'number' &&
-    metadata.defaultPeriodCount > 0 &&
-    metadata.defaultPeriodLength > 0
-      ? metadata.defaultPeriodCount * metadata.defaultPeriodLength
-      : 90;
+  if (safeEnd <= clampedStart) return null;
 
-  const stoppageTime =
-    (metadata?.time?.injuryTime1 ?? 0) +
-    (metadata?.time?.injuryTime2 ?? 0) +
-    (metadata?.time?.injuryTime3 ?? 0) +
-    (metadata?.time?.injuryTime4 ?? 0);
-
-  const overtimeDuration =
-    typeof metadata?.defaultOvertimeLength === 'number' &&
-    metadata.defaultOvertimeLength > 0 &&
-    (hasExplicitOvertime(metadata.homeScore) || hasExplicitOvertime(metadata.awayScore))
-      ? metadata.defaultOvertimeLength * 2
-      : 0;
-
-  return Math.max(1, baseDuration + stoppageTime + overtimeDuration);
-}
-
-function clampMinute(value: number, max: number): number {
-  return Math.min(max, Math.max(0, value));
+  return {
+    startPct: (clampedStart / matchDuration) * 100,
+    endPct: (safeEnd / matchDuration) * 100,
+  };
 }
 
 function getPlayedSegment(
   details: CachedMatchDetails | undefined,
   matchDuration: number,
+  nominalMatchDuration: number,
 ): { startPct: number; endPct: number } | null {
   const minutesPlayed = details?.officialStats?.minutesPlayed;
   if (
@@ -101,39 +79,30 @@ function getPlayedSegment(
 
   const inMinute = details.substituteInMinute;
   const outMinute = details.substituteOutMinute;
+  const clampedMinutesPlayed = clampMinute(minutesPlayed, matchDuration);
+  const fullMatch = isLikelyFullMatch(minutesPlayed, nominalMatchDuration);
+
+  if (typeof inMinute === 'number' && typeof outMinute === 'number') {
+    return buildPlayedSegment(inMinute, Math.max(inMinute, outMinute), matchDuration);
+  }
 
   if (typeof inMinute === 'number') {
-    const startMinute = clampMinute(inMinute, matchDuration);
-    const derivedEndMinute =
-      typeof outMinute === 'number' && outMinute >= startMinute
-        ? clampMinute(outMinute, matchDuration)
-        : matchDuration;
-    return {
-      startPct: (startMinute / matchDuration) * 100,
-      endPct: (Math.max(startMinute, derivedEndMinute) / matchDuration) * 100,
-    };
+    return buildPlayedSegment(inMinute, inMinute + clampedMinutesPlayed, matchDuration);
   }
 
   if (typeof outMinute === 'number') {
-    const endMinute = clampMinute(outMinute, matchDuration);
-    return {
-      startPct: 0,
-      endPct: (endMinute / matchDuration) * 100,
-    };
+    return buildPlayedSegment(outMinute - clampedMinutesPlayed, outMinute, matchDuration);
   }
 
-  if (details.isStarter === false) {
-    const startMinute = clampMinute(matchDuration - minutesPlayed, matchDuration);
-    return {
-      startPct: (startMinute / matchDuration) * 100,
-      endPct: 100,
-    };
+  if (details.isStarter === false || details.onBench) {
+    return buildPlayedSegment(matchDuration - clampedMinutesPlayed, matchDuration, matchDuration);
   }
 
-  return {
-    startPct: 0,
-    endPct: 100,
-  };
+  if (fullMatch) {
+    return buildPlayedSegment(0, matchDuration, matchDuration);
+  }
+
+  return buildPlayedSegment(0, clampedMinutesPlayed, matchDuration);
 }
 
 function getPlayedMinutesLabel(
@@ -310,7 +279,8 @@ export default function MatchTimeline({
             const counts = getFoulCounts(details);
             const cardInfo = details?.cardInfo ?? null;
             const matchDuration = getMatchDuration(durationMetadata);
-            const playedSegment = getPlayedSegment(details, matchDuration);
+            const nominalMatchDuration = getNominalMatchDuration(durationMetadata);
+            const playedSegment = getPlayedSegment(details, matchDuration, nominalMatchDuration);
             const playedMinutesLabel = getPlayedMinutesLabel(details, matchDuration);
             const isHome = getPlayerMatchIsHome(event, details, playerTeamId);
             const opponentTeam = isHome ? event.awayTeam : event.homeTeam;

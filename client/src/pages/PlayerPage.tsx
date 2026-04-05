@@ -156,6 +156,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     showStartersOnly,
     setShowStartersOnly,
     ensureTournamentsEnabled,
+    loading: playerDataLoading,
   } = usePlayerData(playerId, savedFilters, handleFiltersChange);
 
   // All tournaments available for the current season year (used in 'season' mode)
@@ -172,43 +173,52 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
+  const shouldFallbackToRecentEvents = useMemo(
+    () => selectedPeriod.type === 'season' && !playerDataLoading && availableSeasonYears.length === 0,
+    [selectedPeriod.type, playerDataLoading, availableSeasonYears.length],
+  );
+
   // Season IDs passed to useMatchTimeline:
   // 'last' mode → all season IDs across all years (caricamento fisso, indipendente dai filtri)
   // 'season' mode → only the current season year (existing behaviour)
   const validSeasonIds = useMemo(
     () => {
+      if (shouldFallbackToRecentEvents) return null;
       if (selectedPeriod.type === 'season') {
         return new Set(allTournamentsForSeason.map((t) => t.seasonId));
       }
       return null;
     },
-    [selectedPeriod.type, allTournamentsForSeason],
+    [selectedPeriod.type, allTournamentsForSeason, shouldFallbackToRecentEvents],
   );
 
   const validTournamentIds = useMemo(
     () => {
+      if (shouldFallbackToRecentEvents) return undefined;
       if (selectedPeriod.type !== 'season') return undefined;
       return new Set(allTournamentsForSeason.map((t) => t.tournamentId));
     },
-    [selectedPeriod.type, allTournamentsForSeason],
+    [selectedPeriod.type, allTournamentsForSeason, shouldFallbackToRecentEvents],
   );
 
   const validTournamentYearPairs = useMemo(
     () => {
+      if (shouldFallbackToRecentEvents) return undefined;
       if (selectedPeriod.type !== 'season') return undefined;
       return new Set(
         allTournamentsForSeason.map((t) => `${t.tournamentId}:${currentSeasonYear}`),
       );
     },
-    [selectedPeriod.type, allTournamentsForSeason, currentSeasonYear],
+    [selectedPeriod.type, allTournamentsForSeason, currentSeasonYear, shouldFallbackToRecentEvents],
   );
 
   const seasonDateRange = useMemo(
     () => {
+      if (shouldFallbackToRecentEvents) return null;
       if (selectedPeriod.type !== 'season') return null;
       return parseSeasonDateRange(currentSeasonYear);
     },
-    [selectedPeriod.type, currentSeasonYear],
+    [selectedPeriod.type, currentSeasonYear, shouldFallbackToRecentEvents],
   );
 
   const maxEvents = selectedPeriod.type === 'last' ? selectedPeriod.count * 2 : undefined;
@@ -239,7 +249,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
         .sort((a, b) => b.startTimestamp - a.startTimestamp)
         .filter((event) => {
           const details = detailsMap.get(event.id);
-          if (!details) return true;
+          if (!details) return false;
           return !details.didNotPlay;
         })
     ),
@@ -317,17 +327,24 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   // 'last' mode → unique tournaments extracted from the current last-N valid matches
   // 'season' mode → allTournamentsForSeason + extra tournaments from loaded events (e.g. friendlies)
   const tournamentsForFilter = useMemo(() => {
-    const source = selectedPeriod.type === 'season' ? allEvents : lastPeriodBaseEvents;
+    const source = selectedPeriod.type === 'season' ? playedEvents : lastPeriodBaseEvents;
     const seen = new Set<number>();
     const result: typeof allTournamentsForSeason = [];
-    // Start with API-known tournaments in season mode
+
     if (selectedPeriod.type === 'season') {
+      const sourceTournamentIds = new Set(
+        source
+          .map((event) => event.tournament?.uniqueTournament?.id)
+          .filter((value): value is number => typeof value === 'number'),
+      );
+
       for (const t of allTournamentsForSeason) {
+        if (!sourceTournamentIds.has(t.tournamentId)) continue;
         seen.add(t.tournamentId);
         result.push(t);
       }
     }
-    // Add any extra tournaments found in loaded events (friendlies, etc.)
+
     for (const event of source) {
       const tid = event.tournament?.uniqueTournament?.id;
       const tname = event.tournament?.uniqueTournament?.name;
@@ -342,7 +359,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       }
     }
     return result;
-  }, [selectedPeriod.type, allTournamentsForSeason, allEvents, lastPeriodBaseEvents]);
+  }, [selectedPeriod.type, allTournamentsForSeason, playedEvents, lastPeriodBaseEvents]);
 
   // Auto-enable newly discovered tournaments (friendlies, etc.) — only once per ID.
   // Reset tracking when player or period changes (usePlayerData already resets enabledTournaments).
@@ -376,6 +393,13 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     [activeFilterTournaments],
   );
 
+  const emptyStateMessage = useMemo(() => {
+    if (tournamentsForFilter.length === 0) {
+      return 'Nessun dato disponibile per questo giocatore.';
+    }
+    return 'Nessuna partita trovata con i filtri correnti.';
+  }, [tournamentsForFilter.length]);
+
   // ── Display events: all filters applied on top of allEvents ──
   // This is pure derivation — changing any filter never touches the background loader.
   const displayEvents = useMemo(() => {
@@ -392,7 +416,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
       events = events.filter((e) => {
         const details = detailsMap.get(e.id);
-        if (!details) return true;
+        if (!details) return false;
         return !details.didNotPlay;
       });
     }
@@ -613,7 +637,13 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   }, [setSelectedPeriod, setShowHome, setShowAway, setShowStartersOnly, setShowCommitted, setShowSuffered, setShowCards]);
 
   // ── Full-page loader: only on the very first visit (never on filter/season changes) ──
+  const waitingForSeasonContext =
+    selectedPeriod.type === 'season' &&
+    availableSeasonYears.length === 0 &&
+    playerDataLoading;
+
   const pageSectionLoading =
+    waitingForSeasonContext ||
     loadingEvents ||
     !allOfficialStatsLoaded ||
     !allLineupsLoaded;
@@ -674,6 +704,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
             Caricamento dati giocatore...
           </div>
+        ) : displayEvents.length === 0 ? (
+          <p className="mt-8 text-sm text-text-muted">
+            {emptyStateMessage}
+          </p>
         ) : (
           <>
             {derivedStats && (
@@ -721,6 +755,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                         event={event}
                         playerId={playerId}
                         playerTeamId={resolvedPlayer?.team?.id}
+                        eventDurationMetadata={eventDurationMetadataMap.get(event.id)}
                         showCommitted={showCommitted}
                         showSuffered={showSuffered}
                         panelIndex={panelIndex}

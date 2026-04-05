@@ -68,7 +68,7 @@ stats-analyzer/
             |   |-- CountryList.tsx     # Top 7 categories pinned first (IT, EN, ES, DE, FR, EU, World) + dynamic full category list from SofaScore
             |   |-- LeagueList.tsx      # Dynamic tournament list for the selected SofaScore category
             |   |-- TeamGrid.tsx         # League standings or cup-phase team grid depending on tournament structure
-            |   |-- TeamView.tsx
+            |   |-- TeamView.tsx         # Team roster + next match; opponent click always opens home left / away right
             |   `-- SidebarTeamList.tsx  # Mirrors the selected league/cup phase team list in the sidebar
             |-- player/
             |   |-- PlayerHeader.tsx
@@ -125,6 +125,8 @@ home -> leagues -> teams -> team -> player
 - Team and player views can open the opposite side in split mode.
 - Opponent team/player clicks inside match UI can open or swap the other panel.
 - SearchBar is shared in single view and duplicated per panel in split view.
+- Clicking "next opponent" in `TeamView` always arranges the match as home team on the left (panel 0) and away team on the right (panel 1), regardless of which panel the click came from. If the arrangement is already correct, the click does nothing. If one panel has a player page, it is preserved on the side matching the player's team; only the other panel is replaced with the new team.
+- `TeamView` derives `teamName` from `panel.teamName` (set at navigation time) as the primary source, then falls back to `nextEvent.homeTeam/awayTeam.name` if the panel name is missing. This prevents national team pages from showing a club name taken from a player's team.
 
 ## SofaScore API Endpoints
 

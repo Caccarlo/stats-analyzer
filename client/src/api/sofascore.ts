@@ -160,7 +160,13 @@ export async function searchAll(query: string): Promise<SearchResult[]> {
     `search/all?q=${encodeURIComponent(query)}&page=0`
   );
   return (data.results ?? []).filter((r): r is SearchResult => {
-    if (r.type === 'player') return true;
+    if (r.type === 'player') {
+      const entity = (r as PlayerSearchResult).entity;
+      const playerSport = entity.sport;
+      const teamSport = (entity.team as unknown as { sport?: { slug: string } } | undefined)?.sport;
+      const sport = playerSport ?? teamSport;
+      return !sport || sport.slug === 'football';
+    }
     if (r.type === 'team') return (r as TeamSearchResult).entity.sport?.slug === 'football';
     if (r.type === 'uniqueTournament') return true;
     return false;

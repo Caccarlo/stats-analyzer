@@ -10,13 +10,14 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { selectPlayer, selectTeam, navigateTo } = useNavigation();
+  const { navigateTo } = useNavigation();
 
   // Debounce search
   useEffect(() => {
     if (query.trim().length < 2) {
       setResults([]);
       setOpen(false);
+      setLoading(false);
       return;
     }
 
@@ -54,10 +55,36 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
   const handleSelect = (result: SearchResult) => {
     switch (result.type) {
       case 'player':
-        selectPlayer(panelIndex, result.entity.id, result.entity);
+        navigateTo(panelIndex, 'player', {
+          playerId: result.entity.id,
+          playerData: result.entity,
+          teamId: result.entity.team?.id,
+          teamName: result.entity.team?.name,
+          leagueId: undefined,
+          leagueName: undefined,
+          seasonId: undefined,
+          countryId: undefined,
+          countryName: undefined,
+          countryCategoryId: undefined,
+          tournamentPhaseKey: undefined,
+          tournamentPhaseName: undefined,
+        });
         break;
       case 'team':
-        selectTeam(panelIndex, result.entity.id, result.entity.name);
+        navigateTo(panelIndex, 'team', {
+          teamId: result.entity.id,
+          teamName: result.entity.name,
+          leagueId: undefined,
+          leagueName: undefined,
+          seasonId: undefined,
+          countryId: undefined,
+          countryName: undefined,
+          countryCategoryId: undefined,
+          tournamentPhaseKey: undefined,
+          tournamentPhaseName: undefined,
+          playerId: undefined,
+          playerData: undefined,
+        });
         break;
       case 'uniqueTournament':
         navigateTo(panelIndex, 'teams', {
@@ -68,6 +95,11 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
           countryCategoryId: result.entity.category?.id,
           tournamentPhaseKey: undefined,
           tournamentPhaseName: undefined,
+          seasonId: undefined,
+          teamId: undefined,
+          teamName: undefined,
+          playerId: undefined,
+          playerData: undefined,
         });
         break;
     }

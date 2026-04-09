@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import type { MatchEvent, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
+import type { MatchDurationMetadata, MatchEvent, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import { getPlayerSeasonStats, getMatchAveragePositions, getTeamImageUrl } from '@/api/sofascore';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
+import { clampMinute, getMatchDuration, getNominalMatchDuration, isLikelyFullMatch } from '@/utils/matchDuration';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
 
@@ -17,6 +18,7 @@ interface MatchCardProps {
   event: MatchEvent;
   playerId: number;
   playerTeamId?: number;
+  eventDurationMetadata?: MatchDurationMetadata | null;
   showCommitted: boolean;
   showSuffered: boolean;
   panelIndex?: number;
@@ -191,10 +193,93 @@ function renderAverageStatValue(value: string | null, loading: boolean, colorCla
   return value ?? '—';
 }
 
+function getAppearanceLabel(
+  details: CachedMatchDetails | undefined,
+  eventDurationMetadata?: MatchDurationMetadata | null,
+): string {
+  const officialMinutes = details?.officialStats?.minutesPlayed;
+  const hasOfficialMinutes = typeof officialMinutes === 'number' && officialMinutes > 0;
+  const substituteInMinute = details?.substituteInMinute;
+  const substituteOutMinute = details?.substituteOutMinute;
+  const matchDuration = getMatchDuration(eventDurationMetadata);
+  const nominalMatchDuration = getNominalMatchDuration(eventDurationMetadata);
+
+  if (!hasOfficialMinutes) {
+    if (typeof substituteInMinute === 'number' && typeof substituteOutMinute === 'number') {
+      return `Entrato al ${substituteInMinute}' · Uscito al ${substituteOutMinute}'`;
+    }
+    if (typeof substituteInMinute === 'number') {
+      return `Entrato al ${substituteInMinute}'`;
+    }
+    if (typeof substituteOutMinute === 'number') {
+      return `Uscito al ${substituteOutMinute}'`;
+    }
+    if (details?.isStarter === true) {
+      return 'Titolare';
+    }
+    if (details?.isStarter === false || details?.onBench) {
+      return 'Subentrato';
+    }
+    if (details?.lineupsStatus === 'loaded') {
+      return 'Presente in distinta';
+    }
+
+    return 'Dati minuti non disponibili';
+  }
+
+  const clampedMinutes = clampMinute(officialMinutes, matchDuration);
+  const inferredOutMinute = clampMinute(clampedMinutes, matchDuration);
+  const inferredEntryFromEnd = clampMinute(matchDuration - clampedMinutes, matchDuration);
+  const inferredEntryFromOut =
+    typeof substituteOutMinute === 'number'
+      ? clampMinute(substituteOutMinute - clampedMinutes, matchDuration)
+      : undefined;
+  const fullMatch = isLikelyFullMatch(officialMinutes, nominalMatchDuration);
+
+  if (details?.isStarter === true) {
+    if (fullMatch) return 'Titolare';
+    if (typeof substituteOutMinute === 'number') {
+      return `Uscito al ${substituteOutMinute}'`;
+    }
+    return `Uscito al ${inferredOutMinute}'`;
+  }
+
+  if (details?.isStarter === false || details?.onBench) {
+    const entryMinute =
+      typeof substituteInMinute === 'number'
+        ? substituteInMinute
+        : inferredEntryFromOut ?? inferredEntryFromEnd;
+
+    if (entryMinute != null && typeof substituteOutMinute === 'number') {
+      return `Entrato al ${entryMinute}' · Uscito al ${substituteOutMinute}'`;
+    }
+    if (entryMinute != null) {
+      return `Entrato al ${entryMinute}'`;
+    }
+    return 'Subentrato';
+  }
+
+  if (typeof substituteInMinute === 'number' && typeof substituteOutMinute === 'number') {
+    return `Entrato al ${substituteInMinute}' · Uscito al ${substituteOutMinute}'`;
+  }
+  if (typeof substituteInMinute === 'number') {
+    return `Entrato al ${substituteInMinute}'`;
+  }
+  if (typeof substituteOutMinute === 'number') {
+    return `Uscito al ${substituteOutMinute}'`;
+  }
+  if (fullMatch) {
+    return 'Titolare';
+  }
+
+  return `${officialMinutes} min`;
+}
+
 export default function MatchCard({
   event,
   playerId,
   playerTeamId,
+  eventDurationMetadata,
   showCommitted,
   showSuffered,
   panelIndex = 0,
@@ -301,9 +386,6 @@ export default function MatchCard({
   const sufferedFouls = fouls.filter((f) => f.type === 'suffered');
   const officialCommitted = details?.officialStats?.fouls;
   const officialSuffered = details?.officialStats?.wasFouled;
-  const officialMinutes = details?.officialStats?.minutesPlayed;
-  const substituteInMinute = details?.substituteInMinute;
-  const substituteOutMinute = details?.substituteOutMinute;
   const cardInfo = details?.cardInfo ?? null;
   const jerseyMap = details?.jerseyMap ?? new Map<number, string>();
   const commentsMessage =
@@ -312,15 +394,7 @@ export default function MatchCard({
       : details?.commentsStatus === 'error'
         ? 'Errore nel caricamento della cronaca'
         : 'Cronaca non disponibile per questa partita';
-
-  const appearanceLabel =
-    substituteInMinute != null
-      ? `Entrato al ${substituteInMinute}'`
-      : details?.lineupsStatus === 'loaded'
-        ? 'Titolare'
-        : typeof officialMinutes === 'number'
-          ? `${officialMinutes} min`
-          : 'Dati minuti non disponibili';
+  const appearanceLabel = getAppearanceLabel(details, eventDurationMetadata);
 
   const neither = !showCommitted && !showSuffered;
 
@@ -845,7 +919,6 @@ export default function MatchCard({
         </div>
         <div className="text-xs text-text-muted text-right flex-shrink-0 mx-2">
           <p>{appearanceLabel}</p>
-          {substituteOutMinute != null && <p>Uscito al {substituteOutMinute}'</p>}
         </div>
         {cardInfo && (
           <div className="flex-shrink-0 flex items-center mr-2">
@@ -879,7 +952,6 @@ export default function MatchCard({
                   <span>{appearanceLabel}</span>
                   {positionsStatus === 'loading' && <span> · Caricamento posizioni medie...</span>}
                   {positionsStatus === 'unavailable' && <span> · Posizioni medie non disponibili</span>}
-                  {substituteOutMinute != null && <span> · Uscito al {substituteOutMinute}'</span>}
                 </div>
                 <div className="mt-3 flex justify-center">
                   <HeatmapField

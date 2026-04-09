@@ -80,18 +80,6 @@ function deriveCardStatus(
   return 'idle';
 }
 
-function deriveDidNotPlay(
-  onBench: boolean,
-  officialStats: PlayerMatchStatistics | null,
-  substituteInMinute?: number,
-): boolean {
-  const minutes = officialStats?.minutesPlayed;
-  if (typeof minutes === 'number' && minutes > 0) return false;
-  if (typeof substituteInMinute === 'number') return false;
-
-  return onBench && (minutes == null || minutes === 0);
-}
-
 function buildJerseyMap(lineups: MatchLineups | null): Map<number, string> {
   const jerseyMap = new Map<number, string>();
   if (!lineups) return jerseyMap;
@@ -126,6 +114,13 @@ function derivePlayerSide(
   return undefined;
 }
 
+function deriveDidNotPlay(
+  officialStats: PlayerMatchStatistics | null,
+): boolean {
+  const minutes = officialStats?.minutesPlayed;
+  return !(typeof minutes === 'number' && minutes > 0);
+}
+
 export function createSeededMatchDetails(seed?: MatchDetailsSeed): CachedMatchDetails {
   return {
     officialStats: seed?.officialStats ?? null,
@@ -139,10 +134,7 @@ export function createSeededMatchDetails(seed?: MatchDetailsSeed): CachedMatchDe
     substituteOutMinute: undefined,
     cardInfo: deriveCardInfo(seed?.incidents ?? null, null),
     cardInfoStatus: seed?.incidents ? 'loaded' : 'idle',
-    didNotPlay: Boolean(
-      seed?.onBench &&
-      (seed?.officialStats?.minutesPlayed == null || seed.officialStats.minutesPlayed === 0)
-    ),
+    didNotPlay: deriveDidNotPlay(seed?.officialStats ?? null),
     isStarter: undefined,
     playerSide: undefined,
     lineupsStatus: 'idle',
@@ -164,9 +156,7 @@ export function mergeMatchDetailsWithSeed(
     cardInfo: cached.cardInfo ?? deriveCardInfo(seed.incidents ?? null, null),
     cardInfoStatus:
       cached.cardInfoStatus === 'loaded' || !seed.incidents ? cached.cardInfoStatus : 'loaded',
-    didNotPlay:
-      cached.didNotPlay ||
-      Boolean(seed.onBench && (cached.officialStats?.minutesPlayed == null || cached.officialStats.minutesPlayed === 0)),
+    didNotPlay: deriveDidNotPlay(cached.officialStats ?? seed.officialStats ?? null),
     onBench: cached.onBench || Boolean(seed.onBench),
   };
 }
@@ -223,7 +213,6 @@ export function patchMatchDetailsCache(
 export async function fetchMatchLineupsOnly(
   eventId: number,
   playerId: number,
-  onBench: boolean,
   officialStats: PlayerMatchStatistics | null,
 ): Promise<{
   lineupsStatus: DataAvailability;
@@ -238,7 +227,7 @@ export async function fetchMatchLineupsOnly(
     return {
       lineupsStatus,
       jerseyMap: buildJerseyMap(lineups),
-      didNotPlay: deriveDidNotPlay(onBench, officialStats, undefined),
+      didNotPlay: deriveDidNotPlay(officialStats),
       isStarter: deriveStarterFlag(playerId, lineups),
       playerSide: derivePlayerSide(playerId, lineups),
     };
@@ -251,7 +240,7 @@ export async function fetchMatchLineupsOnly(
     return {
       lineupsStatus,
       jerseyMap: buildJerseyMap(lineups),
-      didNotPlay: deriveDidNotPlay(onBench, officialStats, undefined),
+      didNotPlay: deriveDidNotPlay(officialStats),
       isStarter: deriveStarterFlag(playerId, lineups),
       playerSide: derivePlayerSide(playerId, lineups),
     };
@@ -259,7 +248,7 @@ export async function fetchMatchLineupsOnly(
     return {
       lineupsStatus: 'error',
       jerseyMap: new Map(),
-      didNotPlay: onBench && (officialStats?.minutesPlayed == null || officialStats.minutesPlayed === 0),
+      didNotPlay: deriveDidNotPlay(officialStats),
       isStarter: undefined,
       playerSide: undefined,
     };
@@ -426,7 +415,7 @@ export async function fetchMatchDetails(
     substituteOutMinute: subInfo.outMinute,
     cardInfo,
     cardInfoStatus: deriveCardStatus(seed?.incidents ?? null, commentCardInfo, commentsStatus),
-    didNotPlay: deriveDidNotPlay(Boolean(seed?.onBench), officialStats, subInfo.inMinute),
+    didNotPlay: deriveDidNotPlay(officialStats),
     isStarter: deriveStarterFlag(playerId, lineups),
     playerSide: derivePlayerSide(playerId, lineups),
     lineupsStatus,

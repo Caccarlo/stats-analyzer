@@ -17,6 +17,44 @@ const FIELD_W = 680;
 const FIELD_H = 1050;
 const FIELD_L_W = 1050;
 const FIELD_L_H = 680;
+const DOT_RADIUS_BASE = 30;
+
+function spreadOverlappingDots(
+  dots: { id: number; x: number; y: number }[],
+  minSep: number,
+): { id: number; x: number; y: number }[] {
+  const result = dots.map((d) => ({ ...d }));
+  for (let iter = 0; iter < 5; iter++) {
+    let moved = false;
+    for (let i = 0; i < result.length; i++) {
+      for (let j = i + 1; j < result.length; j++) {
+        const dx = result[j].x - result[i].x;
+        const dy = result[j].y - result[i].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < minSep) {
+          moved = true;
+          const overlap = minSep - dist;
+          let nx: number;
+          let ny: number;
+          if (dist < 1) {
+            nx = 1;
+            ny = 0;
+          } else {
+            nx = dx / dist;
+            ny = dy / dist;
+          }
+          const shift = overlap / 2;
+          result[i].x -= nx * shift;
+          result[i].y -= ny * shift;
+          result[j].x += nx * shift;
+          result[j].y += ny * shift;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+  return result;
+}
 
 // Landscape: campo ruotato 90° in senso orario, home a sinistra, away a destra
 function homeToScreenLandscape(avgX: number, avgY: number): { x: number; y: number } {
@@ -51,11 +89,16 @@ export default function FieldMap({
 
   const field = { width: FIELD_W, height: FIELD_H };
 
+  const minSep = DOT_RADIUS_BASE * dotScale;
+
   if (orientation === 'landscape') {
-    const allDots = [
+    const rawDots = [
       ...homeDots.map((p) => ({ p, pos: homeToScreenLandscape(p.averageX, p.averageY) })),
       ...awayDots.map((p) => ({ p, pos: awayToScreenLandscape(p.averageX, p.averageY) })),
-    ].sort((a, b) => (a.p.player.id === activePlayerId ? 1 : 0) - (b.p.player.id === activePlayerId ? 1 : 0));
+    ];
+    const spread = spreadOverlappingDots(rawDots.map(({ p, pos }) => ({ id: p.player.id, x: pos.x, y: pos.y })), minSep);
+    const spreadMap = new Map(spread.map((d) => [d.id, d]));
+    const allDots = rawDots.sort((a, b) => (a.p.player.id === activePlayerId ? 1 : 0) - (b.p.player.id === activePlayerId ? 1 : 0));
 
     return (
       <div className="w-full">
@@ -76,28 +119,34 @@ export default function FieldMap({
           <rect x="875" y="138" width="165" height="404" fill="none" stroke="#2a5535" strokeWidth="2" />
           <rect x="985" y="218" width="55" height="244" fill="none" stroke="#2a5535" strokeWidth="2" />
 
-          {allDots.map(({ p, pos }) => (
-            <PlayerDot
-              key={p.player.id}
-              x={pos.x}
-              y={pos.y}
-              number={p.player.jerseyNumber}
-              color={p.player.id === selectedPlayerId ? '#4ade80' : '#e0e0e0'}
-              highlighted={p.player.id === activePlayerId}
-              onClick={() => onActivePlayerChange(p.player.id)}
-              sizeScale={dotScale}
-            />
-          ))}
+          {allDots.map(({ p }) => {
+            const pos = spreadMap.get(p.player.id)!;
+            return (
+              <PlayerDot
+                key={p.player.id}
+                x={pos.x}
+                y={pos.y}
+                number={p.player.jerseyNumber}
+                color={p.player.id === selectedPlayerId ? '#4ade80' : '#e0e0e0'}
+                highlighted={p.player.id === activePlayerId}
+                onClick={() => onActivePlayerChange(p.player.id)}
+                sizeScale={dotScale}
+              />
+            );
+          })}
         </svg>
       </div>
     );
   }
 
   // Portrait (default)
-  const allDots = [
+  const rawDots = [
     ...homeDots.map((p) => ({ p, pos: homeToScreen(p.averageX, p.averageY, field) })),
     ...awayDots.map((p) => ({ p, pos: awayToScreen(p.averageX, p.averageY, field) })),
-  ].sort((a, b) => (a.p.player.id === activePlayerId ? 1 : 0) - (b.p.player.id === activePlayerId ? 1 : 0));
+  ];
+  const spread = spreadOverlappingDots(rawDots.map(({ p, pos }) => ({ id: p.player.id, x: pos.x, y: pos.y })), minSep);
+  const spreadMap = new Map(spread.map((d) => [d.id, d]));
+  const allDots = rawDots.sort((a, b) => (a.p.player.id === activePlayerId ? 1 : 0) - (b.p.player.id === activePlayerId ? 1 : 0));
 
   return (
     <div>
@@ -115,18 +164,21 @@ export default function FieldMap({
         <rect x="138" y="875" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
         <rect x="218" y="985" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
 
-        {allDots.map(({ p, pos }) => (
-          <PlayerDot
-            key={p.player.id}
-            x={pos.x}
-            y={pos.y}
-            number={p.player.jerseyNumber}
-            color={p.player.id === selectedPlayerId ? '#4ade80' : '#e0e0e0'}
-            highlighted={p.player.id === activePlayerId}
-            onClick={() => onActivePlayerChange(p.player.id)}
-            sizeScale={dotScale}
-          />
-        ))}
+        {allDots.map(({ p }) => {
+          const pos = spreadMap.get(p.player.id)!;
+          return (
+            <PlayerDot
+              key={p.player.id}
+              x={pos.x}
+              y={pos.y}
+              number={p.player.jerseyNumber}
+              color={p.player.id === selectedPlayerId ? '#4ade80' : '#e0e0e0'}
+              highlighted={p.player.id === activePlayerId}
+              onClick={() => onActivePlayerChange(p.player.id)}
+              sizeScale={dotScale}
+            />
+          );
+        })}
       </svg>
     </div>
   );

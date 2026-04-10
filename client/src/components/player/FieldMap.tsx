@@ -10,6 +10,7 @@ interface FieldMapProps {
   involvedPlayerIds: Set<number>;
   onActivePlayerChange: (id: number) => void;
   orientation?: 'portrait' | 'landscape';
+  dotScale?: number;
 }
 
 const FIELD_W = 680;
@@ -40,6 +41,7 @@ export default function FieldMap({
   involvedPlayerIds,
   onActivePlayerChange,
   orientation = 'portrait',
+  dotScale = 1,
 }: FieldMapProps) {
   const relevantIds = new Set([selectedPlayerId, activePlayerId, ...involvedPlayerIds]);
   const homeDots = homePositions.filter((p) => relevantIds.has(p.player.id));
@@ -83,6 +85,7 @@ export default function FieldMap({
               color={p.player.id === selectedPlayerId ? '#4ade80' : '#e0e0e0'}
               highlighted={p.player.id === activePlayerId}
               onClick={() => onActivePlayerChange(p.player.id)}
+              sizeScale={dotScale}
             />
           ))}
         </svg>
@@ -121,6 +124,7 @@ export default function FieldMap({
             color={p.player.id === selectedPlayerId ? '#4ade80' : '#e0e0e0'}
             highlighted={p.player.id === activePlayerId}
             onClick={() => onActivePlayerChange(p.player.id)}
+            sizeScale={dotScale}
           />
         ))}
       </svg>

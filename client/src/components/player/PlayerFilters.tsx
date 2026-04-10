@@ -33,6 +33,8 @@ interface PlayerFiltersProps {
   onSufferedLineChange: (v: number) => void;
   allTournamentsForSeason: { tournamentId: number; tournamentName: string }[];
   isSplitView?: boolean;
+  compact?: boolean;
+  panelWidth?: number;
 }
 
 function SeasonClubLogos({ teams }: { teams: Team[] | undefined }) {
@@ -83,6 +85,8 @@ export default function PlayerFilters({
   onSufferedLineChange,
   allTournamentsForSeason,
   isSplitView = false,
+  compact = false,
+  panelWidth = 0,
 }: PlayerFiltersProps) {
   const [periodOpen, setPeriodOpen] = useState(false);
   const selectedIds = new Set(selectedTournaments.map((t) => t.tournamentId));
@@ -112,6 +116,7 @@ export default function PlayerFilters({
         setPeriodOpen(false);
       }
     };
+
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
@@ -152,18 +157,29 @@ export default function PlayerFilters({
     showSetters[idx](!showFilters[idx]);
   };
 
+  const labelClass = compact ? 'text-[11px]' : 'text-xs';
+  const competitionChipClass = compact ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-xs';
+  const controlHeightClass = compact ? 'h-8' : 'h-8';
+  const controlChipClass = `${controlHeightClass} inline-flex items-center px-2.5 text-xs rounded-lg border transition-colors`;
+  const selectClass = `${controlHeightClass} bg-surface border rounded-lg focus:outline-none transition-colors px-2.5 text-xs`;
+  const periodButtonWidth = compact ? 112 : 124;
+  const allowFullFallback = panelWidth > 0 && panelWidth < 300;
+  const gridTemplateColumns = isSplitView
+    ? '1fr'
+    : 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))';
+
   return (
-    <div className={`grid grid-cols-3 gap-6 ${isSplitView ? 'w-full' : 'w-1/2'}`}>
-      <div>
-        <label className="text-text-muted text-xs mb-2 block">Competizioni:</label>
-        <div className="flex flex-col gap-2 items-start">
+    <div className={`player-filters grid ${compact ? 'gap-3' : 'gap-4'}`} style={{ gridTemplateColumns }}>
+      <div className="min-w-0" style={{ gridColumn: '1 / -1' }}>
+        <label className={`text-text-muted mb-2 block ${labelClass}`}>Competizioni:</label>
+        <div className="flex flex-wrap gap-2">
           {allTournamentsForSeason.map((t) => {
             const active = selectedIds.has(t.tournamentId);
             return (
               <button
                 key={t.tournamentId}
                 onClick={() => handleToggleTournament(t.tournamentId)}
-                className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
+                className={`${competitionChipClass} rounded-lg border transition-colors text-left ${
                   active
                     ? 'bg-neon/15 border-neon text-neon'
                     : 'bg-surface border-border text-text-muted hover:border-border-hover'
@@ -176,193 +192,206 @@ export default function PlayerFilters({
         </div>
       </div>
 
-      <div className="flex flex-col gap-4">
-        <div>
-          <label className="text-text-muted text-xs mb-2 block">Sede:</label>
-          <div className="flex gap-2">
-            <button
-              onClick={handleToggleHome}
-              className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
-                showHome
-                  ? 'bg-neon/15 border-neon text-neon'
-                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
-              }`}
-            >
-              Casa
-            </button>
-            <button
-              onClick={handleToggleAway}
-              className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
-                showAway
-                  ? 'bg-neon/15 border-neon text-neon'
-                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
-              }`}
-            >
-              Trasferta
-            </button>
-          </div>
-        </div>
+      <div className="min-w-0" style={{ gridColumn: '1 / -1' }}>
+        <div className={allowFullFallback ? 'flex flex-col items-start gap-3' : 'flex flex-wrap items-start gap-3'}>
+          <div className={allowFullFallback ? 'flex flex-col items-start gap-3 w-full' : 'flex flex-nowrap items-start gap-3 min-w-0'}>
+            <div className={allowFullFallback ? 'w-full' : 'flex-shrink-0'}>
+              <label className={`text-text-muted mb-2 block ${labelClass}`}>Sede:</label>
+              <div className="flex flex-nowrap gap-2">
+                <button
+                  onClick={handleToggleHome}
+                  className={`${controlChipClass} whitespace-nowrap ${
+                    showHome
+                      ? 'bg-neon/15 border-neon text-neon'
+                      : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                  }`}
+                >
+                  Casa
+                </button>
+                <button
+                  onClick={handleToggleAway}
+                  className={`${controlChipClass} whitespace-nowrap ${
+                    showAway
+                      ? 'bg-neon/15 border-neon text-neon'
+                      : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                  }`}
+                >
+                  Trasferta
+                </button>
+              </div>
+            </div>
 
-        <div>
-          <label className="text-text-muted text-xs mb-2 block">Periodo:</label>
-          <div className="flex flex-col items-start gap-2">
-            <div ref={periodRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setPeriodOpen((prev) => !prev)}
-                className={`min-w-32 bg-surface border rounded-lg px-2 py-1 text-xs transition-colors text-left flex items-center justify-between gap-3 ${
-                  periodOpen ? 'border-neon text-text-primary' : 'border-border text-text-primary'
-                }`}
-              >
-                <span className="flex items-center justify-between gap-3 min-w-0 flex-1">
-                  <span className="truncate">{periodLabel}</span>
-                  <SeasonClubLogos teams={selectedPeriodTeams} />
-                </span>
-                <span className={`text-text-muted transition-transform shrink-0 ${periodOpen ? 'rotate-180' : ''}`}>
-                  v
-                </span>
-              </button>
+            <div className={allowFullFallback ? 'w-full' : 'flex-shrink-0'}>
+              <label className={`text-text-muted mb-2 block ${labelClass}`}>Periodo:</label>
+              <div className="flex flex-nowrap gap-2">
+                <div ref={periodRef} className="relative" style={{ width: `${periodButtonWidth}px` }}>
+                  <button
+                    type="button"
+                    onClick={() => setPeriodOpen((prev) => !prev)}
+                    className={`w-full ${controlHeightClass} bg-surface border rounded-lg transition-colors text-left flex items-center justify-between gap-1.5 px-2 text-xs ${
+                      periodOpen ? 'border-neon text-text-primary' : 'border-border text-text-primary'
+                    }`}
+                  >
+                    <span className="flex items-center justify-between gap-1 min-w-0 flex-1">
+                      <span className="min-w-0 leading-none">{periodLabel}</span>
+                      <SeasonClubLogos teams={selectedPeriodTeams} />
+                    </span>
+                    <span className={`text-text-muted transition-transform shrink-0 ${periodOpen ? 'rotate-180' : ''}`}>
+                      v
+                    </span>
+                  </button>
 
-              {periodOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
-                  <div className="py-1">
-                    {LAST_N_OPTIONS.map((n) => {
-                      const active = selectedPeriod.type === 'last' && selectedPeriod.count === n;
-                      return (
-                        <button
-                          key={n}
-                          type="button"
-                          onClick={() => handlePeriodSelect({ type: 'last', count: n })}
-                          className={`w-full px-3 py-2 text-xs text-left transition-colors ${
-                            active
-                              ? 'text-neon bg-neon/10'
-                              : 'text-text-primary hover:bg-bg'
-                          }`}
-                        >
-                          Ultime {n}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {availableSeasonYears.length > 0 && (
-                    <>
-                      <div className="h-px bg-border mx-2" />
+                  {periodOpen && (
+                    <div className="absolute top-full left-0 mt-1 w-full bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
                       <div className="py-1">
-                        {availableSeasonYears.map((year) => {
-                          const active = selectedPeriod.type === 'season' && selectedPeriod.year === year;
+                        {LAST_N_OPTIONS.map((n) => {
+                          const active = selectedPeriod.type === 'last' && selectedPeriod.count === n;
                           return (
                             <button
-                              key={year}
+                              key={n}
                               type="button"
-                              onClick={() => handlePeriodSelect({ type: 'season', year })}
-                              className={`w-full px-3 py-2 text-xs transition-colors text-left ${
+                              onClick={() => handlePeriodSelect({ type: 'last', count: n })}
+                              className={`w-full px-3 py-2 text-xs text-left transition-colors ${
                                 active
                                   ? 'text-neon bg-neon/10'
                                   : 'text-text-primary hover:bg-bg'
                               }`}
                             >
-                              <span>{year}</span>
+                              Ultime {n}
                             </button>
                           );
                         })}
                       </div>
-                    </>
+
+                      {availableSeasonYears.length > 0 && (
+                        <>
+                          <div className="h-px bg-border mx-2" />
+                          <div className="py-1">
+                            {availableSeasonYears.map((year) => {
+                              const active = selectedPeriod.type === 'season' && selectedPeriod.year === year;
+                              return (
+                                <button
+                                  key={year}
+                                  type="button"
+                                  onClick={() => handlePeriodSelect({ type: 'season', year })}
+                                  className={`w-full px-3 py-2 text-xs transition-colors text-left ${
+                                    active
+                                      ? 'text-neon bg-neon/10'
+                                      : 'text-text-primary hover:bg-bg'
+                                  }`}
+                                >
+                                  {year}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
             </div>
+          </div>
 
-            <button
-              type="button"
-              disabled={!startersFilterEnabled}
-              onClick={() => onShowStartersOnlyChange(!showStartersOnly)}
-              className={`px-2 py-1 rounded-lg text-xs border transition-colors ${
-                showStartersOnly
-                  ? 'bg-neon/15 border-neon text-neon'
-                  : startersFilterEnabled
-                    ? 'bg-surface border-border text-text-muted hover:border-border-hover'
-                    : 'bg-surface border-border text-text-muted opacity-40 cursor-not-allowed'
-              }`}
-              title={
-                startersFilterEnabled
-                  ? undefined
-                  : 'Disponibile quando tutte le partite hanno caricato le formazioni'
-              }
-            >
-              Titolare
-            </button>
+          <div className={allowFullFallback ? 'w-full' : 'flex-shrink-0'}>
+            <label className={`text-text-muted mb-2 block ${labelClass}`}>Titolare:</label>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!startersFilterEnabled}
+                onClick={() => onShowStartersOnlyChange(!showStartersOnly)}
+                className={`${controlChipClass} ${
+                  showStartersOnly
+                    ? 'bg-neon/15 border-neon text-neon'
+                    : startersFilterEnabled
+                      ? 'bg-surface border-border text-text-muted hover:border-border-hover'
+                      : 'bg-surface border-border text-text-muted opacity-40 cursor-not-allowed'
+                }`}
+                title={
+                  startersFilterEnabled
+                    ? undefined
+                    : 'Disponibile quando tutte le partite hanno caricato le formazioni'
+                }
+              >
+                Titolare
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div>
-        <label className="text-text-muted text-xs mb-2 block">Mostra:</label>
-        <div className="flex flex-col gap-2 items-start">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => handleToggleShow(0)}
-              className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
-                showCommitted
-                  ? 'bg-negative/15 border-negative text-negative'
-                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
-              }`}
-            >
-              Falli commessi
-            </button>
-            <select
-              value={committedLine}
-              onChange={(e) => onCommittedLineChange(Number(e.target.value))}
-              disabled={!showCommitted}
-              className={`bg-surface border rounded-lg px-2 py-1 text-xs focus:outline-none transition-colors ${
-                showCommitted
-                  ? 'border-border text-text-primary focus:border-neon'
-                  : 'border-border text-text-muted opacity-40 cursor-not-allowed'
-              }`}
-            >
-              {[0.5, 1.5, 2.5, 3.5, 4.5, 5.5].map((v) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          </div>
+      <div className="min-w-0" style={{ gridColumn: '1 / -1' }}>
+        <div>
+          <label className={`text-text-muted mb-2 block ${labelClass}`}>Mostra:</label>
+          <div className={`grid ${compact ? 'gap-2' : 'gap-3'}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleToggleShow(0)}
+                className={`${controlChipClass} text-left ${
+                  showCommitted
+                    ? 'bg-negative/15 border-negative text-negative'
+                    : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                }`}
+              >
+                Falli commessi
+              </button>
+              <select
+                value={committedLine}
+                onChange={(e) => onCommittedLineChange(Number(e.target.value))}
+                disabled={!showCommitted}
+                className={`${selectClass} ${
+                  showCommitted
+                    ? 'border-border text-text-primary focus:border-neon'
+                    : 'border-border text-text-muted opacity-40 cursor-not-allowed'
+                }`}
+              >
+                {[0.5, 1.5, 2.5, 3.5, 4.5, 5.5].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => handleToggleShow(1)}
-              className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
-                showSuffered
-                  ? 'bg-neon/15 border-neon text-neon'
-                  : 'bg-surface border-border text-text-muted hover:border-border-hover'
-              }`}
-            >
-              Falli subiti
-            </button>
-            <select
-              value={sufferedLine}
-              onChange={(e) => onSufferedLineChange(Number(e.target.value))}
-              disabled={!showSuffered}
-              className={`bg-surface border rounded-lg px-2 py-1 text-xs focus:outline-none transition-colors ${
-                showSuffered
-                  ? 'border-border text-text-primary focus:border-neon'
-                  : 'border-border text-text-muted opacity-40 cursor-not-allowed'
-              }`}
-            >
-              {[0.5, 1.5, 2.5, 3.5, 4.5, 5.5].map((v) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleToggleShow(1)}
+                className={`${controlChipClass} text-left ${
+                  showSuffered
+                    ? 'bg-neon/15 border-neon text-neon'
+                    : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                }`}
+              >
+                Falli subiti
+              </button>
+              <select
+                value={sufferedLine}
+                onChange={(e) => onSufferedLineChange(Number(e.target.value))}
+                disabled={!showSuffered}
+                className={`${selectClass} ${
+                  showSuffered
+                    ? 'border-border text-text-primary focus:border-neon'
+                    : 'border-border text-text-muted opacity-40 cursor-not-allowed'
+                }`}
+              >
+                {[0.5, 1.5, 2.5, 3.5, 4.5, 5.5].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
 
-          <button
-            onClick={() => handleToggleShow(2)}
-            className={`px-2 py-1 rounded-lg text-xs border transition-colors text-left ${
-              showCards
-                ? 'bg-yellow-400/15 border-yellow-400 text-yellow-400'
-                : 'bg-surface border-border text-text-muted hover:border-border-hover'
-            }`}
-          >
-            Cartellini
-          </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleToggleShow(2)}
+                className={`${controlChipClass} text-left ${
+                  showCards
+                    ? 'bg-yellow-400/15 border-yellow-400 text-yellow-400'
+                    : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                }`}
+              >
+                Cartellini
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

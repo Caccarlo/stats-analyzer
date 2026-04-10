@@ -10,6 +10,7 @@ import {
 import { getFormationPositions } from '@/utils/positionMapping';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import type { Player, MatchEvent, LineupPlayer } from '@/types';
+import { useViewport } from '@/hooks/useViewport';
 
 interface TeamViewProps {
   teamId: number;
@@ -19,6 +20,7 @@ interface TeamViewProps {
 
 export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: TeamViewProps) {
   const { state, selectPlayer, openSplitPlayer, openSplitTeam, selectTeam, navigateTo } = useNavigation();
+  const { width, height } = useViewport();
   const hasSplit = state.panels.length > 1;
   const panel = state.panels[panelIndex];
   const [roster, setRoster] = useState<Player[]>([]);
@@ -117,7 +119,16 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
     : null;
   const roundLabel = nextEvent ? getMatchRoundLabel(nextEvent.roundInfo, 'full') : null;
 
-  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+  const isDesktop = width >= 1024;
+  const compactDensity = width < 640 || height < 820;
+  const compactLandscapeDesktop = width >= 1024 && width < 1280 && height <= 820;
+  const fieldMaxWidthClass = isSplit
+    ? (compactDensity ? 'w-[292px]' : 'w-[312px]')
+    : compactLandscapeDesktop
+      ? 'w-full max-w-[308px] mx-auto lg:mx-0'
+      : compactDensity
+        ? 'w-full max-w-[320px] mx-auto lg:mx-0'
+        : 'w-full max-w-[360px] mx-auto lg:mx-0';
 
   const navContext = {
     leagueId: panel?.leagueId,
@@ -225,20 +236,20 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
   }, {});
 
   return (
-    <div>
+    <div className={compactDensity ? 'team-view team-view--compact' : 'team-view'}>
       {/* Header squadra */}
-      <div className="flex items-center gap-3 mb-4">
+      <div className={`flex items-center ${compactDensity ? 'gap-2.5 mb-3' : 'gap-3 mb-4'}`}>
         <img
           src={getTeamImageUrl(teamId)}
           alt=""
-          className="w-10 h-10 object-contain"
+          className={compactDensity ? 'w-9 h-9 object-contain' : 'w-10 h-10 object-contain'}
         />
-        <h2 className="text-xl font-bold text-text-primary">{teamName || 'Squadra'}</h2>
+        <h2 className={`${compactDensity ? 'text-lg' : 'text-xl'} font-bold text-text-primary`}>{teamName || 'Squadra'}</h2>
       </div>
 
       {/* Prossima partita */}
       {nextEvent && opponent && (
-        <div className="mb-6 text-text-secondary text-sm">
+        <div className={`text-text-secondary ${compactDensity ? 'mb-5 text-xs sm:text-sm' : 'mb-6 text-sm'}`}>
           <span>Prossima partita: </span>
           {isHome ? teamName : (
             <button onClick={handleOpponentClick} className="text-neon hover:underline">
@@ -269,9 +280,9 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
       <div className={`flex flex-col ${isSplit ? '' : 'lg:flex-row lg:gap-6 lg:items-start'}`}>
         {/* Campo con formazione */}
         {starters.length > 0 && formationPositions.length > 0 && (
-          <div className={`mb-6 ${isSplit ? 'w-full flex justify-center' : 'lg:mb-0 lg:flex-shrink-0 lg:w-[400px]'}`}>
+          <div className={`mb-6 ${isSplit ? 'w-full flex justify-center' : 'lg:mb-0 lg:flex-shrink-0 lg:w-[360px]'}`}>
             <div
-              className={`relative bg-field-bg border border-field-lines rounded-lg overflow-hidden ${isSplit ? 'w-[400px]' : 'w-full mx-auto lg:mx-0'}`}
+              className={`relative bg-field-bg border border-field-lines rounded-lg overflow-hidden ${fieldMaxWidthClass}`}
               style={{ aspectRatio: '68/105' }}
             >
               {/* Linee campo */}
@@ -302,10 +313,10 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
                     className="absolute flex flex-col items-center transform -translate-x-1/2 -translate-y-1/2 group"
                     style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
                   >
-                    <div className="w-8 h-8 rounded-full bg-neon/80 flex items-center justify-center text-xs font-bold text-black group-hover:bg-neon transition-colors">
+                    <div className={`${compactDensity ? 'w-7 h-7 text-[11px]' : 'w-8 h-8 text-xs'} rounded-full bg-neon/80 flex items-center justify-center font-bold text-black group-hover:bg-neon transition-colors`}>
                       {lp.player.jerseyNumber ?? idx + 1}
                     </div>
-                    <span className="text-[10px] text-white mt-0.5 font-medium text-center leading-tight max-w-[60px] truncate">
+                    <span className={`${compactDensity ? 'text-[9px] max-w-[54px]' : 'text-[10px] max-w-[60px]'} text-white mt-0.5 font-medium text-center leading-tight truncate`}>
                       {lp.player.shortName ?? lp.player.name.split(' ').pop()}
                     </span>
                   </button>
@@ -317,7 +328,7 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
 
         {/* Panchina / Rosa */}
         <div className="lg:flex-1 lg:min-w-0">
-          <h3 className="text-sm font-semibold text-text-secondary mb-3 uppercase tracking-wide">
+          <h3 className={`${compactDensity ? 'text-xs mb-2.5' : 'text-sm mb-3'} font-semibold text-text-secondary uppercase tracking-wide`}>
             Rosa completa
           </h3>
           {['G', 'D', 'M', 'F'].map((pos) => {
@@ -325,7 +336,7 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
             if (!players?.length) return null;
             return (
               <div key={pos} className="mb-4">
-                <p className="text-xs text-text-muted mb-2">{positionLabels[pos]}</p>
+                <p className={`text-text-muted ${compactDensity ? 'text-[11px] mb-1.5' : 'text-xs mb-2'}`}>{positionLabels[pos]}</p>
                 <div className="flex flex-wrap gap-2">
                   {players.map((p) => {
                     const parts = p.name.split(' ');
@@ -336,12 +347,14 @@ export default function TeamView({ teamId, isSplit = false, panelIndex = 0 }: Te
                       <button
                         key={p.id}
                         onClick={() => handlePlayerClick(p)}
-                        className="flex items-center gap-2 bg-surface border border-border rounded-full px-3 py-1.5 text-sm text-text-primary hover:border-neon transition-colors"
+                        className={`flex items-center gap-2 bg-surface border border-border rounded-full text-text-primary hover:border-neon transition-colors ${
+                          compactDensity ? 'px-2.5 py-1 text-xs sm:text-sm' : 'px-3 py-1.5 text-sm'
+                        }`}
                       >
                         <img
                           src={getPlayerImageUrl(p.id)}
                           alt=""
-                          className="w-6 h-6 rounded-full object-cover bg-border"
+                          className={compactDensity ? 'w-5 h-5 rounded-full object-cover bg-border' : 'w-6 h-6 rounded-full object-cover bg-border'}
                           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                         />
                         {shortName}

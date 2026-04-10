@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import './index.css';
 import { NavigationProvider, useNavigation } from '@/context/NavigationContext';
 import Sidebar from '@/components/layout/Sidebar';
@@ -10,15 +11,26 @@ import LeagueList from '@/components/navigation/LeagueList';
 import TeamGrid from '@/components/navigation/TeamGrid';
 import TeamView from '@/components/navigation/TeamView';
 import SidebarTeamList from '@/components/navigation/SidebarTeamList';
+import { useViewport } from '@/hooks/useViewport';
 
 
 function AppContent() {
+  const { width, height } = useViewport();
   const { state, openSplitHome } = useNavigation();
   const panel0 = state.panels[0];
   const panel1 = state.panels[1];
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const hasSplit = state.panels.length > 1;
-  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+  const isDesktop = width >= 1024;
+  const hasHamburgerNav = width < 768;
+  const compactDensity = width < 640 || height < 820;
+
+  const renderSinglePanelSearch = (panelIndex: number) => (
+    <div className={`mb-4 md:mb-6 ${hasHamburgerNav ? 'pl-14' : ''}`}>
+      <SearchBar panelIndex={panelIndex} compact={compactDensity} />
+    </div>
+  );
 
   const renderContent = (panelIndex: number) => {
     const panel = state.panels[panelIndex];
@@ -31,8 +43,8 @@ function AppContent() {
       case 'player':
         return panel.playerId ? (
           <div>
-            {!hasSplit && panelIndex === 0 && <SearchBar panelIndex={panelIndex} />}
-            <div className={showPlusButton ? 'relative mt-8' : ''}>
+            {!hasSplit && panelIndex === 0 && renderSinglePanelSearch(panelIndex)}
+            <div className={`${showPlusButton ? 'relative mt-8' : ''} ${!hasSplit ? 'mt-1 md:mt-0' : ''}`}>
               {showPlusButton && (
                 <button
                   onClick={openSplitHome}
@@ -58,8 +70,8 @@ function AppContent() {
       case 'team':
         return panel.teamId ? (
           <div>
-            {!hasSplit && panelIndex === 0 && <SearchBar panelIndex={panelIndex} />}
-            <div className={showPlusButton ? 'relative mt-8' : ''}>
+            {!hasSplit && panelIndex === 0 && renderSinglePanelSearch(panelIndex)}
+            <div className={`${showPlusButton ? 'relative mt-8' : ''} ${!hasSplit ? 'mt-1 md:mt-0' : ''}`}>
               {showPlusButton && (
                 <button
                   onClick={openSplitHome}
@@ -72,9 +84,7 @@ function AppContent() {
                   </svg>
                 </button>
               )}
-              <div className={!hasSplit && panelIndex === 0 ? 'ml-4' : ''}>
-                <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
-              </div>
+              <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
             </div>
           </div>
         ) : null;
@@ -82,8 +92,8 @@ function AppContent() {
       case 'teams':
         return panel.leagueId ? (
           <div>
-            {!hasSplit && <SearchBar panelIndex={panelIndex} />}
-            <div className={!hasSplit ? 'mt-6' : ''}>
+            {!hasSplit && renderSinglePanelSearch(panelIndex)}
+            <div className={!hasSplit ? 'mt-1 md:mt-0' : ''}>
               <TeamGrid leagueId={panel.leagueId} panelIndex={panelIndex} />
             </div>
           </div>
@@ -92,8 +102,8 @@ function AppContent() {
       case 'leagues':
         return panel.countryId ? (
           <div>
-            {!hasSplit && <SearchBar panelIndex={panelIndex} />}
-            <div className={!hasSplit ? 'mt-6' : ''}>
+            {!hasSplit && renderSinglePanelSearch(panelIndex)}
+            <div className={!hasSplit ? 'mt-1 md:mt-0' : ''}>
               <LeagueList panelIndex={panelIndex} />
             </div>
           </div>
@@ -103,7 +113,7 @@ function AppContent() {
       default:
         return (
           <div>
-            {!hasSplit && panelIndex === 0 && <SearchBar panelIndex={panelIndex} />}
+            {!hasSplit && panelIndex === 0 && renderSinglePanelSearch(panelIndex)}
             <HomePage panelIndex={panelIndex} />
           </div>
         );
@@ -172,7 +182,10 @@ function AppContent() {
 
   return (
     <div className="flex min-h-screen bg-bg">
-      <Sidebar>
+      <Sidebar
+        mobileOpen={mobileOpen}
+        onMobileOpenChange={setMobileOpen}
+      >
         {renderSidebarContent()}
       </Sidebar>
       <ContentPanel

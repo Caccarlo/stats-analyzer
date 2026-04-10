@@ -11,6 +11,7 @@ const positionLabels: Record<string, string> = {
 interface PlayerHeaderProps {
   player: Player;
   nationalStats?: NationalTeamStat[];
+  compact?: boolean;
 }
 
 function TeamBadge({ teamId, teamName }: { teamId: number; teamName: string }) {
@@ -25,25 +26,28 @@ function TeamBadge({ teamId, teamName }: { teamId: number; teamName: string }) {
   );
 }
 
-export default function PlayerHeader({ player, nationalStats = [] }: PlayerHeaderProps) {
+export default function PlayerHeader({ player, nationalStats = [], compact = false }: PlayerHeaderProps) {
   const visibleNationalStats = nationalStats.slice(0, 2);
+  const avatarClass = compact ? 'w-[3.25rem] h-[3.25rem]' : 'w-[3.5rem] h-[3.5rem]';
+  const titleClass = compact ? 'text-[1.05rem] sm:text-[1.2rem]' : 'text-[1.16rem]';
+  const metaClass = compact ? 'text-[10px] sm:text-xs mt-0.5' : 'text-[12px] mt-0.5';
 
   return (
-    <div className="flex items-center gap-4">
+    <div className={`flex items-center ${compact ? 'gap-2.5' : 'gap-3'}`}>
       <img
         src={getPlayerImageUrl(player.id)}
         alt=""
-        className="w-16 h-16 rounded-full bg-border object-cover"
+        className={`${avatarClass} rounded-full bg-border object-cover`}
         onError={(e) => {
           (e.target as HTMLImageElement).src = '';
-          (e.target as HTMLImageElement).className = 'w-16 h-16 rounded-full bg-surface border border-border';
+          (e.target as HTMLImageElement).className = `${avatarClass} rounded-full bg-surface border border-border`;
         }}
       />
-      <div>
-        <h2 className="text-xl font-bold text-text-primary uppercase tracking-wide">
+      <div className="min-w-0">
+        <h2 className={`${titleClass} font-bold text-text-primary uppercase tracking-wide leading-tight`}>
           {player.name}
         </h2>
-        <div className="flex flex-wrap items-center gap-2 text-text-secondary text-sm mt-1">
+        <div className={`flex flex-wrap items-center gap-2 text-text-secondary ${metaClass}`}>
           {player.team && (
             <>
               <TeamBadge teamId={player.team.id} teamName={player.team.name} />

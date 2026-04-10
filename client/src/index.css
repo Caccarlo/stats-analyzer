@@ -19,8 +19,13 @@
   --color-field-lines: #2a5535;
 }
 
+:root {
+  --sidebar-width: 204px;
+}
+
 html {
   scrollbar-gutter: stable;
+  font-size: 15px;
 }
 
 body {
@@ -34,6 +39,30 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+@media (max-width: 1279px), (max-height: 900px) {
+  html {
+    font-size: 14.5px;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1279px) {
+  :root {
+    --sidebar-width: 172px;
+  }
+}
+
+@media (max-width: 1023px), (max-height: 820px) {
+  html {
+    font-size: 13.7px;
+  }
+}
+
+@media (max-width: 767px) {
+  html {
+    font-size: 12.9px;
+  }
 }
 
 /* Custom scrollbar */

@@ -2,6 +2,7 @@ import { useEffect, useMemo, type ReactNode } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import { getTeamImageUrl } from '@/api/sofascore';
 import { useTournamentViewData } from '@/hooks/useTournamentViewData';
+import { useViewport } from '@/hooks/useViewport';
 import type { Season, StandingRow, Team, TournamentPhaseSection } from '@/types';
 
 interface TeamGridProps {
@@ -13,42 +14,46 @@ function TeamCard({
   team,
   onClick,
   badge,
+  compact = false,
 }: {
   team: Team;
   onClick: () => void;
   badge?: ReactNode;
+  compact?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className="relative flex flex-col items-center gap-1.5 px-3.5 py-2.5 bg-surface border border-border rounded-lg hover:border-neon transition-colors"
+      className={`relative flex flex-col items-center bg-surface border border-border rounded-lg hover:border-neon transition-colors ${
+        compact ? 'gap-1 px-3 py-2' : 'gap-1.5 px-3.5 py-2.5'
+      }`}
     >
       {badge}
       <img
         src={getTeamImageUrl(team.id)}
         alt=""
-        className="w-9 h-9 object-contain"
+        className={compact ? 'w-7 h-7 object-contain' : 'w-9 h-9 object-contain'}
         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
       />
-      <span className="text-text-primary text-[10.5px] font-medium text-center leading-tight">
+      <span className={`text-text-primary font-medium text-center leading-tight ${compact ? 'text-[10px]' : 'text-[10.5px]'}`}>
         {team.name}
       </span>
     </button>
   );
 }
 
-function StandingBadge({ row }: { row: StandingRow }) {
+function StandingBadge({ row, compact = false }: { row: StandingRow; compact?: boolean }) {
   return (
     <>
-      <span className="absolute top-1.5 left-1.5 text-[10px] text-text-muted/70 font-medium">
+      <span className={`absolute top-1.5 left-1.5 text-text-muted/70 font-medium ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
         {row.position}.
       </span>
       <div className="absolute top-1.5 right-1.5 text-right leading-none">
-        <span className="text-[10px] text-text-muted/70 font-medium">
+        <span className={`text-text-muted/70 font-medium ${compact ? 'text-[9px]' : 'text-[10px]'}`}>
           {row.points} pts
         </span>
         <br />
-        <span className="text-[9px] text-text-muted/60">
+        <span className={`text-text-muted/60 ${compact ? 'text-[8px]' : 'text-[9px]'}`}>
           {row.matches} pg
         </span>
       </div>
@@ -65,21 +70,27 @@ function TeamCardGrid({
   onSelectTeam,
   teams = [],
   standings = [],
+  compact = false,
 }: {
   panelIndex: number;
   onSelectTeam: (panel: number, teamId: number, teamName?: string) => void;
   teams?: Team[];
   standings?: StandingRow[];
+  compact?: boolean;
 }) {
+  const gridClass = compact ? 'grid-cols-2 xl:grid-cols-3' : 'grid-cols-2 md:grid-cols-3 xl:grid-cols-4';
+  const gapClass = compact ? 'gap-2.5' : 'gap-3';
+
   if (standings.length > 0) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div className={`grid ${gridClass} ${gapClass}`}>
         {standings.map((row) => (
           <TeamCard
             key={row.team.id}
             team={row.team}
             onClick={() => onSelectTeam(panelIndex, row.team.id, row.team.name)}
-            badge={<StandingBadge row={row} />}
+            badge={<StandingBadge row={row} compact={compact} />}
+            compact={compact}
           />
         ))}
       </div>
@@ -87,12 +98,13 @@ function TeamCardGrid({
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+    <div className={`grid ${gridClass} ${gapClass}`}>
       {teams.map((team) => (
         <TeamCard
           key={team.id}
           team={team}
           onClick={() => onSelectTeam(panelIndex, team.id, team.name)}
+          compact={compact}
         />
       ))}
     </div>
@@ -103,10 +115,12 @@ function TeamSection({
   section,
   panelIndex,
   onSelectTeam,
+  compact = false,
 }: {
   section: TournamentPhaseSection;
   panelIndex: number;
   onSelectTeam: (panel: number, teamId: number, teamName?: string) => void;
+  compact?: boolean;
 }) {
   if (section.teams.length === 0 && section.standings.length === 0) return null;
 
@@ -120,14 +134,20 @@ function TeamSection({
         onSelectTeam={onSelectTeam}
         teams={section.teams}
         standings={section.standings}
+        compact={compact}
       />
     </section>
   );
 }
 
 export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
+  const { width, height } = useViewport();
   const { state, selectTeam, navigateTo } = useNavigation();
   const panel = state.panels[panelIndex];
+  const hasSplit = state.panels.length > 1;
+  const compactDensity = width < 640 || height < 820 || hasSplit;
+  const seasonControlWidth = compactDensity ? 76 : 84;
+  const phaseControlWidth = compactDensity ? 148 : 168;
   const leagueName = panel?.leagueName ?? 'Campionato';
   const {
     seasonId,
@@ -200,16 +220,19 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
       <div>
         <div className="flex flex-col gap-2 mb-4">
           <h2 className="text-lg font-bold text-text-primary">{leagueName}</h2>
-          <div className="flex flex-col gap-2 md:flex-row md:items-end">
+          <div
+            className="grid gap-2 items-end justify-start"
+            style={{ gridTemplateColumns: `${phaseControlWidth}px ${seasonControlWidth}px` }}
+          >
             {phases.length > 0 && (
-              <div className="md:max-w-[200px]">
+              <div className="min-w-0" style={{ width: `${phaseControlWidth}px` }}>
                 <label className="block text-xs text-text-muted uppercase tracking-wide mb-1">
                   Fase
                 </label>
                 <select
                   value={selectedPhase?.key ?? ''}
                   onChange={(e) => handlePhaseChange(e.target.value)}
-                  className="w-full bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-neon"
+                  className="w-full h-8 bg-surface border border-border rounded-lg px-2.5 text-xs text-text-primary focus:outline-none focus:border-neon"
                 >
                   {phases.map((phase) => (
                     <option key={phase.key} value={phase.key}>
@@ -219,14 +242,14 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
                 </select>
               </div>
             )}
-            <div className="md:w-28">
+            <div className="min-w-0">
               <label className="block text-xs text-text-muted uppercase tracking-wide mb-1">
                 Stagione
               </label>
               <select
                 value={seasonId ?? ''}
                 onChange={(e) => handleSeasonChange(e.target.value)}
-                className="w-full bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-neon"
+                className="w-full h-8 bg-surface border border-border rounded-lg px-2.5 text-xs text-text-primary focus:outline-none focus:border-neon"
               >
                 {seasons.map((season) => (
                   <option key={season.id} value={season.id}>
@@ -248,6 +271,7 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
                 section={section}
                 panelIndex={panelIndex}
                 onSelectTeam={selectTeam}
+                compact={compactDensity}
               />
             ))}
           </div>
@@ -259,6 +283,7 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
             onSelectTeam={selectTeam}
             teams={phaseTeams}
             standings={phaseStandings}
+            compact={compactDensity}
           />
         )}
       </div>
@@ -269,14 +294,14 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
     <div>
       <div className="flex flex-col gap-2 mb-4">
         <h2 className="text-lg font-bold text-text-primary">{leagueName}</h2>
-        <div className="w-28">
+        <div style={{ width: `${seasonControlWidth}px` }}>
           <label className="block text-xs text-text-muted uppercase tracking-wide mb-1">
             Stagione
           </label>
           <select
             value={seasonId ?? ''}
             onChange={(e) => handleSeasonChange(e.target.value)}
-            className="w-full bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:border-neon"
+            className="w-full h-8 bg-surface border border-border rounded-lg px-2.5 text-xs text-text-primary focus:outline-none focus:border-neon"
           >
             {seasons.map((season) => (
               <option key={season.id} value={season.id}>
@@ -290,6 +315,7 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
         panelIndex={panelIndex}
         onSelectTeam={selectTeam}
         standings={teams}
+        compact={compactDensity}
       />
     </div>
   );

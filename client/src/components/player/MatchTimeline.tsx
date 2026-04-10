@@ -17,6 +17,7 @@ interface MatchTimelineProps {
   toggleMode: 'select' | 'deselect';
   onToggleAll: () => void;
   playerTeamId?: number;
+  compact?: boolean;
 }
 
 function getFoulCounts(
@@ -132,11 +133,11 @@ function getPlayedMinutesLabel(
 
 function OpponentCrest({ team }: { team: Team }) {
   return (
-    <div className="flex items-center justify-center min-h-[30px]">
+    <div className="flex items-center justify-center min-h-[26px]">
       <img
         src={getTeamImageUrl(team.id)}
         alt={team.name}
-        className="w-[18px] h-[18px] object-contain"
+        className="w-4 h-4 object-contain"
         onError={(e) => {
           (e.target as HTMLImageElement).style.display = 'none';
         }}
@@ -193,23 +194,23 @@ function VenueBadge({
 
   return (
     <div
-      className="absolute top-1.5 left-1 right-8 z-10 flex items-center gap-1 text-text-secondary pointer-events-none"
+      className="absolute top-1 left-1 right-7 z-10 flex items-center gap-1 text-text-secondary pointer-events-none"
       title={isHome ? 'Partita in casa' : 'Partita in trasferta'}
       aria-label={isHome ? 'Partita in casa' : 'Partita in trasferta'}
     >
-      <span className="flex h-[11px] w-[11px] flex-shrink-0 items-center justify-center">
+      <span className="flex h-[10px] w-[10px] flex-shrink-0 items-center justify-center">
       {isHome ? (
-        <svg className="h-[11px] w-[11px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg className="h-[10px] w-[10px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path strokeLinecap="round" strokeLinejoin="round" d="M3 11.5 12 4l9 7.5" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 10.5V20h11v-9.5" />
           <path strokeLinecap="round" strokeLinejoin="round" d="M10 20v-5h4v5" />
         </svg>
       ) : (
-        <span className="text-[11px] leading-none">✈</span>
+        <span className="text-[10px] leading-none">✈</span>
       )}
       </span>
       {(tournamentLabel || roundLabel) ? (
-        <span className="flex min-w-0 items-center gap-1 text-[8px] font-medium leading-none" title={titleLabel ?? undefined}>
+        <span className="flex min-w-0 items-center gap-1 text-[7px] font-medium leading-none" title={titleLabel ?? undefined}>
           {tournamentLabel ? (
             <span className="min-w-0 overflow-hidden whitespace-nowrap">
               {tournamentLabel}
@@ -238,12 +239,13 @@ export default function MatchTimeline({
   toggleMode,
   onToggleAll,
   playerTeamId,
+  compact = false,
 }: MatchTimelineProps) {
   if (events.length === 0) return null;
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-3">
+      <div className="flex items-center gap-3 mb-2.5">
         <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
           Timeline partite ({events.length})
         </h3>
@@ -253,13 +255,13 @@ export default function MatchTimeline({
           aria-label={toggleMode === 'select' ? 'Seleziona tutte le partite' : 'Deseleziona tutte le partite'}
         >
           <div
-            className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${
+            className={`relative w-7 h-[15px] rounded-full transition-colors duration-200 ${
               toggleMode === 'deselect' ? 'bg-neon' : 'bg-border group-hover:bg-border/80'
             }`}
           >
             <div
-              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform duration-200 ${
-                toggleMode === 'deselect' ? 'translate-x-4' : 'translate-x-0.5'
+              className={`absolute top-[1px] w-[13px] h-[13px] rounded-full bg-white shadow transition-transform duration-200 ${
+                toggleMode === 'deselect' ? 'translate-x-[14px]' : 'translate-x-[1px]'
               }`}
             />
           </div>
@@ -292,7 +294,9 @@ export default function MatchTimeline({
               <button
                 key={event.id}
                 onClick={() => onToggleMatch(event.id)}
-                className={`relative overflow-hidden flex-shrink-0 flex flex-col items-center justify-center px-3 py-2 rounded-lg border text-center transition-colors cursor-pointer min-w-[100px] ${
+                className={`relative overflow-hidden flex-shrink-0 flex flex-col items-center justify-center rounded-lg border text-center transition-colors cursor-pointer ${
+                  compact ? 'px-2 py-1.5 min-w-[80px]' : 'px-2.5 py-1.5 min-w-[88px]'
+                } ${
                   isSelected
                     ? 'border-neon bg-neon/5'
                     : 'border-border bg-surface hover:bg-surface-hover'
@@ -315,54 +319,54 @@ export default function MatchTimeline({
                 />
 
                 {playedMinutesLabel && (
-                  <div className="absolute top-1.5 right-1.5 z-10 text-[8px] leading-none font-medium tabular-nums text-white/75 drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)] pointer-events-none">
+                  <div className="absolute top-1 right-1 z-10 text-[7px] leading-none font-medium tabular-nums text-white/75 drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)] pointer-events-none">
                     {playedMinutesLabel}
                   </div>
                 )}
 
                 {/* Cartellino in alto a destra */}
                 {cardInfo && (
-                  <div className="absolute top-1 right-5 z-10">
+                  <div className="absolute top-1 right-4 z-10">
                     {cardInfo.type === 'yellow' && (
                       <div
                         className="rounded-sm"
-                        style={{ width: '9px', height: '12px', backgroundColor: '#facc15' }}
+                        style={{ width: '8px', height: '11px', backgroundColor: '#facc15' }}
                         title="Cartellino giallo"
                       />
                     )}
                     {cardInfo.type === 'red' && (
                       <div
                         className="rounded-sm"
-                        style={{ width: '9px', height: '12px', backgroundColor: '#ef4444' }}
+                        style={{ width: '8px', height: '11px', backgroundColor: '#ef4444' }}
                         title="Cartellino rosso"
                       />
                     )}
                     {cardInfo.type === 'yellowRed' && (
-                      <div className="relative" style={{ width: '14px', height: '14px' }} title="Doppio cartellino">
+                      <div className="relative" style={{ width: '12px', height: '12px' }} title="Doppio cartellino">
                         <div
                           className="absolute rounded-sm"
-                          style={{ width: '9px', height: '12px', backgroundColor: '#facc15', bottom: 0, left: 0 }}
+                          style={{ width: '8px', height: '11px', backgroundColor: '#facc15', bottom: 0, left: 0 }}
                         />
                         <div
                           className="absolute rounded-sm"
-                          style={{ width: '9px', height: '12px', backgroundColor: '#ef4444', top: 0, right: 0 }}
+                          style={{ width: '8px', height: '11px', backgroundColor: '#ef4444', top: 0, right: 0 }}
                         />
                       </div>
                     )}
                   </div>
                 )}
 
-                <div className="relative z-10 mt-4 mb-0.5">
+                <div className="relative z-10 mt-3 mb-0.5">
                   <OpponentCrest team={opponentTeam} />
                 </div>
-                <div className="relative z-10 text-[11px] leading-tight text-text-secondary font-medium whitespace-nowrap">
+                <div className="relative z-10 text-[10px] leading-tight text-text-secondary font-medium whitespace-nowrap">
                   {scoreline}
                 </div>
 
                 {/* Badge falli */}
-                <div className="relative z-10 mt-1 flex items-center gap-1">
+                <div className="relative z-10 mt-1 flex items-center gap-0.5">
                   {!isLoaded ? (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-border text-text-muted">
                       <span className="w-2 h-2 border border-text-muted border-t-transparent rounded-full animate-spin mr-1" />
                       ...
                     </span>
@@ -370,29 +374,29 @@ export default function MatchTimeline({
                     <>
                       {showCommitted && showSuffered ? (
                         <>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
                             {renderCount(counts.committed)}
                           </span>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
                             {renderCount(counts.suffered)}
                           </span>
                         </>
                       ) : showCommitted ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
                           {renderCount(counts.committed)}
                         </span>
                       ) : showSuffered ? (
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
                           {renderCount(counts.suffered)}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-border text-text-muted">
                           0
                         </span>
                       )}
                     </>
                   ) : (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-border text-text-muted">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-border text-text-muted">
                       —
                     </span>
                   )}

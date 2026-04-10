@@ -7,13 +7,12 @@ interface HeatmapFieldProps {
   playerId: number;
   isHome: boolean;
   orientation?: 'portrait' | 'landscape';
-  maxWidth?: number; // dynamic: sempre metà della larghezza del FieldMap
+  maxWidth?: number;
+  maxCap?: number;
 }
 
-// Dimensioni campo portrait
 const FIELD_W = 680;
 const FIELD_H = 1050;
-// Dimensioni campo landscape (rotazione 90° CW)
 const FIELD_L_W = 1050;
 const FIELD_L_H = 680;
 
@@ -98,7 +97,8 @@ function drawHeatmap(
   const offscreen = document.createElement('canvas');
   offscreen.width = w;
   offscreen.height = h;
-  const offCtx = offscreen.getContext('2d')!;
+  const offCtx = offscreen.getContext('2d');
+  if (!offCtx) return;
 
   for (const p of points) {
     const screen =
@@ -123,7 +123,9 @@ function drawHeatmap(
     if (alpha === 0) continue;
 
     const t = Math.min(alpha / 180, 1);
-    let r: number, g: number, b: number;
+    let r: number;
+    let g: number;
+    let b: number;
     if (t < 0.5) {
       const s = t * 2;
       r = Math.round(s * 255);
@@ -153,6 +155,7 @@ export default function HeatmapField({
   isHome,
   orientation = 'portrait',
   maxWidth,
+  maxCap,
 }: HeatmapFieldProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [points, setPoints] = useState<HeatmapPoint[]>([]);
@@ -169,7 +172,9 @@ export default function HeatmapField({
       }
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [eventId, playerId]);
 
   useEffect(() => {
@@ -177,16 +182,16 @@ export default function HeatmapField({
     if (!canvas) return;
 
     function redraw() {
-      const rect = canvas!.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       const w = Math.round(rect.width * dpr);
       const h = Math.round(rect.height * dpr);
       if (w === 0 || h === 0) return;
 
-      canvas!.width = w;
-      canvas!.height = h;
+      canvas.width = w;
+      canvas.height = h;
 
-      const ctx = canvas!.getContext('2d');
+      const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       if (orientation === 'landscape') {
@@ -207,9 +212,8 @@ export default function HeatmapField({
   }, [points, loading, isHome, orientation]);
 
   const isLandscape = orientation === 'landscape';
-  // Fallback se maxWidth non è ancora misurato: stesse dimensioni fisse precedenti
-  const defaultMaxWidth = isLandscape ? 200 : 119;
-  const effectiveMaxWidth = maxWidth ?? defaultMaxWidth;
+  const defaultMaxWidth = maxCap ?? (isLandscape ? 124 : 116);
+  const effectiveMaxWidth = Math.min(maxWidth ?? defaultMaxWidth, defaultMaxWidth);
   const aspectRatio = isLandscape ? '105/68' : '68/105';
 
   return (

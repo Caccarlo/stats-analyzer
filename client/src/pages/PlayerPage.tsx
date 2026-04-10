@@ -13,6 +13,7 @@ import PlayerFilters from '@/components/player/PlayerFilters';
 import StatsOverview from '@/components/player/StatsOverview';
 import MatchTimeline from '@/components/player/MatchTimeline';
 import MatchCard from '@/components/player/MatchCard';
+import { useViewport } from '@/hooks/useViewport';
 
 const AUTO_SELECTED_MATCH_COUNT = 3;
 const LAST_N_OPTIONS = [5, 10, 15, 20, 30, 50, 75] as const;
@@ -98,9 +99,26 @@ interface PlayerPageProps {
 }
 
 export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: PlayerPageProps) {
+  const { width, height } = useViewport();
   const { state, navigateTo, updatePanelFilters } = useNavigation();
   const [resolvedPlayer, setResolvedPlayer] = useState<Player | undefined>(playerData);
   const [nationalStats, setNationalStats] = useState<NationalTeamStat[]>([]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [panelWidth, setPanelWidth] = useState(0);
+  const compactDensity = width < 640 || height < 820;
+  const isSplitView = state.panels.length > 1;
+
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver((entries) => {
+      setPanelWidth(entries[0].contentRect.width);
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -473,9 +491,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   }, [selectionContextKey]);
 
   const autoSelectedIds = useMemo(() => {
-    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-    const count = isMobile ? 1 : AUTO_SELECTED_MATCH_COUNT;
-    return new Set(displayEvents.slice(0, count).map((event) => event.id));
+    return new Set(displayEvents.slice(0, AUTO_SELECTED_MATCH_COUNT).map((event) => event.id));
   }, [displayEvents]);
 
   const selectedEventIds = useMemo(() => {
@@ -603,15 +619,14 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     [displayEvents, selectedEventIds],
   );
 
-  const isSplitView = state.panels.length > 1;
   const cardCount = selectedEvents.length;
-  const cardWidthClass = isSplitView
-    ? 'w-full'
-    : cardCount === 1
-      ? 'w-full'
-      : cardCount === 2
-        ? 'w-full md:w-[calc(50%-4px)]'
-        : 'w-full md:w-[calc(33.333%-6px)]';
+  const cardMinWidth = panelWidth > 0 && panelWidth < 760
+    ? 276
+    : isSplitView
+      ? 292
+      : compactDensity
+        ? 284
+        : 312;
 
   const toggleMode: 'select' | 'deselect' =
     displayEvents.length > 0 && selectedEventIds.size === displayEvents.length
@@ -657,10 +672,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
   };
 
   return (
-    <div className="min-w-0">
+    <div ref={rootRef} className={`min-w-0 ${compactDensity ? 'player-page player-page--compact' : 'player-page'}`}>
       {/* Header */}
       <div className="pb-4 border-b border-border">
-        <PlayerHeader player={displayPlayer} nationalStats={nationalStats} />
+        <PlayerHeader player={displayPlayer} nationalStats={nationalStats} compact={compactDensity} />
       </div>
 
       {/* Filtri */}
@@ -694,11 +709,13 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onShowStartersOnlyChange={setShowStartersOnly}
             startersFilterEnabled={allLineupsLoaded}
             isSplitView={isSplitView}
+            compact={compactDensity}
+            panelWidth={panelWidth}
           />
         </div>
       )}
 
-      <div className="mt-8">
+      <div className={compactDensity ? 'mt-6' : 'mt-8'}>
         {pageSectionLoading ? (
           <div className="flex items-center gap-2 text-text-muted">
             <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
@@ -721,11 +738,12 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                   sufferedLine={sufferedLine}
                   committedHitRate={derivedStats.committedHitRate}
                   sufferedHitRate={derivedStats.sufferedHitRate}
+                  compact={compactDensity}
                 />
               </div>
             )}
 
-            <div className="mt-8">
+            <div className={compactDensity ? 'mt-6' : 'mt-8'}>
               <MatchTimeline
                 events={displayEvents}
                 selectedEventIds={selectedEventIds}
@@ -738,10 +756,14 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                 toggleMode={toggleMode}
                 onToggleAll={handleToggleAll}
                 playerTeamId={resolvedPlayer?.team?.id}
+                compact={compactDensity}
               />
 
               {selectedEvents.length > 0 && (
-                <div className="flex flex-wrap items-stretch gap-2 mt-6">
+                <div
+                  className={`grid items-stretch ${compactDensity ? 'gap-2.5 mt-5' : 'gap-3 mt-6'}`}
+                  style={{ gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${cardMinWidth}px), 1fr))` }}
+                >
                   {selectedEvents.map((event, index) => (
                     <SyncedCardSlot
                       key={event.id}
@@ -749,7 +771,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                       cardIndex={index}
                       isSplitView={isSplitView}
                       details={detailsMap.get(event.id)}
-                      className={`${cardWidthClass} flex`}
+                      className="flex"
                     >
                       <MatchCard
                         event={event}
@@ -764,6 +786,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                         onDeselect={deselectMatch}
                         cardCount={cardCount}
                         onRequestRichDetails={requestRichDetails}
+                        compact={compactDensity}
                       />
                     </SyncedCardSlot>
                   ))}

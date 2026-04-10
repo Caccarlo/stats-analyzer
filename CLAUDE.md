@@ -50,6 +50,7 @@ stats-analyzer/
         |   |-- useMatchDetails.ts   # Shared match-details cache and helpers for officialStats, lineups, rich comments
         |   |-- useMatchTimeline.ts  # events/last loader + progressive officialStats/lineups/rich data queues
         |   |-- useTournamentViewData.ts # Shared tournament teams/phases loader with snapshot cache for TeamGrid + SidebarTeamList
+        |   |-- useViewport.ts       # Shared window width/height hook used by responsive layout and density decisions
         |   `-- useSplitCardSync.ts  # Cross-panel card height sync
         |-- utils/
         |   |-- foulPairing.ts
@@ -125,6 +126,8 @@ home -> leagues -> teams -> team -> player
 - Team and player views can open the opposite side in split mode.
 - Opponent team/player clicks inside match UI can open or swap the other panel.
 - SearchBar is shared in single view and duplicated per panel in split view.
+- On mobile single-panel views, the SearchBar sits on the same top row as the fixed sidebar toggle, with left offset space reserved for the toggle instead of pushing the whole page down.
+- The mobile sidebar toggle is controlled from `App.tsx`; when the drawer is open, the same button switches to a close icon instead of rendering a second overlapping control.
 - Clicking "next opponent" in `TeamView` always arranges the match as home team on the left (panel 0) and away team on the right (panel 1), regardless of which panel the click came from. If the arrangement is already correct, the click does nothing. If one panel has a player page, it is preserved on the side matching the player's team; only the other panel is replaced with the new team.
 - `TeamView` derives `teamName` from `panel.teamName` (set at navigation time) as the primary source, then falls back to `nextEvent.homeTeam/awayTeam.name` if the panel name is missing. This prevents national team pages from showing a club name taken from a player's team.
 
@@ -176,6 +179,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 
 - `TeamGrid` now always renders a season dropdown for both standings-based leagues and phase-based cups.
 - In phase mode, the season selector sits beside a narrower phase selector; in standings mode, it sits to the right of the tournament title.
+- The phase/season controls stay on the same row even in narrow panel widths by using a fixed narrow season column and a flexible phase column.
 - Changing season resets the selected phase for that tournament view and rebuilds teams/phases from the chosen season only.
 
 ### Foul Pairing
@@ -292,6 +296,7 @@ Additional rules:
 - Tournaments discovered from loaded events are auto-enabled once via `ensureTournamentsEnabled`; the tracking resets on player/period/season change so manual disables within a session are preserved.
 - `isRelevantTimelineEvent` accepts any finished event within the season date window regardless of tournament membership, so friendly matches appear in season mode.
 - If the user disables the only active competition, the next one is auto-enabled first.
+- Competition chips now wrap across the full available row instead of living in a fixed narrow column, reducing vertical height on compact layouts and split view.
 
 ### Casa / Trasferta
 
@@ -332,12 +337,12 @@ Additional rules:
 
 - Field must always keep `aspect-ratio: 68/105`.
 - Split view is only available above 1024px.
+- Responsive density is driven by actual viewport size, not just Tailwind breakpoints: compact density is used on narrow mobile widths and short desktop heights (for example `390x844` and `1024x768`), while `768x1024` keeps the regular density.
+- Responsive panel layouts should be panel-aware, not viewport-only: when the effective content width is reduced by the sidebar or by split view, cards and filters must react to the measured panel width rather than assuming a full desktop canvas.
 - MatchCard field/heatmap orientation is width-aware: single-card layouts may render in landscape, but only when the measured positions-section width is at least `620px`; narrower single cards and all double/multi-card layouts use portrait.
 - MatchCard heatmap-side stat placement is width-aware: the heatmap column keeps season averages on the left and match foul counters on the right only when it reaches `620px` and preserves extra clearance around the heatmap; narrower columns switch to averages above and foul counters below.
-- Card widths:
-  - 1 card: `100%`
-  - 2 cards: `calc(50% - 4px)`
-  - 3+ cards: `calc(33.333% - 6px)`
+- Player match cards no longer use fixed `md`/`lg` width fractions; `PlayerPage` measures the panel width and renders cards in an auto-fit grid so compact desktop widths show 2 cards per row and tablet widths can drop to 1.
+- `TeamGrid` uses a compact card style whenever the viewport is short or the page is rendered inside split view, shrinking crest sizes and metadata so standings remain readable.
 
 ## Workflow Rules
 

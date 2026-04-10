@@ -6,6 +6,7 @@ import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
 import { getPlayerSeasonStats, getMatchAveragePositions, getTeamImageUrl } from '@/api/sofascore';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import { clampMinute, getMatchDuration, getNominalMatchDuration, isLikelyFullMatch } from '@/utils/matchDuration';
+import { useViewport } from '@/hooks/useViewport';
 import FieldMap from './FieldMap';
 import HeatmapField from './HeatmapField';
 
@@ -27,6 +28,7 @@ interface MatchCardProps {
   onDeselect: (eventId: number) => void;
   cardCount: number;
   onRequestRichDetails?: (eventId: number) => void;
+  compact?: boolean;
 }
 
 type CardLayout = 'single' | 'double' | 'multi';
@@ -45,6 +47,13 @@ const MAX_AGGREGATED_SEASON_STATS_CACHE_ENTRIES = 300;
 const MIN_LANDSCAPE_LAYOUT_WIDTH = 620;
 const MIN_SIDE_STATS_LAYOUT_WIDTH = 620;
 const MIN_SIDE_STATS_EXTRA_CLEARANCE = 360;
+const COMPACT_FIELD_MAX_WIDTH = 208;
+const DEFAULT_FIELD_MAX_WIDTH = 220;
+const LANDSCAPE_FIELD_MAX_WIDTH_DESKTOP = 308;
+const LANDSCAPE_FIELD_MAX_WIDTH_COMPACT = 244;
+const COMPACT_HEATMAP_MAX_WIDTH = 140;
+const DEFAULT_HEATMAP_MAX_WIDTH = 148;
+const LANDSCAPE_HEATMAP_MAX_WIDTH = 156;
 
 function normalizeSelectedTournaments(selectedTournaments: TournamentFilter[]): TournamentFilter[] {
   const deduped = new Map<string, TournamentFilter>();
@@ -168,7 +177,7 @@ const MatchTeamBadge = ({ team }: { team: Team }) => (
     src={getTeamImageUrl(team.id)}
     alt=""
     title={team.name}
-    className="w-5 h-5 object-contain flex-shrink-0 transition-transform duration-150 group-hover:scale-105"
+    className="w-4 h-4 object-contain flex-shrink-0 transition-transform duration-150 group-hover:scale-105"
     onError={(e) => {
       (e.target as HTMLImageElement).style.display = 'none';
     }}
@@ -288,8 +297,10 @@ export default function MatchCard({
   onDeselect,
   cardCount,
   onRequestRichDetails,
+  compact = false,
 }: MatchCardProps) {
   const { state, openSplitPlayer, swapSplitAndOpenPlayer, openSplitTeam, swapSplitAndOpenTeam, selectPlayer } = useNavigation();
+  const { width } = useViewport();
 
   const [activePlayerId, setActivePlayerId] = useState(playerId);
   const [positions, setPositions] = useState<{ home: PlayerPosition[]; away: PlayerPosition[] } | null>(null);
@@ -310,7 +321,11 @@ export default function MatchCard({
   const useLandscapePositions =
     layoutMode === 'single' && positionsSectionWidth >= MIN_LANDSCAPE_LAYOUT_WIDTH;
   const singleCardOrientation = useLandscapePositions ? 'landscape' : 'portrait';
-  const fieldMaxWidthClass = useLandscapePositions ? 'max-w-[367px]' : 'max-w-[238px]';
+  const baseFieldMaxWidth = compact ? COMPACT_FIELD_MAX_WIDTH : DEFAULT_FIELD_MAX_WIDTH;
+  const baseHeatmapMaxWidth = compact ? COMPACT_HEATMAP_MAX_WIDTH : DEFAULT_HEATMAP_MAX_WIDTH;
+  const landscapeFieldMaxWidth = compact ? LANDSCAPE_FIELD_MAX_WIDTH_COMPACT : LANDSCAPE_FIELD_MAX_WIDTH_DESKTOP;
+  const fieldMaxWidth = useLandscapePositions ? landscapeFieldMaxWidth : baseFieldMaxWidth;
+  const playerDotScale = compact ? 0.9 : 0.96;
 
   // Lazy fetch: se la card viene renderizzata e i dati rich non sono ancora stati caricati, li richiede ora
   useEffect(() => {
@@ -419,7 +434,7 @@ export default function MatchCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [involvedKey, playerId]);
 
-  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 1024;
+  const isDesktop = width >= 1024;
   const panel = state.panels[panelIndex];
 
   const buildNavContext = () => {
@@ -566,7 +581,7 @@ export default function MatchCard({
   }, [activePlayerId, activePlayerIsMain, selectedTournamentsKey, event.id]);
 
   const renderFoul = (f: FoulMatchup, i: number) => (
-    <div key={i} className="text-sm text-text-secondary py-0.5">
+    <div key={i} className={`${compact ? 'text-xs sm:text-sm' : 'text-sm'} text-text-secondary py-0.5`}>
       {f.type === 'handball' ? (
         <span>
           {f.minute != null && <span className="text-text-muted">{f.minute}' </span>}
@@ -628,19 +643,19 @@ export default function MatchCard({
       <img
         src={`https://api.sofascore.com/api/v1/player/${activePlayerId}/image`}
         alt={activePlayer.name}
-        className="w-7 h-7 rounded-full object-cover bg-surface-2"
+        className={`${compact ? 'w-5 h-5' : 'w-6 h-6'} rounded-full object-cover bg-surface-2`}
         onError={(e) => {
           (e.target as HTMLImageElement).style.display = 'none';
         }}
       />
       {activePlayerIsMain ? (
-        <span className="text-sm text-text-primary font-medium truncate max-w-[100px]">
+        <span className={`${compact ? 'text-[11px] sm:text-xs' : 'text-[12px]'} text-text-primary font-medium truncate max-w-[92px]`}>
           {abbreviateName(activePlayer.name)}
         </span>
       ) : (
         <button
           onClick={() => handlePlayerClick(activePlayer)}
-          className="text-sm text-text-primary font-medium truncate max-w-[100px] hover:text-neon hover:underline transition-colors"
+          className={`${compact ? 'text-[11px] sm:text-xs' : 'text-[12px]'} text-text-primary font-medium truncate max-w-[92px] hover:text-neon hover:underline transition-colors`}
         >
           {abbreviateName(activePlayer.name)}
         </button>
@@ -659,25 +674,25 @@ export default function MatchCard({
       <div className={`grid ${colClass} gap-1 w-fit flex-shrink-0`}>
         {showActiveCommitted && (
           <>
-            <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+            <div className="bg-surface border border-border rounded px-1.5 py-0.5 flex items-center justify-between gap-1.5">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./p</p>
-              <p className="text-negative text-xs font-bold">{renderAverageStatValue(committedPerGame, activePlayerSeasonStatsLoading, 'text-negative')}</p>
+              <p className="text-negative text-[11px] font-bold">{renderAverageStatValue(committedPerGame, activePlayerSeasonStatsLoading, 'text-negative')}</p>
             </div>
-            <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+            <div className="bg-surface border border-border rounded px-1.5 py-0.5 flex items-center justify-between gap-1.5">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm./90</p>
-              <p className="text-negative text-xs font-bold">{renderAverageStatValue(committedPer90, activePlayerSeasonStatsLoading, 'text-negative')}</p>
+              <p className="text-negative text-[11px] font-bold">{renderAverageStatValue(committedPer90, activePlayerSeasonStatsLoading, 'text-negative')}</p>
             </div>
           </>
         )}
         {showActiveSuffered && (
           <>
-            <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+            <div className="bg-surface border border-border rounded px-1.5 py-0.5 flex items-center justify-between gap-1.5">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./p</p>
-              <p className="text-neon text-xs font-bold">{renderAverageStatValue(sufferedPerGame, activePlayerSeasonStatsLoading, 'text-neon')}</p>
+              <p className="text-neon text-[11px] font-bold">{renderAverageStatValue(sufferedPerGame, activePlayerSeasonStatsLoading, 'text-neon')}</p>
             </div>
-            <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+            <div className="bg-surface border border-border rounded px-1.5 py-0.5 flex items-center justify-between gap-1.5">
               <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub./90</p>
-              <p className="text-neon text-xs font-bold">{renderAverageStatValue(sufferedPer90, activePlayerSeasonStatsLoading, 'text-neon')}</p>
+              <p className="text-neon text-[11px] font-bold">{renderAverageStatValue(sufferedPer90, activePlayerSeasonStatsLoading, 'text-neon')}</p>
             </div>
           </>
         )}
@@ -688,17 +703,17 @@ export default function MatchCard({
   const renderMatchFoulCounts = () => (
     <div className="flex flex-col items-center gap-1 w-fit flex-shrink-0">
       {showActiveCommitted && (
-        <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+        <div className="bg-surface border border-border rounded px-1.5 py-0.5 flex items-center justify-between gap-1.5">
           <p className="text-text-muted text-[9px] uppercase tracking-wide">Comm.</p>
-          <p className="text-negative text-xs font-bold">
+          <p className="text-negative text-[11px] font-bold">
             {renderFieldStatValue(activePlayerOwnFouls?.committed ?? null, activePlayerOwnFoulsLoading, 'text-negative')}
           </p>
         </div>
       )}
       {showActiveSuffered && (
-        <div className="bg-surface border border-border rounded px-2 py-0.5 flex items-center justify-between gap-2">
+        <div className="bg-surface border border-border rounded px-1.5 py-0.5 flex items-center justify-between gap-1.5">
           <p className="text-text-muted text-[9px] uppercase tracking-wide">Sub.</p>
-          <p className="text-neon text-xs font-bold">
+          <p className="text-neon text-[11px] font-bold">
             {renderFieldStatValue(activePlayerOwnFouls?.suffered ?? null, activePlayerOwnFoulsLoading, 'text-neon')}
           </p>
         </div>
@@ -706,16 +721,22 @@ export default function MatchCard({
     </div>
   );
 
-  const heatmapMaxWidth = fieldWidth > 0 ? Math.round(fieldWidth / 2) : undefined;
+  const heatmapMaxWidth = fieldWidth > 0
+    ? Math.min(
+        Math.round(fieldWidth / 2),
+        useLandscapePositions ? LANDSCAPE_HEATMAP_MAX_WIDTH : baseHeatmapMaxWidth,
+      )
+    : undefined;
 
   const renderPositionsSection = () => {
     if (!positions) return null;
 
     const leftCol = (orientation: 'portrait' | 'landscape') => (
-      <div className="flex items-center justify-center h-full py-8">
+      <div className="flex items-center justify-center h-full py-6">
         <div
           ref={fieldRef}
-          className={`w-full ${orientation === 'landscape' ? 'max-w-[367px]' : 'max-w-[238px]'}`}
+          className="w-full"
+          style={{ maxWidth: `${orientation === 'landscape' ? landscapeFieldMaxWidth : baseFieldMaxWidth}px` }}
         >
           <FieldMap
             homePositions={positions.home}
@@ -725,6 +746,7 @@ export default function MatchCard({
             involvedPlayerIds={involvedPlayerIds}
             onActivePlayerChange={setActivePlayerId}
             orientation={orientation}
+            dotScale={playerDotScale}
           />
         </div>
       </div>
@@ -732,7 +754,7 @@ export default function MatchCard({
 
     const rightCol = (orientation: 'portrait' | 'landscape', statCols: 1 | 2) => {
       const isLandscape = orientation === 'landscape';
-      const effectiveHeatmapWidth = heatmapMaxWidth ?? (isLandscape ? 200 : 119);
+      const effectiveHeatmapWidth = heatmapMaxWidth ?? (isLandscape ? LANDSCAPE_HEATMAP_MAX_WIDTH : baseHeatmapMaxWidth);
       const heatmapHeight = Math.round(effectiveHeatmapWidth * (isLandscape ? 68 / 105 : 105 / 68));
       const heatmapHalfHeight = Math.round(heatmapHeight / 2);
       const NAME_HEIGHT = 28;
@@ -784,6 +806,7 @@ export default function MatchCard({
             isHome={activeIsHome}
             orientation={orientation}
             maxWidth={heatmapMaxWidth}
+            maxCap={isLandscape ? LANDSCAPE_HEATMAP_MAX_WIDTH : baseHeatmapMaxWidth}
           />
         </div>
       );
@@ -791,9 +814,9 @@ export default function MatchCard({
 
     if (layoutMode === 'single') {
       return (
-        <div ref={positionsSectionRef} className="grid grid-cols-2 gap-3 mb-3 items-stretch pt-3">
-          <div className="flex items-center justify-center h-full py-8">
-            <div ref={fieldRef} className={`w-full ${fieldMaxWidthClass}`}>
+        <div ref={positionsSectionRef} className={`grid grid-cols-2 items-stretch pt-3 ${compact ? 'gap-2 mb-2.5' : 'gap-3 mb-3'}`}>
+          <div className="flex items-center justify-center h-full py-6">
+            <div ref={fieldRef} className="w-full" style={{ maxWidth: `${fieldMaxWidth}px` }}>
               <FieldMap
                 homePositions={positions.home}
                 awayPositions={positions.away}
@@ -802,6 +825,7 @@ export default function MatchCard({
                 involvedPlayerIds={involvedPlayerIds}
                 onActivePlayerChange={setActivePlayerId}
                 orientation={singleCardOrientation}
+                dotScale={playerDotScale}
               />
             </div>
           </div>
@@ -812,7 +836,7 @@ export default function MatchCard({
 
     if (layoutMode === 'double') {
       return (
-        <div ref={positionsSectionRef} className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
+        <div ref={positionsSectionRef} className={`grid grid-cols-2 items-stretch pt-3 ${compact ? 'gap-2 mb-3' : 'gap-3 mb-4'}`}>
           {leftCol('portrait')}
           {rightCol('portrait', 1)}
         </div>
@@ -823,7 +847,7 @@ export default function MatchCard({
     const multiHalfHeight = Math.round((multiHeatmapWidth * 105 / 68) / 2);
     const NAME_HEIGHT = 28;
     return (
-      <div ref={positionsSectionRef} className="grid grid-cols-2 gap-3 mb-4 items-stretch pt-3">
+      <div ref={positionsSectionRef} className={`grid grid-cols-2 items-stretch pt-3 ${compact ? 'gap-2 mb-3' : 'gap-3 mb-4'}`}>
         {leftCol('portrait')}
         <div ref={rightColRef} className="relative flex items-center justify-center">
           <div className="absolute top-0 left-1/2 -translate-x-1/2">
@@ -854,6 +878,7 @@ export default function MatchCard({
             playerId={activePlayerId}
             isHome={activeIsHome}
             maxWidth={heatmapMaxWidth}
+            maxCap={baseHeatmapMaxWidth}
           />
         </div>
       </div>
@@ -862,28 +887,28 @@ export default function MatchCard({
 
   const renderNarrativeBlock = (title: string, count: string, colorClass: string, items: FoulMatchup[]) => (
     <div className="flex flex-col items-center text-center">
-      <p className={`${colorClass} text-xs font-semibold uppercase tracking-wide mb-2`}>
+      <p className={`${colorClass} ${compact ? 'text-[11px] mb-1.5' : 'text-xs mb-2'} font-semibold uppercase tracking-wide`}>
         {title} ({count})
       </p>
       {details?.commentsStatus === 'loaded' ? (
-        items.length > 0 ? items.map(renderFoul) : <p className="text-text-muted text-sm">Nessuno</p>
+        items.length > 0 ? items.map(renderFoul) : <p className={`${compact ? 'text-xs sm:text-sm' : 'text-sm'} text-text-muted`}>Nessuno</p>
       ) : (
-        <p className="text-text-muted text-sm">{commentsMessage}</p>
+        <p className={`${compact ? 'text-xs sm:text-sm' : 'text-sm'} text-text-muted`}>{commentsMessage}</p>
       )}
     </div>
   );
   const roundLabel = getMatchRoundLabel(event.roundInfo, 'full');
 
   return (
-    <div className="bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col">
-      <div className="flex items-start justify-between px-4 py-6">
+    <div className={`bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col ${compact ? 'match-card match-card--compact' : 'match-card'}`}>
+      <div className={`flex items-start justify-between ${compact ? 'px-2.5 py-3.5' : 'px-3 py-4.5'}`}>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 text-xs text-text-muted">
+          <div className={`flex items-center gap-1.5 text-text-muted ${compact ? 'text-[10px]' : 'text-[11px]'}`}>
             <span>{event.tournament?.name}</span>
             {roundLabel && <span>{roundLabel}</span>}
             <span>· {dateStr}</span>
           </div>
-          <div className="text-text-primary font-medium mt-0.5 flex items-center gap-2 flex-wrap">
+          <div className={`text-text-primary font-medium mt-0.5 flex items-center gap-1.5 flex-wrap ${compact ? 'text-[12px]' : 'text-[13px]'}`}>
             {isHome ? (
               <>
                 <MatchTeamBadge team={event.homeTeam} />
@@ -917,7 +942,7 @@ export default function MatchCard({
             )}
           </div>
         </div>
-        <div className="text-xs text-text-muted text-right flex-shrink-0 mx-2">
+        <div className={`text-text-muted text-right flex-shrink-0 ${compact ? 'mx-1.5 text-[10px]' : 'mx-2 text-[11px]'}`}>
           <p>{appearanceLabel}</p>
         </div>
         {cardInfo && (
@@ -936,9 +961,9 @@ export default function MatchCard({
         </button>
       </div>
 
-      <div className="px-4 pb-8 border-t border-border pt-3 flex-1">
+      <div className={`${compact ? 'px-2.5 pb-4.5' : 'px-3 pb-5.5'} border-t border-border pt-2.5 flex-1`}>
         {!details ? (
-          <div className="flex items-center gap-2 text-text-muted text-sm">
+          <div className={`flex items-center gap-2 text-text-muted ${compact ? 'text-xs sm:text-sm' : 'text-sm'}`}>
             <div className="w-3 h-3 border-2 border-neon border-t-transparent rounded-full animate-spin" />
             Caricamento dettagli...
           </div>
@@ -958,6 +983,7 @@ export default function MatchCard({
                     eventId={event.id}
                     playerId={playerId}
                     isHome={isHome}
+                    maxCap={baseHeatmapMaxWidth}
                   />
                 </div>
               </div>
@@ -981,10 +1007,10 @@ export default function MatchCard({
                   </div>
                 )}
                 {details.commentsStatus === 'loaded' && visibleFouls.length === 0 && (
-                  <p className="text-text-muted text-sm text-center">Nessun fallo in questa partita</p>
+                  <p className={`${compact ? 'text-xs sm:text-sm' : 'text-sm'} text-text-muted text-center`}>Nessun fallo in questa partita</p>
                 )}
                 {details.commentsStatus !== 'loaded' && !showCommitted && !showSuffered && (
-                  <p className="text-text-muted text-sm text-center">{commentsMessage}</p>
+                  <p className={`${compact ? 'text-xs sm:text-sm' : 'text-sm'} text-text-muted text-center`}>{commentsMessage}</p>
                 )}
               </>
             )}

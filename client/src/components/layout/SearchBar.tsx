@@ -3,7 +3,12 @@ import { searchAll, getPlayerImageUrl, getTeamImageUrl, getTournamentImageUrl } 
 import { useNavigation } from '@/context/NavigationContext';
 import type { SearchResult } from '@/types';
 
-export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
+interface SearchBarProps {
+  panelIndex?: number;
+  compact?: boolean;
+}
+
+export default function SearchBar({ panelIndex = 0, compact = false }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -147,16 +152,18 @@ export default function SearchBar({ panelIndex = 0 }: { panelIndex?: number }) {
   }
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-md">
+    <div ref={containerRef} className={`relative w-full max-w-none ${compact ? 'md:max-w-none' : 'md:max-w-md'}`}>
       <input
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Cerca giocatore, squadra o competizione..."
-        className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-neon transition-colors"
+        className={`w-full bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-neon transition-colors ${
+          compact ? 'px-3.5 py-2 text-sm' : 'px-4 py-2.5'
+        }`}
       />
       {loading && (
-        <div className="absolute right-3 top-3">
+        <div className={`absolute right-3 ${compact ? 'top-2.5' : 'top-3'}`}>
           <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
         </div>
       )}

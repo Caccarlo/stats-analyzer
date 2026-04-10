@@ -132,7 +132,7 @@ export default function CountryList({
 
   return (
     <div className={`py-2 ${scrollOnlyOthers ? 'flex h-full min-h-0 flex-col' : ''}`}>
-      <div className={scrollOnlyOthers ? 'shrink-0 bg-bg-sidebar pb-2' : ''}>
+      <div className={scrollOnlyOthers ? 'shrink-0 bg-bg-sidebar pb-2' : 'sticky top-0 z-10 bg-bg'}>
         {TOP_COUNTRIES.map((country) => (
           <CountryButton
             key={country.id}

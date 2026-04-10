@@ -903,10 +903,11 @@ export default function MatchCard({
     <div className={`bg-surface border border-border rounded-lg overflow-hidden h-full w-full flex flex-col ${compact ? 'match-card match-card--compact' : 'match-card'}`}>
       <div className={`flex items-start justify-between ${compact ? 'px-2.5 py-3.5' : 'px-3 py-4.5'}`}>
         <div className="flex-1 min-w-0">
-          <div className={`flex items-center gap-1.5 text-text-muted ${compact ? 'text-[10px]' : 'text-[11px]'}`}>
-            <span>{event.tournament?.name}</span>
-            {roundLabel && <span>{roundLabel}</span>}
-            <span>· {dateStr}</span>
+          <div className={`flex items-start gap-1.5 text-text-muted ${compact ? 'text-[10px]' : 'text-[11px]'}`}>
+            <span className="min-w-0">
+              {[event.tournament?.name, roundLabel].filter(Boolean).join(' ')}
+            </span>
+            <span className="flex-shrink-0 whitespace-nowrap">· {dateStr}</span>
           </div>
           <div className={`text-text-primary font-medium mt-0.5 flex items-center gap-1.5 flex-wrap ${compact ? 'text-[12px]' : 'text-[13px]'}`}>
             {isHome ? (

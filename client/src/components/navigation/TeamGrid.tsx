@@ -168,7 +168,12 @@ export default function TeamGrid({ leagueId, panelIndex = 0 }: TeamGridProps) {
     if (mode !== 'phases' || phases.length === 0) return null;
     const phaseKey = panel?.tournamentPhaseKey;
     if (phaseKey) return phases.find((phase) => phase.key === phaseKey) ?? phases[0];
-    return phases.find((phase) => phase.key === 'league-phase') ?? phases[0];
+    const leaguePhase = phases.find((phase) => phase.key === 'league-phase');
+    if (leaguePhase && leaguePhase.standings.length > 0) {
+      const minMatches = Math.min(...leaguePhase.standings.map((row) => row.matches));
+      if (minMatches >= 30) return leaguePhase;
+    }
+    return phases[0];
   }, [mode, phases, panel?.tournamentPhaseKey]);
 
   useEffect(() => {

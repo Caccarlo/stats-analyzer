@@ -18,8 +18,8 @@ export default function PlayerDot({
   onClick,
   sizeScale = 1,
 }: PlayerDotProps) {
-  const DOT_RADIUS = 24 * sizeScale;
-  const NUMBER_SIZE = 21 * sizeScale;
+  const DOT_RADIUS = 30 * sizeScale;
+  const NUMBER_SIZE = 26 * sizeScale;
   const HIGHLIGHT_RADIUS = DOT_RADIUS + 6 * sizeScale;
   const STROKE_WIDTH = highlighted ? 2.5 * sizeScale : 1.75 * sizeScale;
 

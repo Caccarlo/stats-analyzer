@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getTeamImageUrl } from '@/api/sofascore';
 import type { TournamentSeason, Team } from '@/types';
 import type { SelectedPeriod } from '@/hooks/usePlayerData';
+import { useViewport } from '@/hooks/useViewport';
 
 const LAST_N_OPTIONS: Array<5 | 10 | 15 | 20 | 30 | 50 | 75> = [5, 10, 15, 20, 30, 50, 75];
 
@@ -157,6 +158,9 @@ export default function PlayerFilters({
     showSetters[idx](!showFilters[idx]);
   };
 
+  const { width: viewportWidth } = useViewport();
+  const capCompetitionsToHalf = !isSplitView && viewportWidth >= 1024;
+
   const labelClass = compact ? 'text-[11px]' : 'text-xs';
   const competitionChipClass = compact ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-xs';
   const controlHeightClass = compact ? 'h-8' : 'h-8';
@@ -172,7 +176,7 @@ export default function PlayerFilters({
     <div className={`player-filters grid ${compact ? 'gap-3' : 'gap-4'}`} style={{ gridTemplateColumns }}>
       <div className="min-w-0" style={{ gridColumn: '1 / -1' }}>
         <label className={`text-text-muted mb-2 block ${labelClass}`}>Competizioni:</label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" style={capCompetitionsToHalf ? { maxWidth: '50%' } : undefined}>
           {allTournamentsForSeason.map((t) => {
             const active = selectedIds.has(t.tournamentId);
             return (

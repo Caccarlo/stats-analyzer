@@ -31,7 +31,7 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
     const showBack = panelIndex === 1
       ? panel?.view !== 'home'
         && !(panel?.view === 'player' && state.panels[0]?.view === 'team' && panel?.teamId === state.panels[0]?.teamId)
-      : panel?.view === 'player';
+      : false;
 
     return (
       <div className="hidden lg:flex items-center justify-between px-6 pt-4 pb-0 flex-shrink-0">

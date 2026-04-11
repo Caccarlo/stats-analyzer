@@ -134,6 +134,8 @@ home -> leagues -> teams -> team -> player
 - Team and player views can open the opposite side in split mode.
 - Opponent team/player clicks inside match UI can open or swap the other panel.
 - SearchBar always lives in the shared top bar: duplicated per panel in split view, single compact instance in standard single-panel views, and paired with the calendar strip on the home page.
+- Home panels in split view reuse the same shared calendar date state as panel 0, so the scheduled-match calendar remains visible and synchronized when the home screen is opened on the right panel.
+- When the home screen is opened in the split panel, it also shows an internal compact countries sidebar beside the schedule so country navigation remains available without relying on the global left sidebar.
 - On mobile single-panel views, the SearchBar sits on the same top row as the fixed sidebar toggle, with left offset space reserved for the toggle instead of pushing the whole page down.
 - The mobile sidebar toggle is controlled from `App.tsx`; when the drawer is open, the same button switches to a close icon instead of rendering a second overlapping control.
 - On the single-panel home view, `App.tsx` lifts `calendarDate` state and renders a raw top bar made of compact search row + `CalendarStrip`, while the content area starts flush under that strip with no duplicate padding.
@@ -174,7 +176,8 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 ### Home Daily Schedule
 
 - The default home screen on panel 0 is no longer a static intro: it shows the selected day's football schedule grouped as `country -> tournament -> matches`.
-- `useCalendarData` fetches `sport/football/scheduled-events/{date}`, keeps a local `Map<date, events[]>` cache, and suppresses the spinner when revisiting a date already loaded in the current session.
+- `useCalendarData` fetches `sport/football/scheduled-events/{date}`, keeps a local `Map<date, events[]>` cache, suppresses the spinner when revisiting a date already loaded in the current session, and applies a final client-side filter so the home calendar shows only matches whose local `startTimestamp` falls on the selected date.
+- `todayISO()` is derived from the browser's local calendar date (not UTC), so the selected "today" stays aligned with the user's timezone.
 - When the selected date is today, `useCalendarData` auto-refreshes the schedule every 60 seconds with `skipCache=true` so live scores can advance without manual reload.
 - Home grouping is built from `event.tournament.uniqueTournament` and its `category`; matches inside a tournament are ordered by `startTimestamp`.
 - Country ordering is priority-based: the top categories are Italy, England, Spain, Germany, France, Europe, and World. If one of those has a configured primary competition on that day, it is promoted ahead of all other categories.

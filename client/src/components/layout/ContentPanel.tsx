@@ -76,18 +76,18 @@ export default function ContentPanel({ children, splitContent, topBar, rawTopBar
       )}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Main panel */}
-        <div className={`flex-1 flex flex-col overflow-x-hidden min-w-0 min-h-0 ${hasSplit ? 'w-1/2 overflow-y-scroll split-panel' : 'w-full overflow-y-auto'}`}>
+        <div className={`flex-1 flex flex-col overflow-x-hidden min-w-0 min-h-0 ${hasSplit ? 'w-1/2 overflow-y-hidden split-panel' : 'w-full overflow-y-auto'}`}>
           {hasSplit && renderPanelHeader(0)}
-          <div className={`flex-1 ${panelPaddingClass} ${hasSplit ? 'pt-4' : rawTopBar ? 'pt-0' : topBar ? 'pt-4' : 'pt-4 md:pt-6'}`}>
+          <div className={`flex-1 min-h-0 ${panelPaddingClass} ${hasSplit ? 'overflow-hidden pt-4' : rawTopBar ? 'pt-0' : topBar ? 'pt-4' : 'pt-4 md:pt-6'}`}>
             {children}
           </div>
         </div>
 
         {/* Split panel */}
         {hasSplit && (
-          <div className="hidden lg:flex flex-col w-1/2 border-l border-border overflow-y-scroll overflow-x-hidden min-w-0 min-h-0 split-panel">
+          <div className="hidden lg:flex flex-col w-1/2 border-l border-border overflow-y-hidden overflow-x-hidden min-w-0 min-h-0 split-panel">
             {renderPanelHeader(1)}
-            <div className={`flex-1 ${panelPaddingClass} pt-4`}>
+            <div className={`flex-1 min-h-0 overflow-hidden ${panelPaddingClass} pt-4`}>
               {splitContent}
             </div>
           </div>

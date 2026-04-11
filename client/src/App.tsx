@@ -96,8 +96,8 @@ function AppContent() {
         return (
           <HomePage
             panelIndex={panelIndex}
-            calendarDate={panelIndex === 0 ? calendarDate : undefined}
-            onSelectDate={panelIndex === 0 ? setCalendarDate : undefined}
+            calendarDate={calendarDate}
+            onSelectDate={setCalendarDate}
             calendarInTopBar={panelIndex === 0 && isHomeView}
           />
         );

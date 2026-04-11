@@ -46,17 +46,19 @@ export default function HomeCalendar({
   };
 
   return (
-    <div>
+    <div className="flex h-full min-h-0 flex-col">
       {!calendarInTopBar && (
         <CalendarStrip selectedDate={selectedDate} onSelectDate={setSelectedDate} />
       )}
-      <DaySchedule
-        groups={groups}
-        loading={loading}
-        error={error}
-        onNavigateLeague={handleNavigateLeague}
-        onNavigateTeam={handleNavigateTeam}
-      />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <DaySchedule
+          groups={groups}
+          loading={loading}
+          error={error}
+          onNavigateLeague={handleNavigateLeague}
+          onNavigateTeam={handleNavigateTeam}
+        />
+      </div>
     </div>
   );
 }

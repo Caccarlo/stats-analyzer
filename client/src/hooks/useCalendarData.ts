@@ -41,8 +41,19 @@ const PRIMARY_TOURNAMENT_IDS: Record<number, number[]> = {
 // === Helper date ===
 
 export function todayISO(): string {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return formatLocalDateISO(new Date());
+}
+
+function formatLocalDateISO(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function isEventOnSelectedDate(event: MatchEvent, selectedDate: string): boolean {
+  if (!event.startTimestamp) return false;
+  return formatLocalDateISO(new Date(event.startTimestamp * 1000)) === selectedDate;
 }
 
 // === Raggruppamento e ordinamento ===
@@ -213,7 +224,7 @@ export function useCalendarData(selectedDate: string) {
   }, [selectedDate]);
 
   const groups: CountryGroup[] = useMemo(
-    () => buildGroups(eventsMap.get(selectedDate) ?? []),
+    () => buildGroups((eventsMap.get(selectedDate) ?? []).filter((event) => isEventOnSelectedDate(event, selectedDate))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [eventsMap, selectedDate]
   );

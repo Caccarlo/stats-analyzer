@@ -8,15 +8,26 @@ interface ContentPanelProps {
   topBar?: React.ReactNode;
   /** When true the topBar manages its own padding and border; ContentPanel wraps it without adding any. */
   rawTopBar?: boolean;
+  mainPanelScrollMode?: 'panel' | 'content';
+  splitPanelScrollMode?: 'panel' | 'content';
 }
 
-export default function ContentPanel({ children, splitContent, topBar, rawTopBar = false }: ContentPanelProps) {
+export default function ContentPanel({
+  children,
+  splitContent,
+  topBar,
+  rawTopBar = false,
+  mainPanelScrollMode = 'panel',
+  splitPanelScrollMode = 'panel',
+}: ContentPanelProps) {
   const { state, closeSplit, goBack } = useNavigation();
   const { width, height } = useViewport();
   const hasSplit = state.panels.length > 1 && splitContent;
   const compactDensity = width < 640 || height < 820;
   const panelPaddingClass = compactDensity ? 'p-4' : 'p-6';
   const topBarPaddingClass = 'px-4 py-3.5 flex items-center border-b border-border';
+  const mainPanelUsesInnerScroll = hasSplit && mainPanelScrollMode === 'content';
+  const splitPanelUsesInnerScroll = hasSplit && splitPanelScrollMode === 'content';
 
   const getBackLabel = (panel: PanelState) => {
     switch (panel.view) {
@@ -76,18 +87,32 @@ export default function ContentPanel({ children, splitContent, topBar, rawTopBar
       )}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Main panel */}
-        <div className={`flex-1 flex flex-col overflow-x-hidden min-w-0 min-h-0 ${hasSplit ? 'w-1/2 overflow-y-hidden split-panel' : 'w-full overflow-y-auto'}`}>
+        <div className={`flex-1 flex flex-col overflow-x-hidden min-w-0 min-h-0 ${
+          hasSplit
+            ? `w-1/2 split-panel ${mainPanelUsesInnerScroll ? 'overflow-y-hidden' : 'overflow-y-auto'}`
+            : 'w-full overflow-y-auto'
+        }`}>
           {hasSplit && renderPanelHeader(0)}
-          <div className={`flex-1 min-h-0 ${panelPaddingClass} ${hasSplit ? 'overflow-hidden pt-4' : rawTopBar ? 'pt-0' : topBar ? 'pt-4' : 'pt-4 md:pt-6'}`}>
+          <div className={`flex-1 min-h-0 ${panelPaddingClass} ${
+            hasSplit
+              ? `${mainPanelUsesInnerScroll ? 'overflow-hidden ' : ''}pt-4`
+              : rawTopBar
+                ? 'pt-0'
+                : topBar
+                  ? 'pt-4'
+                  : 'pt-4 md:pt-6'
+          }`}>
             {children}
           </div>
         </div>
 
         {/* Split panel */}
         {hasSplit && (
-          <div className="hidden lg:flex flex-col w-1/2 border-l border-border overflow-y-hidden overflow-x-hidden min-w-0 min-h-0 split-panel">
+          <div className={`hidden lg:flex flex-col w-1/2 border-l border-border overflow-x-hidden min-w-0 min-h-0 split-panel ${
+            splitPanelUsesInnerScroll ? 'overflow-y-hidden' : 'overflow-y-auto'
+          }`}>
             {renderPanelHeader(1)}
-            <div className={`flex-1 min-h-0 overflow-hidden ${panelPaddingClass} pt-4`}>
+            <div className={`flex-1 min-h-0 ${splitPanelUsesInnerScroll ? 'overflow-hidden ' : ''}${panelPaddingClass} pt-4`}>
               {splitContent}
             </div>
           </div>

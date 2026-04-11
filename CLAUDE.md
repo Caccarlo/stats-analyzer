@@ -136,6 +136,7 @@ home -> leagues -> teams -> team -> player
 - SearchBar always lives in the shared top bar: duplicated per panel in split view, single compact instance in standard single-panel views, and paired with the calendar strip on the home page.
 - Home panels in split view reuse the same shared calendar date state as panel 0, so the scheduled-match calendar remains visible and synchronized when the home screen is opened on the right panel.
 - When the home screen is opened in the split panel, it also shows an internal compact countries sidebar beside the schedule so country navigation remains available without relying on the global left sidebar.
+- Split-panel scrolling is panel-specific: standard views keep the panel itself scrollable, while split home uses internal scroll containers so its compact countries sidebar and match schedule can scroll independently without breaking other split pages.
 - On mobile single-panel views, the SearchBar sits on the same top row as the fixed sidebar toggle, with left offset space reserved for the toggle instead of pushing the whole page down.
 - The mobile sidebar toggle is controlled from `App.tsx`; when the drawer is open, the same button switches to a close icon instead of rendering a second overlapping control.
 - On the single-panel home view, `App.tsx` lifts `calendarDate` state and renders a raw top bar made of compact search row + `CalendarStrip`, while the content area starts flush under that strip with no duplicate padding.

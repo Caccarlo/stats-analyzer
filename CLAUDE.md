@@ -46,6 +46,7 @@ stats-analyzer/
         |-- context/
         |   `-- NavigationContext.tsx
         |-- hooks/
+        |   |-- useCalendarData.ts   # Home daily schedule loader, local date cache, country/tournament grouping, today auto-refresh
         |   |-- usePlayerData.ts     # Seasons/stats + all player filter state, including selectedPeriod
         |   |-- useMatchDetails.ts   # Shared match-details cache and helpers for officialStats, lineups, rich comments
         |   |-- useMatchTimeline.ts  # events/last loader + progressive officialStats/lineups/rich data queues
@@ -58,13 +59,20 @@ stats-analyzer/
         |   |-- statsCalculator.ts
         |   `-- positionMapping.ts
         |-- pages/
-        |   |-- HomePage.tsx
+        |   |-- HomePage.tsx         # Home daily schedule entry point; renders HomeCalendar on panel 0
         |   `-- PlayerPage.tsx       # Player analysis, derived filters, selection state, stats, timeline, cards
         `-- components/
+            |-- home/
+            |   |-- HomeCalendar.tsx   # Daily football schedule container; lifts date state from App when top-bar calendar is active
+            |   |-- CalendarStrip.tsx  # Horizontally scrollable infinite date strip centered on selected day
+            |   |-- DaySchedule.tsx    # Loading/error/empty states plus country list for selected date
+            |   |-- CountrySection.tsx # Country accordion with match counters and nested leagues
+            |   |-- LeagueSection.tsx  # Tournament accordion with direct league navigation and inline match rows
+            |   `-- MatchRow.tsx       # Compact fixture row with live/FT status and clickable teams
             |-- layout/
             |   |-- Sidebar.tsx
-            |   |-- ContentPanel.tsx
-            |   `-- SearchBar.tsx              # Searches players, teams, and tournaments; filters non-football results; clears all stale hierarchy context on selection
+            |   |-- ContentPanel.tsx          # Supports standard bordered top bar or raw top bar for home search + calendar strip
+            |   `-- SearchBar.tsx             # Searches players, teams, and tournaments; filters non-football results; clears stale hierarchy context; compact header mode
             |-- navigation/
             |   |-- CountryList.tsx     # Top 7 categories pinned first (IT, EN, ES, DE, FR, EU, World) + dynamic full category list from SofaScore
             |   |-- LeagueList.tsx      # Dynamic tournament list for the selected SofaScore category
@@ -125,9 +133,12 @@ home -> leagues -> teams -> team -> player
 - Panels are independent and render 50/50.
 - Team and player views can open the opposite side in split mode.
 - Opponent team/player clicks inside match UI can open or swap the other panel.
-- SearchBar is shared in single view and duplicated per panel in split view.
+- SearchBar always lives in the shared top bar: duplicated per panel in split view, single compact instance in standard single-panel views, and paired with the calendar strip on the home page.
+- Home panels in split view reuse the same shared calendar date state as panel 0, so the scheduled-match calendar remains visible and synchronized when the home screen is opened on the right panel.
+- When the home screen is opened in the split panel, it also shows an internal compact countries sidebar beside the schedule so country navigation remains available without relying on the global left sidebar.
 - On mobile single-panel views, the SearchBar sits on the same top row as the fixed sidebar toggle, with left offset space reserved for the toggle instead of pushing the whole page down.
 - The mobile sidebar toggle is controlled from `App.tsx`; when the drawer is open, the same button switches to a close icon instead of rendering a second overlapping control.
+- On the single-panel home view, `App.tsx` lifts `calendarDate` state and renders a raw top bar made of compact search row + `CalendarStrip`, while the content area starts flush under that strip with no duplicate padding.
 - Clicking "next opponent" in `TeamView` always arranges the match as home team on the left (panel 0) and away team on the right (panel 1), regardless of which panel the click came from. If the arrangement is already correct, the click does nothing. If one panel has a player page, it is preserved on the side matching the player's team; only the other panel is replaced with the new team.
 - `TeamView` derives `teamName` from `panel.teamName` (set at navigation time) as the primary source, then falls back to `nextEvent.homeTeam/awayTeam.name` if the panel name is missing. This prevents national team pages from showing a club name taken from a player's team.
 
@@ -138,6 +149,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 | Endpoint | Purpose | Used in |
 |----------|---------|---------|
 | `sport/football/categories` | Football categories list | CountryList |
+| `sport/football/scheduled-events/{date}` | Daily football schedule for the home calendar | useCalendarData, HomeCalendar |
 | `category/{categoryId}/unique-tournaments` | All tournaments for a football category | LeagueList |
 | `search/all?q={query}` | Global search returning players, teams, and tournaments | SearchBar |
 | `unique-tournament/{id}/seasons` | Tournament seasons | TeamGrid |
@@ -160,6 +172,19 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 | `team/{id}/image`, `player/{id}/image`, etc. | Images | `/api/img/*` |
 
 ## Business Logic
+
+### Home Daily Schedule
+
+- The default home screen on panel 0 is no longer a static intro: it shows the selected day's football schedule grouped as `country -> tournament -> matches`.
+- `useCalendarData` fetches `sport/football/scheduled-events/{date}`, keeps a local `Map<date, events[]>` cache, suppresses the spinner when revisiting a date already loaded in the current session, and applies a final client-side filter so the home calendar shows only matches whose local `startTimestamp` falls on the selected date.
+- `todayISO()` is derived from the browser's local calendar date (not UTC), so the selected "today" stays aligned with the user's timezone.
+- When the selected date is today, `useCalendarData` auto-refreshes the schedule every 60 seconds with `skipCache=true` so live scores can advance without manual reload.
+- Home grouping is built from `event.tournament.uniqueTournament` and its `category`; matches inside a tournament are ordered by `startTimestamp`.
+- Country ordering is priority-based: the top categories are Italy, England, Spain, Germany, France, Europe, and World. If one of those has a configured primary competition on that day, it is promoted ahead of all other categories.
+- Inside each prioritized country, configured primary competitions (for example Serie A, Premier League, LaLiga, Bundesliga, Ligue 1, UEFA club cups, World Cup / Club World Cup) are shown first; the remaining competitions follow in alphabetical order.
+- Country sections default to expanded. Within each country, only the first available primary tournament is auto-expanded; if none is present, the first tournament is expanded.
+- `LeagueSection` allows direct navigation to the tournament teams view via `selectLeague`, preserving `seasonId` from the scheduled event payload.
+- `MatchRow` allows direct navigation to either team page from the home calendar, carrying tournament/category context (`leagueId`, `leagueName`, `seasonId`, `countryCategoryId`, `countryId`, `countryName`) so downstream back-navigation remains coherent.
 
 ### Tournament Structure
 

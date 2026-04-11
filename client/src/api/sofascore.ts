@@ -462,3 +462,13 @@ export function getTournamentImageUrl(tournamentId: number): string {
 export function getCategoryImageUrl(categoryId: number): string {
   return `/api/img/category/${categoryId}/image`;
 }
+
+// === Calendario giornaliero ===
+
+export async function getScheduledEvents(date: string, skipCache = false): Promise<MatchEvent[]> {
+  const data = await apiFetch<{ events?: MatchEvent[] }>(
+    `sport/football/scheduled-events/${date}`,
+    { useCache: !skipCache }
+  );
+  return data.events ?? [];
+}

@@ -11,6 +11,8 @@ import LeagueList from '@/components/navigation/LeagueList';
 import TeamGrid from '@/components/navigation/TeamGrid';
 import TeamView from '@/components/navigation/TeamView';
 import SidebarTeamList from '@/components/navigation/SidebarTeamList';
+import CalendarStrip from '@/components/home/CalendarStrip';
+import { todayISO } from '@/hooks/useCalendarData';
 import { useViewport } from '@/hooks/useViewport';
 
 
@@ -20,17 +22,13 @@ function AppContent() {
   const panel0 = state.panels[0];
   const panel1 = state.panels[1];
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [calendarDate, setCalendarDate] = useState<string>(() => todayISO());
 
   const hasSplit = state.panels.length > 1;
   const isDesktop = width >= 1024;
   const hasHamburgerNav = width < 768;
   const compactDensity = width < 640 || height < 820;
-
-  const renderSinglePanelSearch = (panelIndex: number) => (
-    <div className={`mb-4 md:mb-6 ${hasHamburgerNav ? 'pl-14' : ''}`}>
-      <SearchBar panelIndex={panelIndex} compact={compactDensity} />
-    </div>
-  );
+  const isHomeView = !hasSplit && panel0.view === 'home';
 
   const renderContent = (panelIndex: number) => {
     const panel = state.panels[panelIndex];
@@ -42,80 +40,66 @@ function AppContent() {
     switch (panel.view) {
       case 'player':
         return panel.playerId ? (
-          <div>
-            {!hasSplit && panelIndex === 0 && renderSinglePanelSearch(panelIndex)}
-            <div className={`${showPlusButton ? 'relative mt-8' : ''} ${!hasSplit ? 'mt-1 md:mt-0' : ''}`}>
-              {showPlusButton && (
-                <button
-                  onClick={openSplitHome}
-                  className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
-                  aria-label="Apri vista affiancata"
-                  title="Apri vista affiancata"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-              )}
-              <PlayerPage
-                key={panel.playerId}
-                playerId={panel.playerId}
-                playerData={panel.playerData}
-                panelIndex={panelIndex}
-              />
-            </div>
+          <div className={`${showPlusButton ? 'relative mt-8' : ''}`}>
+            {showPlusButton && (
+              <button
+                onClick={openSplitHome}
+                className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+                aria-label="Apri vista affiancata"
+                title="Apri vista affiancata"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            )}
+            <PlayerPage
+              key={panel.playerId}
+              playerId={panel.playerId}
+              playerData={panel.playerData}
+              panelIndex={panelIndex}
+            />
           </div>
         ) : null;
 
       case 'team':
         return panel.teamId ? (
-          <div>
-            {!hasSplit && panelIndex === 0 && renderSinglePanelSearch(panelIndex)}
-            <div className={`${showPlusButton ? 'relative mt-8' : ''} ${!hasSplit ? 'mt-1 md:mt-0' : ''}`}>
-              {showPlusButton && (
-                <button
-                  onClick={openSplitHome}
-                  className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
-                  aria-label="Apri vista affiancata"
-                  title="Apri vista affiancata"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-              )}
-              <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
-            </div>
+          <div className={`${showPlusButton ? 'relative mt-8' : ''}`}>
+            {showPlusButton && (
+              <button
+                onClick={openSplitHome}
+                className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+                aria-label="Apri vista affiancata"
+                title="Apri vista affiancata"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            )}
+            <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
           </div>
         ) : null;
 
       case 'teams':
         return panel.leagueId ? (
-          <div>
-            {!hasSplit && renderSinglePanelSearch(panelIndex)}
-            <div className={!hasSplit ? 'mt-1 md:mt-0' : ''}>
-              <TeamGrid leagueId={panel.leagueId} panelIndex={panelIndex} />
-            </div>
-          </div>
+          <TeamGrid leagueId={panel.leagueId} panelIndex={panelIndex} />
         ) : null;
 
       case 'leagues':
         return panel.countryId ? (
-          <div>
-            {!hasSplit && renderSinglePanelSearch(panelIndex)}
-            <div className={!hasSplit ? 'mt-1 md:mt-0' : ''}>
-              <LeagueList panelIndex={panelIndex} />
-            </div>
-          </div>
+          <LeagueList panelIndex={panelIndex} />
         ) : null;
 
       case 'home':
       default:
         return (
-          <div>
-            {!hasSplit && panelIndex === 0 && renderSinglePanelSearch(panelIndex)}
-            <HomePage panelIndex={panelIndex} />
-          </div>
+          <HomePage
+            panelIndex={panelIndex}
+            calendarDate={panelIndex === 0 ? calendarDate : undefined}
+            onSelectDate={panelIndex === 0 ? setCalendarDate : undefined}
+            calendarInTopBar={panelIndex === 0 && isHomeView}
+          />
         );
     }
   };
@@ -180,6 +164,37 @@ function AppContent() {
     }
   };
 
+  const renderTopBar = () => {
+    if (hasSplit) {
+      return (
+        <div className="flex w-full">
+          <div className="w-1/2 pr-6">
+            <SearchBar panelIndex={0} headerMode compact={compactDensity} />
+          </div>
+          <div className="w-1/2 pl-6">
+            <SearchBar panelIndex={1} headerMode compact={compactDensity} />
+          </div>
+        </div>
+      );
+    }
+    // Home view: compact search row + CalendarStrip, no outer border from ContentPanel
+    if (isHomeView) {
+      return (
+        <>
+          <div className={`flex items-center px-4 py-3.5 ${hasHamburgerNav ? 'pl-[52px]' : ''}`}>
+            <SearchBar panelIndex={0} headerMode compact={compactDensity} />
+          </div>
+          <CalendarStrip selectedDate={calendarDate} onSelectDate={setCalendarDate} />
+        </>
+      );
+    }
+    return (
+      <div className={hasHamburgerNav ? 'pl-9 w-full' : 'w-full'}>
+        <SearchBar panelIndex={0} headerMode compact={compactDensity} />
+      </div>
+    );
+  };
+
   return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar
@@ -190,16 +205,8 @@ function AppContent() {
       </Sidebar>
       <ContentPanel
         splitContent={panel1 ? renderContent(1) : undefined}
-        topBar={hasSplit ? (
-          <div className="flex">
-            <div className="w-1/2 pr-6">
-              <SearchBar panelIndex={0} />
-            </div>
-            <div className="w-1/2 pl-6">
-              <SearchBar panelIndex={1} />
-            </div>
-          </div>
-        ) : undefined}
+        topBar={renderTopBar()}
+        rawTopBar={isHomeView}
       >
         {renderContent(0)}
       </ContentPanel>

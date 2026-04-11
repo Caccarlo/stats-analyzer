@@ -6,9 +6,10 @@ import type { SearchResult } from '@/types';
 interface SearchBarProps {
   panelIndex?: number;
   compact?: boolean;
+  headerMode?: boolean;
 }
 
-export default function SearchBar({ panelIndex = 0, compact = false }: SearchBarProps) {
+export default function SearchBar({ panelIndex = 0, compact = false, headerMode = false }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [open, setOpen] = useState(false);
@@ -152,18 +153,18 @@ export default function SearchBar({ panelIndex = 0, compact = false }: SearchBar
   }
 
   return (
-    <div ref={containerRef} className={`relative w-full max-w-none ${compact ? 'md:max-w-none' : 'md:max-w-md'}`}>
+    <div ref={containerRef} className="relative w-full max-w-[480px]">
       <input
         type="text"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Cerca giocatore, squadra o competizione..."
         className={`w-full bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:border-neon transition-colors ${
-          compact ? 'px-3.5 py-2 text-sm' : 'px-4 py-2.5'
+          headerMode ? 'px-3 py-1.5 text-sm' : compact ? 'px-3.5 py-2 text-sm' : 'px-4 py-2.5'
         }`}
       />
       {loading && (
-        <div className={`absolute right-3 ${compact ? 'top-2.5' : 'top-3'}`}>
+        <div className={`absolute right-3 ${headerMode ? 'top-2' : compact ? 'top-2.5' : 'top-3'}`}>
           <div className="w-4 h-4 border-2 border-neon border-t-transparent rounded-full animate-spin" />
         </div>
       )}

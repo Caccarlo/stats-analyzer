@@ -6,15 +6,17 @@ interface ContentPanelProps {
   children: React.ReactNode;
   splitContent?: React.ReactNode;
   topBar?: React.ReactNode;
+  /** When true the topBar manages its own padding and border; ContentPanel wraps it without adding any. */
+  rawTopBar?: boolean;
 }
 
-export default function ContentPanel({ children, splitContent, topBar }: ContentPanelProps) {
+export default function ContentPanel({ children, splitContent, topBar, rawTopBar = false }: ContentPanelProps) {
   const { state, closeSplit, goBack } = useNavigation();
   const { width, height } = useViewport();
   const hasSplit = state.panels.length > 1 && splitContent;
   const compactDensity = width < 640 || height < 820;
   const panelPaddingClass = compactDensity ? 'p-4' : 'p-6';
-  const topBarPaddingClass = compactDensity ? 'px-4 pt-4 pb-4' : 'px-6 pt-4 md:pt-6 pb-6';
+  const topBarPaddingClass = 'px-4 py-3.5 flex items-center border-b border-border';
 
   const getBackLabel = (panel: PanelState) => {
     switch (panel.view) {
@@ -64,15 +66,19 @@ export default function ContentPanel({ children, splitContent, topBar }: Content
   return (
     <div className={`md:ml-[var(--sidebar-width)] flex-1 flex flex-col overflow-hidden ${hasSplit ? 'h-screen' : 'min-h-screen'}`}>
       {topBar && (
-        <div className={`${topBarPaddingClass} w-full flex-shrink-0`}>
-          {topBar}
-        </div>
+        rawTopBar ? (
+          <div className="w-full flex-shrink-0">{topBar}</div>
+        ) : (
+          <div className={`${topBarPaddingClass} w-full flex-shrink-0`}>
+            <div className="w-full">{topBar}</div>
+          </div>
+        )
       )}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Main panel */}
         <div className={`flex-1 flex flex-col overflow-x-hidden min-w-0 min-h-0 ${hasSplit ? 'w-1/2 overflow-y-scroll split-panel' : 'w-full overflow-y-auto'}`}>
           {hasSplit && renderPanelHeader(0)}
-          <div className={`flex-1 ${panelPaddingClass} ${hasSplit ? 'pt-4' : topBar ? 'pt-4' : 'pt-4 md:pt-6'}`}>
+          <div className={`flex-1 ${panelPaddingClass} ${hasSplit ? 'pt-4' : rawTopBar ? 'pt-0' : topBar ? 'pt-4' : 'pt-4 md:pt-6'}`}>
             {children}
           </div>
         </div>

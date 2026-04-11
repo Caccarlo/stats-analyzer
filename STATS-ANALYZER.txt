@@ -1,0 +1,13 @@
+STATS-ANALYZER
+
+feature:
+- calendario pagina home - specifiche - al caricamento deve essere mostrato sotto alla barra di ricerca un calendario orizzontale preselezionato sul giorno attuale, ma con la possibilità di selezionare giorni avanti ed indietro all'attuale. per tutte le giornate vanno mostrate tutte le partite giocate e da giocare in quel giorno, se una partita è conclusa mostrarne il risultato, se è possibile, mostrare anche il risultato delle partite in corso. le partite vanno mostrate come una lista per campionato, mostrando in cima le partite dei top7 campionati, sotto tutti gli altri in ordine alfabetico e di inizio delle partite, tutte le partite di ogni campionato saranno precedute da una riga con il nome del campionato in questione, con la possibilità di chiudere ed aprire tutte le partite di quel campionato cliccandola. il nome del campionato però, così come il nome di ogni squadra, deve essere un link per aprire a schermo intero la pagina della voce selezionata, quindi il clic per espandere le partite del campionato e il clic per aprire la pagina del campionato devono essere ben separati anche se il nome del campionato deve stare dentro alla riga. 
+- tiri e tp giocatori - specifiche -
+- quota bookmakers - specifiche - 
+- 
+
+fix: 
+- sportradar e altri provider - specifiche -  
+
+grafica: 
+- 

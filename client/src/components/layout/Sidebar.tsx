@@ -63,7 +63,7 @@ export default function Sidebar({ children, mobileOpen, onMobileOpenChange }: Si
         `}
       >
         {/* Header */}
-        <div className={`border-b border-border ${isMobile ? 'pl-16 pr-4 py-[14px]' : 'px-4 py-[14px]'}`}>
+        <div className={`border-b border-border flex items-center h-14 ${isMobile ? 'pl-16 pr-4' : 'px-4'}`}>
           <h1
             className="text-neon font-bold text-lg tracking-tight cursor-pointer hover:opacity-80 transition-opacity"
             onClick={() => dispatch({ type: 'RESET' })}

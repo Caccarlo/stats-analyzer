@@ -134,9 +134,13 @@ home -> leagues -> teams -> team -> player
 - Team and player views can open the opposite side in split mode.
 - Opponent team/player clicks inside match UI can open or swap the other panel.
 - SearchBar always lives in the shared top bar: duplicated per panel in split view, single compact instance in standard single-panel views, and paired with the calendar strip on the home page.
+- SearchBar uses fixed control heights per density (`h-9` header mode, `h-10` compact, `h-11` standard) so the field does not visually resize when nearby divider lines appear/disappear across layouts.
 - Home panels in split view reuse the same shared calendar date state as panel 0, so the scheduled-match calendar remains visible and synchronized when the home screen is opened on the right panel.
 - When the home screen is opened in the split panel, it also shows an internal compact countries sidebar beside the schedule so country navigation remains available without relying on the global left sidebar.
 - Split-panel scrolling is panel-specific: standard views keep the panel itself scrollable, while split home uses internal scroll containers so its compact countries sidebar and match schedule can scroll independently without breaking other split pages.
+- In split home, the close button is rendered as overlay chrome instead of taking layout height, so the compact countries sidebar and the schedule start directly under the shared top-bar divider and align with the main left sidebar header line.
+- In split home, the calendar strip spans the full schedule column width under the overlay close button, while the match list below keeps its own horizontal padding; the compact countries sidebar still ignores the overlay chrome and starts directly under the top-bar divider.
+- The desktop main top bar and the left sidebar header now share the same fixed height (`h-14`) to avoid subpixel divider drift and keep their bottom border perfectly aligned.
 - On mobile single-panel views, the SearchBar sits on the same top row as the fixed sidebar toggle, with left offset space reserved for the toggle instead of pushing the whole page down.
 - The mobile sidebar toggle is controlled from `App.tsx`; when the drawer is open, the same button switches to a close icon instead of rendering a second overlapping control.
 - On the single-panel home view, `App.tsx` lifts `calendarDate` state and renders a raw top bar made of compact search row + `CalendarStrip`, while the content area starts flush under that strip with no duplicate padding.

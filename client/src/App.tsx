@@ -98,6 +98,8 @@ function AppContent() {
         return (
           <HomePage
             panelIndex={panelIndex}
+            isSplitView={hasSplit}
+            compactDensity={compactDensity}
             calendarDate={calendarDate}
             onSelectDate={setCalendarDate}
             calendarInTopBar={panelIndex === 0 && isHomeView}

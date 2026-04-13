@@ -12,6 +12,7 @@ interface HomeCalendarProps {
   onSelectDate?: (d: string) => void;
   /** When true the CalendarStrip is already rendered in the topBar; skip it here */
   calendarInTopBar?: boolean;
+  schedulePaddingClass?: string;
 }
 
 export default function HomeCalendar({
@@ -19,6 +20,7 @@ export default function HomeCalendar({
   calendarDate: extDate,
   onSelectDate: extSetDate,
   calendarInTopBar = false,
+  schedulePaddingClass,
 }: HomeCalendarProps) {
   const [internalDate, setInternalDate] = useState<string>(() => todayISO());
   const selectedDate = extDate ?? internalDate;
@@ -46,11 +48,13 @@ export default function HomeCalendar({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div>
       {!calendarInTopBar && (
-        <CalendarStrip selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+        <div className={schedulePaddingClass}>
+          <CalendarStrip selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+        </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className={schedulePaddingClass}>
         <DaySchedule
           groups={groups}
           loading={loading}

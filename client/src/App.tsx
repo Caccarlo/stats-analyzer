@@ -29,6 +29,8 @@ function AppContent() {
   const hasHamburgerNav = width < 768;
   const compactDensity = width < 640 || height < 820;
   const isHomeView = !hasSplit && panel0.view === 'home';
+  const mainPanelScrollMode = hasSplit && panel0.view === 'home' ? 'content' : 'panel';
+  const splitPanelScrollMode = hasSplit && panel1?.view === 'home' ? 'content' : 'panel';
 
   const renderContent = (panelIndex: number) => {
     const panel = state.panels[panelIndex];
@@ -96,6 +98,8 @@ function AppContent() {
         return (
           <HomePage
             panelIndex={panelIndex}
+            isSplitView={hasSplit}
+            compactDensity={compactDensity}
             calendarDate={calendarDate}
             onSelectDate={setCalendarDate}
             calendarInTopBar={panelIndex === 0 && isHomeView}
@@ -207,6 +211,8 @@ function AppContent() {
         splitContent={panel1 ? renderContent(1) : undefined}
         topBar={renderTopBar()}
         rawTopBar={isHomeView}
+        mainPanelScrollMode={mainPanelScrollMode}
+        splitPanelScrollMode={splitPanelScrollMode}
       >
         {renderContent(0)}
       </ContentPanel>

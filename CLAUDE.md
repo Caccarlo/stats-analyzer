@@ -146,6 +146,8 @@ home -> leagues -> teams -> team -> player
 - On the single-panel home view, `App.tsx` lifts `calendarDate` state and renders a raw top bar made of compact search row + `CalendarStrip`, while the content area starts flush under that strip with no duplicate padding.
 - Clicking "next opponent" in `TeamView` always arranges the match as home team on the left (panel 0) and away team on the right (panel 1), regardless of which panel the click came from. If the arrangement is already correct, the click does nothing. If one panel has a player page, it is preserved on the side matching the player's team; only the other panel is replaced with the new team.
 - `TeamView` derives `teamName` from `panel.teamName` (set at navigation time) as the primary source, then falls back to `nextEvent.homeTeam/awayTeam.name` if the panel name is missing. This prevents national team pages from showing a club name taken from a player's team.
+- `App.tsx` now measures the real available width of each rendered `TeamView` panel through a stable wrapper that stays mounted even while the team view is loading, and passes that width into `TeamView` so the formation layout never falls back to raw viewport width.
+- `TeamView` bench cards are minimal text chips only: no player avatars, reduced padding, abbreviated names, and optional compact jersey number.
 
 ## SofaScore API Endpoints
 
@@ -371,6 +373,7 @@ Additional rules:
 - Responsive panel layouts should be panel-aware, not viewport-only: when the effective content width is reduced by the sidebar or by split view, cards and filters must react to the measured panel width rather than assuming a full desktop canvas.
 - MatchCard field/heatmap orientation is width-aware: single-card layouts may render in landscape, but only when the measured positions-section width is at least `620px`; narrower single cards and all double/multi-card layouts use portrait.
 - MatchCard heatmap-side stat placement is width-aware: the heatmap column keeps season averages on the left and match foul counters on the right only when it reaches `620px` and preserves extra clearance around the heatmap; narrower columns switch to averages above and foul counters below.
+- TeamView formation layout is also panel-aware: orientation and field width are driven by measured panel width passed from `App.tsx` instead of viewport breakpoints or the rendered content width itself, with layout priority `landscape-right -> portrait-right -> portrait-bottom`, a `20px` horizontal gap, a matches column that targets `220px` width but can contract slightly before falling back below the field, and a stronger minimum panel-width guard so landscape is used only when the side-by-side layout has real breathing room.
 - Player match cards no longer use fixed `md`/`lg` width fractions; `PlayerPage` measures the panel width and renders cards in an auto-fit grid so compact desktop widths show 2 cards per row and tablet widths can drop to 1.
 - `TeamGrid` uses a compact card style whenever the viewport is short or the page is rendered inside split view, shrinking crest sizes and metadata so standings remain readable.
 

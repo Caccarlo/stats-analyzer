@@ -291,6 +291,17 @@ export async function getTeamNextEvent(teamId: number): Promise<MatchEvent | nul
   return data.events?.[0] ?? null;
 }
 
+export async function getTeamEventsByDirection(
+  teamId: number,
+  direction: 'last' | 'next',
+  page: number
+): Promise<MatchEvent[]> {
+  const data = await apiFetch<{ events: MatchEvent[] }>(
+    `team/${teamId}/events/${direction}/${page}`
+  );
+  return data.events ?? [];
+}
+
 // === Giocatore ===
 
 export async function getPlayerInfo(playerId: number): Promise<Player | null> {

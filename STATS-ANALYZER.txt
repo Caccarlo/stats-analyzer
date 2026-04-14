@@ -1,13 +1,31 @@
 STATS-ANALYZER
 
 feature:
-- calendario pagina home - specifiche - al caricamento deve essere mostrato sotto alla barra di ricerca un calendario orizzontale preselezionato sul giorno attuale, ma con la possibilità di selezionare giorni avanti ed indietro all'attuale. per tutte le giornate vanno mostrate tutte le partite giocate e da giocare in quel giorno, se una partita è conclusa mostrarne il risultato, se è possibile, mostrare anche il risultato delle partite in corso. le partite vanno mostrate come una lista per campionato, mostrando in cima le partite dei top7 campionati, sotto tutti gli altri in ordine alfabetico e di inizio delle partite, tutte le partite di ogni campionato saranno precedute da una riga con il nome del campionato in questione, con la possibilità di chiudere ed aprire tutte le partite di quel campionato cliccandola. il nome del campionato però, così come il nome di ogni squadra, deve essere un link per aprire a schermo intero la pagina della voce selezionata, quindi il clic per espandere le partite del campionato e il clic per aprire la pagina del campionato devono essere ben separati anche se il nome del campionato deve stare dentro alla riga. 
-- tiri e tp giocatori - specifiche -
+
+- calendario pagina home - specifiche - al caricamento deve essere mostrato sotto alla barra di ricerca un calendario orizzontale preselezionato sul giorno attuale, ma con la possibilità di selezionare giorni avanti ed indietro all'attuale. per tutte le giornate vanno mostrate tutte le partite giocate e da giocare in quel giorno, se una partita è conclusa mostrarne il risultato, se è possibile, mostrare anche il risultato delle partite in corso. le partite vanno mostrate come una lista per campionato, mostrando in cima le partite dei top7 campionati, sotto tutti gli altri in ordine alfabetico e di inizio delle partite, tutte le partite di ogni campionato saranno precedute da una riga con il nome del campionato in questione, con la possibilità di chiudere ed aprire tutte le partite di quel campionato cliccandola. il nome del campionato però, così come il nome di ogni squadra, deve essere un link per aprire a schermo intero la pagina della voce selezionata, quindi il clic per espandere le partite del campionato e il clic per aprire la pagina del campionato devono essere ben separati anche se il nome del campionato deve stare dentro alla riga. - FATTO
+
+- tiri e tp giocatori - specifiche - per ogni playerpage aggiungere nella stessa sezione dei falli commessi subiti e cartellini altre 2 sezioni, che mostrano però il numero di tiri e di tiri in porta dei giocatori. 
+deve essere aggiunta ovviamente la media, l'hit rate e vanno aggiunti i dati nelle card timeline, per i tiri usare il colore bianco, per i tiri in porta l'azzurro. nei field delle match card, se i tiri e/o tiri in porta sono attivi, vanno mostrate le esatte posizioni da cui il giocatore ha effettuato il tiro, con la traiettoria identica a quella mostrata su sofascore, se il tiro non è un tip allora è bianco, se è finito in porta allora azzurro.
+
+
+- goal e assist pagina giocatore - specifiche - per ogni pagina giocatore devono essere mostrati goal e assist per le partite selezionate. di base le opzioni devono essere disattivate come i cartellini, da attive vanno mostrate medie e tutto quanto, nelle matchcard al fianco del risultato mettere icona del pallone se ha segnato di una scarpa se ha fatto assist 
+
 - quota bookmakers - specifiche - 
-- 
+
+- partite passate e future pagina squadra - specifiche - per ogni pagina di una squadra vorrei vedere una sorta di tabella che abbia la possibilità di mostrare due sezioni differenti in base a quella scelta dall'utente, la prima di default che mostri le ultime 5 partite giocate dalla squadra con solamente nome e stemma delle due squadre il campionato la data e il risultato, e la seconda che invece mostra le prossime 5 con gli stessi elementi, magari non essendoci il risultato mettere l'orario al posto del risultato, se sono live mettere il risultato live. tra queste due sezioni deve essere semplice switchare, deve essere comodo graficamente, in tutte le viewport deve avere uno spazio ben definito e dedicato, senza sovrapposizioni, e entrambe le sezioni devono avere la possibilità di proseguire tra gli eventi, quindi per le ultime 5 visualizzate deve essere possibile scorrere per vedere dalla decima partita alla sesta, così come per le prossime partite deve essere possibile facilmente passare alle 5 ancora successive, ma anche quelle dopo e quelle dopo ancora, finchè ci sono dati deve essere possibile andare avanti ed indietro nelle partite. 
+
+- paritite passate e future pagina campionato - specifiche - 
+
+- pagina unita per squadre avversarie - specifiche -
+
 
 fix: 
-- sportradar e altri provider - specifiche -  
+
+- sportradar e altri provider - specifiche - 
+
+- logica e nomi goback button - specifiche - 
+
 
 grafica: 
+
 - 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './index.css';
 import { NavigationProvider, useNavigation } from '@/context/NavigationContext';
 import Sidebar from '@/components/layout/Sidebar';
@@ -14,6 +14,54 @@ import SidebarTeamList from '@/components/navigation/SidebarTeamList';
 import CalendarStrip from '@/components/home/CalendarStrip';
 import { todayISO } from '@/hooks/useCalendarData';
 import { useViewport } from '@/hooks/useViewport';
+
+interface MeasuredTeamViewProps {
+  teamId: number;
+  panelIndex: number;
+  showPlusButton: boolean;
+  onOpenSplitHome: () => void;
+}
+
+function MeasuredTeamView({ teamId, panelIndex, showPlusButton, onOpenSplitHome }: MeasuredTeamViewProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState<number>();
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+
+    const updateWidth = () => {
+      setAvailableWidth(el.getBoundingClientRect().width);
+    };
+
+    updateWidth();
+
+    const ro = new ResizeObserver(() => {
+      updateWidth();
+    });
+
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div ref={wrapperRef} className={`w-full ${showPlusButton ? 'relative mt-8' : ''}`}>
+      {showPlusButton && (
+        <button
+          onClick={onOpenSplitHome}
+          className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
+          aria-label="Apri vista affiancata"
+          title="Apri vista affiancata"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+      )}
+      <TeamView teamId={teamId} panelIndex={panelIndex} availableWidth={availableWidth} />
+    </div>
+  );
+}
 
 
 function AppContent() {
@@ -66,21 +114,12 @@ function AppContent() {
 
       case 'team':
         return panel.teamId ? (
-          <div className={`${showPlusButton ? 'relative mt-8' : ''}`}>
-            {showPlusButton && (
-              <button
-                onClick={openSplitHome}
-                className="absolute left-1/2 top-0 -translate-x-1/2 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-surface border border-border text-text-secondary hover:border-neon hover:text-neon transition-all hover:shadow-[0_0_12px_rgba(74,222,128,0.15)]"
-                aria-label="Apri vista affiancata"
-                title="Apri vista affiancata"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-            )}
-            <TeamView teamId={panel.teamId} isSplit={hasSplit} panelIndex={panelIndex} />
-          </div>
+          <MeasuredTeamView
+            teamId={panel.teamId}
+            panelIndex={panelIndex}
+            showPlusButton={showPlusButton}
+            onOpenSplitHome={openSplitHome}
+          />
         ) : null;
 
       case 'teams':

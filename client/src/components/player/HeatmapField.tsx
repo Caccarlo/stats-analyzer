@@ -181,17 +181,17 @@ export default function HeatmapField({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    function redraw() {
-      const rect = canvas.getBoundingClientRect();
+    function redraw(target: HTMLCanvasElement) {
+      const rect = target.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       const w = Math.round(rect.width * dpr);
       const h = Math.round(rect.height * dpr);
       if (w === 0 || h === 0) return;
 
-      canvas.width = w;
-      canvas.height = h;
+      target.width = w;
+      target.height = h;
 
-      const ctx = canvas.getContext('2d');
+      const ctx = target.getContext('2d');
       if (!ctx) return;
 
       if (orientation === 'landscape') {
@@ -205,8 +205,8 @@ export default function HeatmapField({
       }
     }
 
-    redraw();
-    const ro = new ResizeObserver(redraw);
+    redraw(canvas);
+    const ro = new ResizeObserver(() => redraw(canvas));
     ro.observe(canvas);
     return () => ro.disconnect();
   }, [points, loading, isHome, orientation]);

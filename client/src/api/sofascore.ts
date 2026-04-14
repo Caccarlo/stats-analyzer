@@ -13,6 +13,7 @@ import type {
   MatchLineups,
   PlayerPosition,
   HeatmapPoint,
+  MatchShot,
   StandingGroup,
   StandingRow,
   SearchResult,
@@ -451,6 +452,86 @@ export async function getPlayerMatchHeatmap(
       `event/${eventId}/player/${playerId}/heatmap`
     );
     return data.heatmap ?? [];
+  } catch {
+    return [];
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function parseCoordinate(value: unknown): { x: number; y: number; z?: number } | undefined {
+  if (!isRecord(value)) return undefined;
+  const x = value.x;
+  const y = value.y;
+  const z = value.z;
+  if (typeof x !== 'number' || typeof y !== 'number') return undefined;
+  return {
+    x,
+    y,
+    z: typeof z === 'number' ? z : undefined,
+  };
+}
+
+function parseShot(raw: unknown): MatchShot | null {
+  if (!isRecord(raw)) return null;
+
+  const player = isRecord(raw.player) ? raw.player : undefined;
+  const shotType = typeof raw.shotType === 'string' ? raw.shotType : undefined;
+  const xg = typeof raw.xg === 'number' ? raw.xg : undefined;
+  const xgot = typeof raw.xgot === 'number' ? raw.xgot : undefined;
+  const isOnTarget =
+    typeof raw.isOnTarget === 'boolean'
+      ? raw.isOnTarget
+      : shotType === 'save' || shotType === 'goal' || shotType === 'shot-on-target';
+  const isGoal =
+    typeof raw.isGoal === 'boolean'
+      ? raw.isGoal
+      : shotType === 'goal' || shotType === 'own';
+
+  return {
+    id: typeof raw.id === 'number' || typeof raw.id === 'string'
+      ? raw.id
+      : `${player?.id ?? 'player'}-${raw.time ?? 't'}-${raw.timeSeconds ?? 'ts'}-${shotType ?? 'shot'}`,
+    playerId: typeof player?.id === 'number' ? player.id : undefined,
+    playerName: typeof player?.name === 'string' ? player.name : undefined,
+    isHome: typeof raw.isHome === 'boolean' ? raw.isHome : undefined,
+    isOnTarget,
+    isGoal,
+    time: typeof raw.time === 'number' ? raw.time : undefined,
+    addedTime: typeof raw.addedTime === 'number' ? raw.addedTime : undefined,
+    xg,
+    xgot,
+    shotType,
+    bodyPart: typeof raw.bodyPart === 'string' ? raw.bodyPart : undefined,
+    playerCoordinates: parseCoordinate(raw.playerCoordinates),
+    goalMouthCoordinates: parseCoordinate(raw.goalMouthCoordinates),
+    draw: isRecord(raw.draw)
+      ? {
+          start: parseCoordinate(raw.draw.start),
+          end: parseCoordinate(raw.draw.end),
+          block: parseCoordinate(raw.draw.block),
+          goal: parseCoordinate(raw.draw.goal),
+        }
+      : undefined,
+  };
+}
+
+export async function getMatchShotmap(eventId: number): Promise<MatchShot[]> {
+  try {
+    const data = await apiFetch<{ shotmap?: unknown[] } | unknown[]>(
+      `event/${eventId}/shotmap`,
+      { notFoundValue: { shotmap: [] } },
+    );
+    const rawShotmap = Array.isArray(data)
+      ? data
+      : Array.isArray(data.shotmap)
+        ? data.shotmap
+        : [];
+    return rawShotmap
+      .map(parseShot)
+      .filter((shot): shot is MatchShot => shot !== null);
   } catch {
     return [];
   }

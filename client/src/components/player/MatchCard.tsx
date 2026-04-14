@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
-import type { MatchDurationMetadata, MatchEvent, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
+import type { MatchDurationMetadata, MatchEvent, MatchShot, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
-import { getPlayerSeasonStats, getMatchAveragePositions, getTeamImageUrl } from '@/api/sofascore';
+import { getPlayerSeasonStats, getMatchAveragePositions, getMatchShotmap, getTeamImageUrl } from '@/api/sofascore';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import { clampMinute, getMatchDuration, getNominalMatchDuration, isLikelyFullMatch } from '@/utils/matchDuration';
 import { useViewport } from '@/hooks/useViewport';
@@ -22,6 +22,8 @@ interface MatchCardProps {
   eventDurationMetadata?: MatchDurationMetadata | null;
   showCommitted: boolean;
   showSuffered: boolean;
+  showShots: boolean;
+  showShotsOnTarget: boolean;
   panelIndex?: number;
   detailsMap: Map<number, CachedMatchDetails>;
   selectedTournaments: TournamentFilter[];
@@ -291,6 +293,8 @@ export default function MatchCard({
   eventDurationMetadata,
   showCommitted,
   showSuffered,
+  showShots,
+  showShotsOnTarget,
   panelIndex = 0,
   detailsMap,
   selectedTournaments,
@@ -309,6 +313,8 @@ export default function MatchCard({
   const [activePlayerSeasonStatsStatus, setActivePlayerSeasonStatsStatus] = useState<PlayerStatsStatus>('idle');
   const [activePlayerOwnFouls, setActivePlayerOwnFouls] = useState<{ committed: number; suffered: number } | null>(null);
   const [activePlayerOwnFoulsStatus, setActivePlayerOwnFoulsStatus] = useState<PlayerStatsStatus>('idle');
+  const [shotmap, setShotmap] = useState<MatchShot[]>([]);
+  const [selectedShotId, setSelectedShotId] = useState<number | string | null>(null);
   const [positionsSectionWidth, setPositionsSectionWidth] = useState(0);
   const [rightColWidth, setRightColWidth] = useState(0);
   const [fieldWidth, setFieldWidth] = useState(0);
@@ -392,7 +398,29 @@ export default function MatchCard({
     return () => { cancelled = true; };
   }, [details, event.id]);
 
+  useEffect(() => {
+    if (!showShots && !showShotsOnTarget) {
+      setSelectedShotId(null);
+      return;
+    }
+
+    let cancelled = false;
+    getMatchShotmap(event.id).then((data) => {
+      if (!cancelled) {
+        setShotmap(data);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [event.id, showShots, showShotsOnTarget]);
+
   const isHome = event.homeTeam.id === playerTeamId;
+  const selectedPlayerIsHome =
+    details?.playerSide === 'home'
+      ? true
+      : details?.playerSide === 'away'
+        ? false
+        : isHome;
   const date = new Date(event.startTimestamp * 1000);
   const dateStr = date.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -402,6 +430,10 @@ export default function MatchCard({
   const officialCommitted = details?.officialStats?.fouls;
   const officialSuffered = details?.officialStats?.wasFouled;
   const cardInfo = details?.cardInfo ?? null;
+  const playerShots = useMemo(
+    () => shotmap.filter((shot) => shot.playerId === playerId),
+    [shotmap, playerId],
+  );
   const jerseyMap = details?.jerseyMap ?? new Map<number, string>();
   const commentsMessage =
     details?.commentsStatus === 'loading'
@@ -411,18 +443,16 @@ export default function MatchCard({
         : 'Cronaca non disponibile per questa partita';
   const appearanceLabel = getAppearanceLabel(details, eventDurationMetadata);
 
-  const neither = !showCommitted && !showSuffered;
-
   const visibleFouls: FoulMatchup[] = [
     ...(showCommitted ? committedFouls : []),
     ...(showSuffered ? sufferedFouls : []),
   ];
 
   const involvedPlayerIds = new Set<number>();
-  if (showCommitted || neither) {
+  if (showCommitted) {
     committedFouls.forEach((f) => { if (f.playerFouled?.id) involvedPlayerIds.add(f.playerFouled.id); });
   }
-  if (showSuffered || neither) {
+  if (showSuffered) {
     sufferedFouls.forEach((f) => { if (f.playerFouling?.id) involvedPlayerIds.add(f.playerFouling.id); });
   }
 
@@ -635,8 +665,8 @@ export default function MatchCard({
   );
 
   const showTwoColumns = showCommitted && showSuffered;
-  const showActiveSuffered = showCommitted || neither;
-  const showActiveCommitted = showSuffered || neither;
+  const showActiveSuffered = showCommitted || (!showCommitted && !showSuffered);
+  const showActiveCommitted = showSuffered || (!showCommitted && !showSuffered);
 
   const playerNameRow = activePlayer ? (
     <div className="flex items-center gap-2 justify-center">
@@ -747,6 +777,12 @@ export default function MatchCard({
             onActivePlayerChange={setActivePlayerId}
             orientation={orientation}
             dotScale={playerDotScale}
+            shots={playerShots}
+            shotIsHomeFallback={selectedPlayerIsHome}
+            showShots={showShots}
+            showShotsOnTarget={showShotsOnTarget}
+            selectedShotId={selectedShotId}
+            onShotSelect={setSelectedShotId}
           />
         </div>
       </div>
@@ -826,6 +862,12 @@ export default function MatchCard({
                 onActivePlayerChange={setActivePlayerId}
                 orientation={singleCardOrientation}
                 dotScale={playerDotScale}
+                shots={playerShots}
+                shotIsHomeFallback={selectedPlayerIsHome}
+                showShots={showShots}
+                showShotsOnTarget={showShotsOnTarget}
+                selectedShotId={selectedShotId}
+                onShotSelect={setSelectedShotId}
               />
             </div>
           </div>
@@ -979,6 +1021,28 @@ export default function MatchCard({
                   {positionsStatus === 'loading' && <span> · Caricamento posizioni medie...</span>}
                   {positionsStatus === 'unavailable' && <span> · Posizioni medie non disponibili</span>}
                 </div>
+                {(showShots || showShotsOnTarget) && playerShots.length > 0 && (
+                  <div className="mt-3 flex justify-center">
+                    <div className="w-full" style={{ maxWidth: `${baseFieldMaxWidth}px` }}>
+                      <FieldMap
+                        homePositions={[]}
+                        awayPositions={[]}
+                        selectedPlayerId={playerId}
+                        activePlayerId={playerId}
+                        involvedPlayerIds={new Set<number>()}
+                        onActivePlayerChange={() => {}}
+                        orientation="portrait"
+                        dotScale={playerDotScale}
+                        shots={playerShots}
+                        shotIsHomeFallback={selectedPlayerIsHome}
+                        showShots={showShots}
+                        showShotsOnTarget={showShotsOnTarget}
+                        selectedShotId={selectedShotId}
+                        onShotSelect={setSelectedShotId}
+                      />
+                    </div>
+                  </div>
+                )}
                 <div className="mt-3 flex justify-center">
                   <HeatmapField
                     eventId={event.id}

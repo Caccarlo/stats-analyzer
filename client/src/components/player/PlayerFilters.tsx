@@ -19,6 +19,10 @@ interface PlayerFiltersProps {
   onShowCommittedChange: (v: boolean) => void;
   showSuffered: boolean;
   onShowSufferedChange: (v: boolean) => void;
+  showShots: boolean;
+  onShowShotsChange: (v: boolean) => void;
+  showShotsOnTarget: boolean;
+  onShowShotsOnTargetChange: (v: boolean) => void;
   showHome: boolean;
   onShowHomeChange: (v: boolean) => void;
   showAway: boolean;
@@ -32,6 +36,10 @@ interface PlayerFiltersProps {
   onCommittedLineChange: (v: number) => void;
   sufferedLine: number;
   onSufferedLineChange: (v: number) => void;
+  shotsLine: number;
+  onShotsLineChange: (v: number) => void;
+  shotsOnTargetLine: number;
+  onShotsOnTargetLineChange: (v: number) => void;
   allTournamentsForSeason: { tournamentId: number; tournamentName: string }[];
   isSplitView?: boolean;
   compact?: boolean;
@@ -71,6 +79,10 @@ export default function PlayerFilters({
   onShowCommittedChange,
   showSuffered,
   onShowSufferedChange,
+  showShots,
+  onShowShotsChange,
+  showShotsOnTarget,
+  onShowShotsOnTargetChange,
   showHome,
   onShowHomeChange,
   showAway,
@@ -84,6 +96,10 @@ export default function PlayerFilters({
   onCommittedLineChange,
   sufferedLine,
   onSufferedLineChange,
+  shotsLine,
+  onShotsLineChange,
+  shotsOnTargetLine,
+  onShotsOnTargetLineChange,
   allTournamentsForSeason,
   isSplitView = false,
   compact = false,
@@ -146,8 +162,8 @@ export default function PlayerFilters({
     onShowAwayChange(!showAway);
   };
 
-  const showFilters = [showCommitted, showSuffered, showCards];
-  const showSetters = [onShowCommittedChange, onShowSufferedChange, onShowCardsChange];
+  const showFilters = [showCommitted, showSuffered, showShots, showShotsOnTarget, showCards];
+  const showSetters = [onShowCommittedChange, onShowSufferedChange, onShowShotsChange, onShowShotsOnTargetChange, onShowCardsChange];
   const activeCount = showFilters.filter(Boolean).length;
 
   const handleToggleShow = (idx: number) => {
@@ -328,7 +344,7 @@ export default function PlayerFilters({
       <div className="min-w-0" style={{ gridColumn: '1 / -1' }}>
         <div>
           <label className={`text-text-muted mb-2 block ${labelClass}`}>Mostra:</label>
-          <div className={`grid ${compact ? 'gap-2' : 'gap-3'}`}>
+          <div className={`flex flex-wrap items-start ${compact ? 'gap-2' : 'gap-3'}`}>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => handleToggleShow(0)}
@@ -386,6 +402,60 @@ export default function PlayerFilters({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => handleToggleShow(2)}
+                className={`${controlChipClass} text-left ${
+                  showShots
+                    ? 'bg-white/10 border-white text-white'
+                    : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                }`}
+              >
+                Tiri
+              </button>
+              <select
+                value={shotsLine}
+                onChange={(e) => onShotsLineChange(Number(e.target.value))}
+                disabled={!showShots}
+                className={`${selectClass} ${
+                  showShots
+                    ? 'border-border text-text-primary focus:border-neon'
+                    : 'border-border text-text-muted opacity-40 cursor-not-allowed'
+                }`}
+              >
+                {[0.5, 1.5, 2.5, 3.5, 4.5, 5.5].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleToggleShow(3)}
+                className={`${controlChipClass} text-left ${
+                  showShotsOnTarget
+                    ? 'bg-sky-400/15 border-sky-400 text-sky-300'
+                    : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                }`}
+              >
+                Tiri in porta
+              </button>
+              <select
+                value={shotsOnTargetLine}
+                onChange={(e) => onShotsOnTargetLineChange(Number(e.target.value))}
+                disabled={!showShotsOnTarget}
+                className={`${selectClass} ${
+                  showShotsOnTarget
+                    ? 'border-border text-text-primary focus:border-neon'
+                    : 'border-border text-text-muted opacity-40 cursor-not-allowed'
+                }`}
+              >
+                {[0.5, 1.5, 2.5, 3.5, 4.5, 5.5].map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => handleToggleShow(4)}
                 className={`${controlChipClass} text-left ${
                   showCards
                     ? 'bg-yellow-400/15 border-yellow-400 text-yellow-400'

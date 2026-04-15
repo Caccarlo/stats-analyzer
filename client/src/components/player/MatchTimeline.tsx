@@ -4,6 +4,7 @@ import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { getPlayerMatchIsHome } from '@/utils/playerMatchVenue';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import { clampMinute, getMatchDuration, getNominalMatchDuration, isLikelyFullMatch } from '@/utils/matchDuration';
+import { getShotsCount, getShotsOnTargetCount } from '@/utils/playerStats';
 
 interface MatchTimelineProps {
   events: MatchEvent[];
@@ -13,6 +14,8 @@ interface MatchTimelineProps {
   detailsLoadedIds: Set<number>;
   showCommitted: boolean;
   showSuffered: boolean;
+  showShots: boolean;
+  showShotsOnTarget: boolean;
   onToggleMatch: (eventId: number) => void;
   toggleMode: 'select' | 'deselect';
   onToggleAll: () => void;
@@ -22,20 +25,26 @@ interface MatchTimelineProps {
 
 function getFoulCounts(
   details: CachedMatchDetails | undefined,
-): { committed: number | null; suffered: number | null } | null {
+): { committed: number | null; suffered: number | null; shots: number | null; shotsOnTarget: number | null } | null {
   if (!details) return null;
   if (details.officialStatsStatus === 'loaded') {
     return {
       committed: typeof details.officialStats?.fouls === 'number' ? details.officialStats.fouls : 0,
       suffered: typeof details.officialStats?.wasFouled === 'number' ? details.officialStats.wasFouled : 0,
+      shots: getShotsCount(details.officialStats) ?? 0,
+      shotsOnTarget: getShotsOnTargetCount(details.officialStats) ?? 0,
     };
   }
   const committed = details.officialStats?.fouls;
   const suffered = details.officialStats?.wasFouled;
-  if (typeof committed !== 'number' && typeof suffered !== 'number') return null;
+  const shots = getShotsCount(details.officialStats);
+  const shotsOnTarget = getShotsOnTargetCount(details.officialStats);
+  if (typeof committed !== 'number' && typeof suffered !== 'number' && shots == null && shotsOnTarget == null) return null;
   return {
     committed: typeof committed === 'number' ? committed : null,
     suffered: typeof suffered === 'number' ? suffered : null,
+    shots,
+    shotsOnTarget,
   };
 }
 
@@ -235,6 +244,8 @@ export default function MatchTimeline({
   detailsLoadedIds,
   showCommitted,
   showSuffered,
+  showShots,
+  showShotsOnTarget,
   onToggleMatch,
   toggleMode,
   onToggleAll,
@@ -364,7 +375,7 @@ export default function MatchTimeline({
                 </div>
 
                 {/* Badge falli */}
-                <div className="relative z-10 mt-1 flex items-center gap-0.5">
+                <div className="relative z-10 mt-1 flex items-center gap-0.5 flex-wrap justify-center">
                   {!isLoaded ? (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-border text-text-muted">
                       <span className="w-2 h-2 border border-text-muted border-t-transparent rounded-full animate-spin mr-1" />
@@ -372,24 +383,27 @@ export default function MatchTimeline({
                     </span>
                   ) : counts != null ? (
                     <>
-                      {showCommitted && showSuffered ? (
-                        <>
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
-                            {renderCount(counts.committed)}
-                          </span>
-                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
-                            {renderCount(counts.suffered)}
-                          </span>
-                        </>
-                      ) : showCommitted ? (
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
+                      {showCommitted && (
+                        <span className={`inline-flex min-w-[18px] items-center justify-center px-1.25 py-0.5 rounded text-[8px] font-medium ${counts.committed != null && counts.committed > 0 ? 'bg-negative/15 text-negative' : 'bg-border text-text-muted'}`}>
                           {renderCount(counts.committed)}
                         </span>
-                      ) : showSuffered ? (
-                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
+                      )}
+                      {showSuffered && (
+                        <span className={`inline-flex min-w-[18px] items-center justify-center px-1.25 py-0.5 rounded text-[8px] font-medium ${counts.suffered != null && counts.suffered > 0 ? 'bg-neon/15 text-neon' : 'bg-border text-text-muted'}`}>
                           {renderCount(counts.suffered)}
                         </span>
-                      ) : (
+                      )}
+                      {showShots && (
+                        <span className={`inline-flex min-w-[18px] items-center justify-center px-1.25 py-0.5 rounded text-[8px] font-medium ${counts.shots != null && counts.shots > 0 ? 'bg-white/10 text-white' : 'bg-border text-text-muted'}`}>
+                          {renderCount(counts.shots)}
+                        </span>
+                      )}
+                      {showShotsOnTarget && (
+                        <span className={`inline-flex min-w-[18px] items-center justify-center px-1.25 py-0.5 rounded text-[8px] font-medium ${counts.shotsOnTarget != null && counts.shotsOnTarget > 0 ? 'bg-sky-400/15 text-sky-300' : 'bg-border text-text-muted'}`}>
+                          {renderCount(counts.shotsOnTarget)}
+                        </span>
+                      )}
+                      {!showCommitted && !showSuffered && !showShots && !showShotsOnTarget && (
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] bg-border text-text-muted">
                           0
                         </span>

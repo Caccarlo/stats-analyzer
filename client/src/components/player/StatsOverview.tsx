@@ -4,11 +4,17 @@ interface StatsOverviewProps {
   stats: AggregatedStats;
   showCommitted: boolean;
   showSuffered: boolean;
+  showShots: boolean;
+  showShotsOnTarget: boolean;
   showCards: boolean;
   committedLine: number;
   sufferedLine: number;
+  shotsLine: number;
+  shotsOnTargetLine: number;
   committedHitRate: { over: number; total: number };
   sufferedHitRate: { over: number; total: number };
+  shotsHitRate: { over: number; total: number };
+  shotsOnTargetHitRate: { over: number; total: number };
   compact?: boolean;
 }
 
@@ -16,11 +22,17 @@ export default function StatsOverview({
   stats,
   showCommitted,
   showSuffered,
+  showShots,
+  showShotsOnTarget,
   showCards,
   committedLine,
   sufferedLine,
+  shotsLine,
+  shotsOnTargetLine,
   committedHitRate,
   sufferedHitRate,
+  shotsHitRate,
+  shotsOnTargetHitRate,
   compact = false,
 }: StatsOverviewProps) {
   const sectionGapClass = compact ? 'space-y-2.5' : 'space-y-3';
@@ -81,6 +93,64 @@ export default function StatsOverview({
             line={sufferedLine}
             hitRate={sufferedHitRate}
             color="text-neon"
+            compact={compact}
+          />
+        </div>
+      )}
+
+      {showShots && (
+        <div className={`grid grid-cols-4 ${gridGapClass}`}>
+          <StatCard
+            label="Tiri"
+            value={stats.totalShots}
+            color="text-white"
+            compact={compact}
+          />
+          <StatCard
+            label="Media / partita"
+            value={stats.avgShotsPerMatch}
+            color="text-white"
+            compact={compact}
+          />
+          <StatCard
+            label="Media / 90 min"
+            value={stats.avgShotsPer90}
+            color="text-white"
+            compact={compact}
+          />
+          <HitRateCard
+            line={shotsLine}
+            hitRate={shotsHitRate}
+            color="text-white"
+            compact={compact}
+          />
+        </div>
+      )}
+
+      {showShotsOnTarget && (
+        <div className={`grid grid-cols-4 ${gridGapClass}`}>
+          <StatCard
+            label="Tiri in porta"
+            value={stats.totalShotsOnTarget}
+            color="text-sky-300"
+            compact={compact}
+          />
+          <StatCard
+            label="Media / partita"
+            value={stats.avgShotsOnTargetPerMatch}
+            color="text-sky-300"
+            compact={compact}
+          />
+          <StatCard
+            label="Media / 90 min"
+            value={stats.avgShotsOnTargetPer90}
+            color="text-sky-300"
+            compact={compact}
+          />
+          <HitRateCard
+            line={shotsOnTargetLine}
+            hitRate={shotsOnTargetHitRate}
+            color="text-sky-300"
             compact={compact}
           />
         </div>

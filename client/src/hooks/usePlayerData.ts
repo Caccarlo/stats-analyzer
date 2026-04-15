@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TournamentSeason, PlayerSeasonStats, AggregatedStats, PlayerFilterState, SelectedPeriod } from '@/types';
 import { getPlayerSeasons, getPlayerSeasonStats } from '@/api/sofascore';
@@ -25,6 +26,10 @@ interface PlayerDataResult {
   setShowCommitted: (v: boolean) => void;
   showSuffered: boolean;
   setShowSuffered: (v: boolean) => void;
+  showShots: boolean;
+  setShowShots: (v: boolean) => void;
+  showShotsOnTarget: boolean;
+  setShowShotsOnTarget: (v: boolean) => void;
   showHome: boolean;
   setShowHome: (v: boolean) => void;
   showAway: boolean;
@@ -38,6 +43,10 @@ interface PlayerDataResult {
   setCommittedLine: (v: number) => void;
   sufferedLine: number;
   setSufferedLine: (v: number) => void;
+  shotsLine: number;
+  setShotsLine: (v: number) => void;
+  shotsOnTargetLine: number;
+  setShotsOnTargetLine: (v: number) => void;
   stats: AggregatedStats | null;
   statsByTournament: Map<number, PlayerSeasonStats>;
   loading: boolean;
@@ -60,17 +69,24 @@ export function usePlayerData(
   const [statsByTournament, setStatsByTournament] = useState<Map<number, PlayerSeasonStats>>(new Map());
   const [showCommitted, setShowCommitted] = useState(() => initialFilterState?.showCommitted ?? true);
   const [showSuffered, setShowSuffered] = useState(() => initialFilterState?.showSuffered ?? true);
+  const [showShots, setShowShots] = useState(() => initialFilterState?.showShots ?? true);
+  const [showShotsOnTarget, setShowShotsOnTarget] = useState(() => initialFilterState?.showShotsOnTarget ?? false);
   const [showHome, setShowHome] = useState(() => initialFilterState?.showHome ?? true);
   const [showAway, setShowAway] = useState(() => initialFilterState?.showAway ?? true);
   const [showCards, setShowCards] = useState(() => initialFilterState?.showCards ?? false);
   const [showStartersOnly, setShowStartersOnly] = useState(() => initialFilterState?.showStartersOnly ?? false);
   const [committedLine, setCommittedLine] = useState(() => initialFilterState?.committedLine ?? 0.5);
   const [sufferedLine, setSufferedLine] = useState(() => initialFilterState?.sufferedLine ?? 0.5);
+  const [shotsLine, setShotsLine] = useState(() => initialFilterState?.shotsLine ?? 0.5);
+  const [shotsOnTargetLine, setShotsOnTargetLine] = useState(() => initialFilterState?.shotsOnTargetLine ?? 0.5);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cache = useRef<Map<string, PlayerSeasonStats>>(new Map());
   const onFiltersChangeRef = useRef(onFiltersChange);
-  onFiltersChangeRef.current = onFiltersChange;
+
+  useEffect(() => {
+    onFiltersChangeRef.current = onFiltersChange;
+  }, [onFiltersChange]);
 
   // All season years available for this player, sorted descending
   const availableSeasonYears = Array.from(
@@ -195,14 +211,18 @@ export function usePlayerData(
       enabledTournaments,
       showCommitted,
       showSuffered,
+      showShots,
+      showShotsOnTarget,
       showHome,
       showAway,
       showCards,
       showStartersOnly,
       committedLine,
       sufferedLine,
+      shotsLine,
+      shotsOnTargetLine,
     });
-  }, [selectedPeriod, enabledTournaments, showCommitted, showSuffered, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine]);
+  }, [selectedPeriod, enabledTournaments, showCommitted, showSuffered, showShots, showShotsOnTarget, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine, shotsLine, shotsOnTargetLine]);
 
   // Aggregate stats (only enabled tournaments)
   const enabledStats = Array.from(statsByTournament.entries())
@@ -251,6 +271,10 @@ export function usePlayerData(
     setShowCommitted,
     showSuffered,
     setShowSuffered,
+    showShots,
+    setShowShots,
+    showShotsOnTarget,
+    setShowShotsOnTarget,
     showHome,
     setShowHome,
     showAway,
@@ -264,6 +288,10 @@ export function usePlayerData(
     setCommittedLine,
     sufferedLine,
     setSufferedLine,
+    shotsLine,
+    setShotsLine,
+    shotsOnTargetLine,
+    setShotsOnTargetLine,
     stats,
     statsByTournament,
     loading,

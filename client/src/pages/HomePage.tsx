@@ -13,7 +13,6 @@ interface HomePageProps {
 export default function HomePage({
   panelIndex = 0,
   isSplitView = false,
-  compactDensity = false,
   calendarDate,
   onSelectDate,
   calendarInTopBar = false,

@@ -53,6 +53,8 @@ export interface TournamentSeason {
 export interface PlayerSeasonStats {
   fouls: number;
   wasFouled: number;
+  totalShots?: number;
+  shotsOnTarget?: number;
   minutesPlayed: number;
   appearances: number;
   matchesStarted: number;
@@ -70,6 +72,8 @@ export interface NationalTeamStat {
 export interface PlayerMatchStatistics {
   fouls?: number;
   wasFouled?: number;
+  totalShots?: number;
+  shotsOnTarget?: number;
   minutesPlayed?: number;
   rating?: number;
   yellowCards?: number;
@@ -91,12 +95,18 @@ export type DataAvailability = 'idle' | 'loading' | 'loaded' | 'unavailable' | '
 export interface AggregatedStats {
   totalFoulsCommitted: number;
   totalFoulsSuffered: number;
+  totalShots: number;
+  totalShotsOnTarget: number;
   totalMinutesPlayed: number;
   totalAppearances: number;
   avgFoulsCommittedPerMatch: string;
   avgFoulsCommittedPer90: string;
   avgFoulsSufferedPerMatch: string;
   avgFoulsSufferedPer90: string;
+  avgShotsPerMatch: string;
+  avgShotsPer90: string;
+  avgShotsOnTargetPerMatch: string;
+  avgShotsOnTargetPer90: string;
   totalYellowCards: number;
   totalRedCards: number;
   avgYellowCardsPerMatch: string;
@@ -207,6 +217,35 @@ export interface HeatmapPoint {
   y: number;
 }
 
+export interface ShotmapCoordinate {
+  x: number;
+  y: number;
+  z?: number;
+}
+
+export interface MatchShot {
+  id: number | string;
+  playerId?: number;
+  playerName?: string;
+  isHome?: boolean;
+  isOnTarget: boolean;
+  isGoal: boolean;
+  time?: number;
+  addedTime?: number;
+  xg?: number;
+  xgot?: number;
+  shotType?: string;
+  bodyPart?: string;
+  playerCoordinates?: ShotmapCoordinate;
+  goalMouthCoordinates?: ShotmapCoordinate;
+  draw?: {
+    start?: ShotmapCoordinate;
+    end?: ShotmapCoordinate;
+    block?: ShotmapCoordinate;
+    goal?: ShotmapCoordinate;
+  };
+}
+
 // === Formazione ===
 
 export interface LineupPlayer {
@@ -257,12 +296,16 @@ export interface PlayerFilterState {
   enabledTournaments: Set<number>;
   showCommitted: boolean;
   showSuffered: boolean;
+  showShots: boolean;
+  showShotsOnTarget: boolean;
   showHome: boolean;
   showAway: boolean;
   showCards: boolean;
   showStartersOnly: boolean;
   committedLine: number;
   sufferedLine: number;
+  shotsLine: number;
+  shotsOnTargetLine: number;
 }
 
 export interface PanelState {

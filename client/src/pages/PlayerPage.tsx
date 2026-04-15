@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePlayerData } from '@/hooks/usePlayerData';
 import type { SelectedPeriod } from '@/hooks/usePlayerData';
@@ -8,6 +9,7 @@ import { getPlayerInfo, getPlayerNationalStats } from '@/api/sofascore';
 import type { Player, PlayerFilterState, NationalTeamStat, Team } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { getPlayerMatchIsHome } from '@/utils/playerMatchVenue';
+import { getShotsCount, getShotsOnTargetCount } from '@/utils/playerStats';
 import PlayerHeader from '@/components/player/PlayerHeader';
 import PlayerFilters from '@/components/player/PlayerFilters';
 import StatsOverview from '@/components/player/StatsOverview';
@@ -66,6 +68,14 @@ function getCommittedCount(details: CachedMatchDetails | undefined): number | nu
 function getSufferedCount(details: CachedMatchDetails | undefined): number | null {
   const value = details?.officialStats?.wasFouled;
   return typeof value === 'number' ? value : null;
+}
+
+function getShotsValue(details: CachedMatchDetails | undefined): number | null {
+  return getShotsCount(details?.officialStats);
+}
+
+function getShotsOnTargetValue(details: CachedMatchDetails | undefined): number | null {
+  return getShotsOnTargetCount(details?.officialStats);
 }
 
 // Wrapper for cross-panel card height sync (hooks can't be called in .map())
@@ -161,6 +171,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowCommitted,
     showSuffered,
     setShowSuffered,
+    showShots,
+    setShowShots,
+    showShotsOnTarget,
+    setShowShotsOnTarget,
     showHome,
     setShowHome,
     showAway,
@@ -171,6 +185,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setCommittedLine,
     sufferedLine,
     setSufferedLine,
+    shotsLine,
+    setShotsLine,
+    shotsOnTargetLine,
+    setShotsOnTargetLine,
     showStartersOnly,
     setShowStartersOnly,
     ensureTournamentsEnabled,
@@ -573,14 +591,22 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     let totalMinutes = 0;
     let totalYellow = 0;
     let totalRed = 0;
+    let totalShots = 0;
+    let totalShotsOnTarget = 0;
     let committedOver = 0;
     let sufferedOver = 0;
+    let shotsOver = 0;
+    let shotsOnTargetOver = 0;
 
     for (const { details: d } of played) {
       const committed = getCommittedCount(d) ?? 0;
       const suffered = getSufferedCount(d) ?? 0;
+      const shots = getShotsValue(d) ?? 0;
+      const shotsOnTarget = getShotsOnTargetValue(d) ?? 0;
       totalCommitted += committed;
       totalSuffered += suffered;
+      totalShots += shots;
+      totalShotsOnTarget += shotsOnTarget;
 
       if (d.cardInfo?.type === 'yellow') totalYellow++;
       else if (d.cardInfo?.type === 'red') totalRed++;
@@ -588,30 +614,40 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
 
       if (committed > committedLine) committedOver++;
       if (suffered > sufferedLine) sufferedOver++;
+      if (shots > shotsLine) shotsOver++;
+      if (shotsOnTarget > shotsOnTargetLine) shotsOnTargetOver++;
 
       totalMinutes += d.officialStats?.minutesPlayed ?? 0;
     }
 
     const appearances = played.length;
     return {
-      stats: {
-        totalFoulsCommitted: totalCommitted,
-        totalFoulsSuffered: totalSuffered,
-        totalMinutesPlayed: totalMinutes,
-        totalAppearances: appearances,
-        avgFoulsCommittedPerMatch: appearances > 0 ? (totalCommitted / appearances).toFixed(2) : '—',
-        avgFoulsCommittedPer90: totalMinutes > 0 ? (totalCommitted * 90 / totalMinutes).toFixed(2) : '—',
-        avgFoulsSufferedPerMatch: appearances > 0 ? (totalSuffered / appearances).toFixed(2) : '—',
-        avgFoulsSufferedPer90: totalMinutes > 0 ? (totalSuffered * 90 / totalMinutes).toFixed(2) : '—',
-        totalYellowCards: totalYellow,
-        totalRedCards: totalRed,
-        avgYellowCardsPerMatch: appearances > 0 ? (totalYellow / appearances).toFixed(2) : '—',
-        avgRedCardsPerMatch: appearances > 0 ? (totalRed / appearances).toFixed(2) : '—',
-      },
-      committedHitRate: { over: committedOver, total: appearances },
-      sufferedHitRate: { over: sufferedOver, total: appearances },
-    };
-  }, [displayEvents, detailsMap, committedLine, sufferedLine]);
+        stats: {
+          totalFoulsCommitted: totalCommitted,
+          totalFoulsSuffered: totalSuffered,
+          totalShots,
+          totalShotsOnTarget,
+          totalMinutesPlayed: totalMinutes,
+          totalAppearances: appearances,
+          avgFoulsCommittedPerMatch: appearances > 0 ? (totalCommitted / appearances).toFixed(2) : '—',
+          avgFoulsCommittedPer90: totalMinutes > 0 ? (totalCommitted * 90 / totalMinutes).toFixed(2) : '—',
+          avgFoulsSufferedPerMatch: appearances > 0 ? (totalSuffered / appearances).toFixed(2) : '—',
+          avgFoulsSufferedPer90: totalMinutes > 0 ? (totalSuffered * 90 / totalMinutes).toFixed(2) : '—',
+          avgShotsPerMatch: appearances > 0 ? (totalShots / appearances).toFixed(2) : '—',
+          avgShotsPer90: totalMinutes > 0 ? (totalShots * 90 / totalMinutes).toFixed(2) : '—',
+          avgShotsOnTargetPerMatch: appearances > 0 ? (totalShotsOnTarget / appearances).toFixed(2) : '—',
+          avgShotsOnTargetPer90: totalMinutes > 0 ? (totalShotsOnTarget * 90 / totalMinutes).toFixed(2) : '—',
+          totalYellowCards: totalYellow,
+          totalRedCards: totalRed,
+          avgYellowCardsPerMatch: appearances > 0 ? (totalYellow / appearances).toFixed(2) : '—',
+          avgRedCardsPerMatch: appearances > 0 ? (totalRed / appearances).toFixed(2) : '—',
+        },
+        committedHitRate: { over: committedOver, total: appearances },
+        sufferedHitRate: { over: sufferedOver, total: appearances },
+        shotsHitRate: { over: shotsOver, total: appearances },
+        shotsOnTargetHitRate: { over: shotsOnTargetOver, total: appearances },
+      };
+  }, [displayEvents, detailsMap, committedLine, sufferedLine, shotsLine, shotsOnTargetLine]);
 
   // Events shown as MatchCards
   const selectedEvents = useMemo(
@@ -648,8 +684,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowStartersOnly(false);
     setShowCommitted(true);
     setShowSuffered(true);
+    setShowShots(true);
+    setShowShotsOnTarget(false);
     setShowCards(false);
-  }, [setSelectedPeriod, setShowHome, setShowAway, setShowStartersOnly, setShowCommitted, setShowSuffered, setShowCards]);
+  }, [setSelectedPeriod, setShowHome, setShowAway, setShowStartersOnly, setShowCommitted, setShowSuffered, setShowShots, setShowShotsOnTarget, setShowCards]);
 
   // ── Full-page loader: only on the very first visit (never on filter/season changes) ──
   const waitingForSeasonContext =
@@ -694,6 +732,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onShowCommittedChange={setShowCommitted}
             showSuffered={showSuffered}
             onShowSufferedChange={setShowSuffered}
+            showShots={showShots}
+            onShowShotsChange={setShowShots}
+            showShotsOnTarget={showShotsOnTarget}
+            onShowShotsOnTargetChange={setShowShotsOnTarget}
             showCards={showCards}
             onShowCardsChange={setShowCards}
             showHome={showHome}
@@ -705,6 +747,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onCommittedLineChange={setCommittedLine}
             sufferedLine={sufferedLine}
             onSufferedLineChange={setSufferedLine}
+            shotsLine={shotsLine}
+            onShotsLineChange={setShotsLine}
+            shotsOnTargetLine={shotsOnTargetLine}
+            onShotsOnTargetLineChange={setShotsOnTargetLine}
             showStartersOnly={showStartersOnly}
             onShowStartersOnlyChange={setShowStartersOnly}
             startersFilterEnabled={allLineupsLoaded}
@@ -733,11 +779,17 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                   stats={derivedStats.stats}
                   showCommitted={showCommitted}
                   showSuffered={showSuffered}
+                  showShots={showShots}
+                  showShotsOnTarget={showShotsOnTarget}
                   showCards={showCards}
                   committedLine={committedLine}
                   sufferedLine={sufferedLine}
+                  shotsLine={shotsLine}
+                  shotsOnTargetLine={shotsOnTargetLine}
                   committedHitRate={derivedStats.committedHitRate}
                   sufferedHitRate={derivedStats.sufferedHitRate}
+                  shotsHitRate={derivedStats.shotsHitRate}
+                  shotsOnTargetHitRate={derivedStats.shotsOnTargetHitRate}
                   compact={compactDensity}
                 />
               </div>
@@ -752,6 +804,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                 detailsLoadedIds={detailsLoadedIds}
                 showCommitted={showCommitted}
                 showSuffered={showSuffered}
+                showShots={showShots}
+                showShotsOnTarget={showShotsOnTarget}
                 onToggleMatch={toggleMatch}
                 toggleMode={toggleMode}
                 onToggleAll={handleToggleAll}
@@ -780,6 +834,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                         eventDurationMetadata={eventDurationMetadataMap.get(event.id)}
                         showCommitted={showCommitted}
                         showSuffered={showSuffered}
+                        showShots={showShots}
+                        showShotsOnTarget={showShotsOnTarget}
                         panelIndex={panelIndex}
                         detailsMap={detailsMap}
                         selectedTournaments={selectedTournaments}

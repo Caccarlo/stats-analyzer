@@ -294,6 +294,7 @@ Other current behavior:
 - In `MatchCard`, clicking the opponent team or a linked player can open or swap the opposite split panel on desktop; on mobile it navigates in-place.
 - In `MatchCard`, field map and heatmap orientation depend on the measured width of the positions section: multi-card layouts stay portrait, while a single selected card uses landscape only when that section is at least `620px` wide; otherwise both views switch to portrait without changing the two-column layout.
 - In `MatchCard`, the comparison stat boxes around the heatmap are also width-aware: they stay on the left/right sides only when the heatmap column is at least `620px` wide and still has enough extra room beyond the heatmap itself; otherwise the season averages move above the heatmap and the in-match foul counters move below it.
+- In `MatchCard`, clicking a shot on the field map opens a compact centered SVG tooltip with only shot metadata (`minute + body part + outcome`, then centered `xG` / `xGOT`); field-map shot colors and trajectory endpoints are outcome-based, so saved shots stay on-target while blocked shots stop at the block point instead of being misclassified by auxiliary shotmap coordinates.
 - `PlayerPage` derives season club badges from `allEvents` plus progressively-loaded `playerSide` lineup data, so season logos in the period dropdown can appear incrementally as lineups finish loading.
 
 ## Filters

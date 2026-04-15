@@ -24,63 +24,126 @@ const FIELD_H = 1050;
 const FIELD_L_W = 1050;
 const FIELD_L_H = 680;
 const DOT_RADIUS_BASE = 30;
-const SHOT_MARKER_RADIUS = 12;
-const HALF_PITCH_LENGTH = 515;
-const INNER_W = 660;
-const INNER_H = 660;
-const PORTRAIT_MIDLINE_Y = 525;
-const LANDSCAPE_MIDLINE_X = 525;
-const PORTRAIT_GOAL_LINE_TOP = 10;
-const PORTRAIT_GOAL_LINE_BOTTOM = 1040;
-const LANDSCAPE_GOAL_LINE_LEFT = 10;
-const LANDSCAPE_GOAL_LINE_RIGHT = 1040;
-const GOAL_MOUTH_START = 218;
-const GOAL_MOUTH_SIZE = 244;
+const SHOT_MARKER_RADIUS = 15;
+const INNER_H = FIELD_H - 20;
+const INNER_W = FIELD_W - 20;
+const SHOT_POPUP_W = 440;
+const SHOT_POPUP_H = 150;
 
-function clampPct(value: number | undefined): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 50;
-  return Math.min(100, Math.max(0, value));
-}
-
-function normalizeGoalMouthRatio(value: number | undefined): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) return 0.5;
-  if (value >= 0 && value <= 1) return value;
-  if (value >= -1 && value <= 1) return (value + 1) / 2;
-  if (value >= 0 && value <= 100) return value / 100;
-  if (value >= -50 && value <= 50) return (value + 50) / 100;
-  return Math.min(1, Math.max(0, value / 100));
-}
+type ShotOutcome = 'goal' | 'saved' | 'blocked' | 'miss' | 'post' | 'other';
 
 function getVisibleShots(shots: MatchShot[], showShots: boolean, showShotsOnTarget: boolean): MatchShot[] {
   return shots.filter((shot) => {
     if (showShots) return true;
-    if (showShotsOnTarget) return shot.isOnTarget;
+    if (showShotsOnTarget) return isShotOnTargetDisplay(shot);
     return false;
   });
 }
 
-function getShotOrigin(shot: MatchShot): ShotmapCoordinate | null {
-  return shot.draw?.start ?? shot.playerCoordinates ?? null;
+function getShotStart(shot: MatchShot): ShotmapCoordinate | null {
+  if (shot.draw?.start) return shot.draw.start;
+  if (!shot.playerCoordinates) return null;
+  return {
+    x: shot.playerCoordinates.y,
+    y: shot.playerCoordinates.x,
+  };
 }
 
-function getShotHalfPitchTarget(shot: MatchShot): ShotmapCoordinate | null {
-  return shot.draw?.end ?? shot.draw?.block ?? shot.draw?.goal ?? null;
+function getShotEnd(shot: MatchShot): ShotmapCoordinate | null {
+  const outcome = getShotOutcome(shot);
+
+  if (outcome === 'blocked') {
+    if (shot.draw?.block) return shot.draw.block;
+    return shot.draw?.end ?? null;
+  }
+
+  if (shot.draw?.end) return shot.draw.end;
+
+  if ((outcome === 'goal' || outcome === 'saved') && shot.draw?.goal) {
+    return {
+      x: shot.draw.goal.x,
+      y: 0,
+    };
+  }
+
+  if ((outcome === 'goal' || outcome === 'saved') && typeof shot.goalMouthCoordinates?.y === 'number') {
+    return {
+      x: shot.goalMouthCoordinates.y,
+      y: 0,
+    };
+  }
+
+  return null;
 }
 
-function formatShotType(value?: string): string {
-  if (!value) return 'Tiro';
-  const normalized = value.toLowerCase();
-  const map: Record<string, string> = {
+function shotPointToPortrait(point: ShotmapCoordinate, isHomeShot: boolean): { x: number; y: number } {
+  const halfX = 10 + (point.x / 100) * INNER_W;
+  const halfY = 10 + (point.y / 100) * INNER_H;
+
+  if (isHomeShot) {
+    return {
+      x: FIELD_W - halfX,
+      y: FIELD_H - halfY,
+    };
+  }
+
+  return {
+    x: halfX,
+    y: halfY,
+  };
+}
+
+function portraitToLandscape(point: { x: number; y: number }): { x: number; y: number } {
+  return {
+    x: point.y,
+    y: FIELD_L_H - point.x,
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getShotOutcome(shot: MatchShot): ShotOutcome {
+  const shotType = shot.shotType?.toLowerCase();
+
+  if (shot.isGoal || shotType === 'goal' || shotType === 'own') return 'goal';
+  if (shotType === 'save' || shotType === 'shot-on-target') return 'saved';
+  if (shotType === 'block') return 'blocked';
+  if (shotType === 'post') return 'post';
+  if (shotType === 'miss') return 'miss';
+  if (shot.isOnTarget) return 'saved';
+  if (shot.draw?.block && !shot.draw?.end && !shot.draw?.goal) return 'blocked';
+  return 'other';
+}
+
+function isShotOnTargetDisplay(shot: MatchShot): boolean {
+  const outcome = getShotOutcome(shot);
+  return outcome === 'goal' || outcome === 'saved';
+}
+
+function getShotDisplayColor(shot: MatchShot): string {
+  return isShotOnTargetDisplay(shot) ? '#7dd3fc' : '#f8fafc';
+}
+
+function formatShotOutcome(outcome: ShotOutcome): string {
+  const map: Record<ShotOutcome, string> = {
     goal: 'Gol',
-    save: 'Parata',
+    saved: 'Parato',
+    blocked: 'Murato',
     miss: 'Fuori',
     post: 'Palo',
-    block: 'Murato',
-    own: 'Autogol',
-    header: 'Colpo di testa',
+    other: 'Tiro',
   };
-  if (map[normalized]) return map[normalized];
-  return normalized.replace(/[-_]/g, ' ');
+  return map[outcome];
+}
+
+function formatShotMinute(shot: MatchShot): string | null {
+  if (typeof shot.time !== 'number') return null;
+  if (typeof shot.addedTime === 'number' && shot.addedTime > 0) {
+    return `${shot.time}'+${shot.addedTime}`;
+  }
+  return `${shot.time}'`;
 }
 
 function formatBodyPart(value?: string): string | null {
@@ -97,7 +160,14 @@ function formatBodyPart(value?: string): string | null {
 }
 
 function formatMetric(value?: number): string {
-  return typeof value === 'number' ? value.toFixed(2) : '—';
+  return typeof value === 'number' ? value.toFixed(2) : '-';
+}
+
+function formatShotTitle(shot: MatchShot): string {
+  const minute = formatShotMinute(shot);
+  const bodyPart = formatBodyPart(shot.bodyPart)?.toLowerCase();
+  const outcome = formatShotOutcome(getShotOutcome(shot)).toLowerCase();
+  return [minute, bodyPart, outcome].filter(Boolean).join(' ');
 }
 
 function spreadOverlappingDots(
@@ -151,112 +221,6 @@ function awayToScreenLandscape(avgX: number, avgY: number): { x: number; y: numb
   };
 }
 
-function mapHalfPitchOriginPortrait(point: ShotmapCoordinate, isHome: boolean): { x: number; y: number } {
-  const depth = clampPct(point.x) / 100;
-  const lateral = clampPct(point.y) / 100;
-
-  if (isHome) {
-    return {
-      x: 10 + lateral * INNER_W,
-      y: PORTRAIT_MIDLINE_Y + depth * HALF_PITCH_LENGTH,
-    };
-  }
-
-  return {
-    x: 10 + (1 - lateral) * INNER_W,
-    y: PORTRAIT_MIDLINE_Y - depth * HALF_PITCH_LENGTH,
-  };
-}
-
-function mapHalfPitchOriginLandscape(point: ShotmapCoordinate, isHome: boolean): { x: number; y: number } {
-  const depth = clampPct(point.x) / 100;
-  const lateral = clampPct(point.y) / 100;
-
-  if (isHome) {
-    return {
-      x: LANDSCAPE_MIDLINE_X + depth * HALF_PITCH_LENGTH,
-      y: 10 + (1 - lateral) * INNER_H,
-    };
-  }
-
-  return {
-    x: LANDSCAPE_MIDLINE_X - depth * HALF_PITCH_LENGTH,
-    y: 10 + lateral * INNER_H,
-  };
-}
-
-function mapGoalTargetPortrait(shot: MatchShot, isHome: boolean): { x: number; y: number } {
-  const ratio = normalizeGoalMouthRatio(shot.goalMouthCoordinates?.x);
-
-  if (isHome) {
-    return {
-      x: GOAL_MOUTH_START + ratio * GOAL_MOUTH_SIZE,
-      y: PORTRAIT_GOAL_LINE_BOTTOM,
-    };
-  }
-
-  return {
-    x: GOAL_MOUTH_START + (1 - ratio) * GOAL_MOUTH_SIZE,
-    y: PORTRAIT_GOAL_LINE_TOP,
-  };
-}
-
-function mapGoalTargetLandscape(shot: MatchShot, isHome: boolean): { x: number; y: number } {
-  const ratio = normalizeGoalMouthRatio(shot.goalMouthCoordinates?.x);
-
-  if (isHome) {
-    return {
-      x: LANDSCAPE_GOAL_LINE_RIGHT,
-      y: GOAL_MOUTH_START + (1 - ratio) * GOAL_MOUTH_SIZE,
-    };
-  }
-
-  return {
-    x: LANDSCAPE_GOAL_LINE_LEFT,
-    y: GOAL_MOUTH_START + ratio * GOAL_MOUTH_SIZE,
-  };
-}
-
-function getShotEndPortrait(shot: MatchShot, isHome: boolean): { x: number; y: number } | null {
-  if (shot.isOnTarget) return mapGoalTargetPortrait(shot, isHome);
-  const target = getShotHalfPitchTarget(shot);
-  return target ? mapHalfPitchOriginPortrait(target, isHome) : null;
-}
-
-function getShotEndLandscape(shot: MatchShot, isHome: boolean): { x: number; y: number } | null {
-  if (shot.isOnTarget) return mapGoalTargetLandscape(shot, isHome);
-  const target = getShotHalfPitchTarget(shot);
-  return target ? mapHalfPitchOriginLandscape(target, isHome) : null;
-}
-
-function drawFieldBasePortrait() {
-  return (
-    <>
-      <rect x="10" y="10" width="660" height="1030" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <line x1="10" y1="525" x2="670" y2="525" stroke="#2a5535" strokeWidth="2" />
-      <circle cx="340" cy="525" r="91.5" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <rect x="138" y="10" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <rect x="218" y="10" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <rect x="138" y="875" width="404" height="165" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <rect x="218" y="985" width="244" height="55" fill="none" stroke="#2a5535" strokeWidth="2" />
-    </>
-  );
-}
-
-function drawFieldBaseLandscape() {
-  return (
-    <>
-      <rect x="10" y="10" width="1030" height="660" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <line x1="525" y1="10" x2="525" y2="670" stroke="#2a5535" strokeWidth="2" />
-      <circle cx="525" cy="340" r="91.5" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <rect x="10" y="138" width="165" height="404" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <rect x="10" y="218" width="55" height="244" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <rect x="875" y="138" width="165" height="404" fill="none" stroke="#2a5535" strokeWidth="2" />
-      <rect x="985" y="218" width="55" height="244" fill="none" stroke="#2a5535" strokeWidth="2" />
-    </>
-  );
-}
-
 function ShotPopup({
   x,
   y,
@@ -266,35 +230,30 @@ function ShotPopup({
   y: number;
   shot: MatchShot;
 }) {
-  const popupW = 320;
-  const popupH = 120;
-  const bodyPart = formatBodyPart(shot.bodyPart);
+  const title = formatShotTitle(shot);
+  const centerX = x + SHOT_POPUP_W / 2;
+  const titleY = y + 56;
+  const metricsY = y + 110;
 
   return (
     <g pointerEvents="none">
       <rect
         x={x}
         y={y}
-        width={popupW}
-        height={popupH}
-        rx="14"
-        fill="rgba(9,14,20,0.96)"
-        stroke="rgba(255,255,255,0.18)"
+        width={SHOT_POPUP_W}
+        height={SHOT_POPUP_H}
+        rx="18"
+        fill="rgba(8,12,18,0.98)"
+        stroke="rgba(255,255,255,0.22)"
       />
-      <text x={x + 16} y={y + 28} fill="#e5eefc" fontSize="18" fontWeight="700">
-        {bodyPart ? `${bodyPart} · ${formatShotType(shot.shotType)}` : formatShotType(shot.shotType)}
+      <text x={centerX} y={titleY} fill="#f8fafc" fontSize="34" fontWeight="700" textAnchor="middle">
+        {title}
       </text>
-      <text x={x + 16} y={y + 58} fill="#f8fafc" fontSize="16" fontWeight="600">
+      <text x={centerX - 12} y={metricsY} fill="#f8fafc" fontSize="28" fontWeight="600" textAnchor="end">
         xG {formatMetric(shot.xg)}
       </text>
-      <text x={x + 140} y={y + 58} fill="#7dd3fc" fontSize="16" fontWeight="600">
+      <text x={centerX + 12} y={metricsY} fill="#7dd3fc" fontSize="28" fontWeight="600" textAnchor="start">
         xGOT {formatMetric(shot.xgot)}
-      </text>
-      <text x={x + 16} y={y + 88} fill="#cbd5e1" fontSize="15">
-        {shot.time != null ? `${shot.time}'` : 'Tiro selezionato'}
-      </text>
-      <text x={x + 16} y={y + 108} fill="#94a3b8" fontSize="13">
-        {shot.isOnTarget ? 'Tiro in porta' : 'Tiro fuori o murato'}
       </text>
     </g>
   );
@@ -327,6 +286,20 @@ export default function FieldMap({
   const field = { width: FIELD_W, height: FIELD_H };
   const minSep = DOT_RADIUS_BASE * dotScale;
 
+  const portraitShots = visibleShots
+    .map((shot) => {
+      const startRaw = getShotStart(shot);
+      if (!startRaw) return null;
+      const endRaw = getShotEnd(shot);
+      const isHomeShot = shot.isHome ?? shotIsHomeFallback;
+      return {
+        shot,
+        start: shotPointToPortrait(startRaw, isHomeShot),
+        end: endRaw ? shotPointToPortrait(endRaw, isHomeShot) : null,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
   if (orientation === 'landscape') {
     const rawDots = [
       ...homeDots.map((p) => ({ p, pos: homeToScreenLandscape(p.averageX, p.averageY) })),
@@ -344,15 +317,19 @@ export default function FieldMap({
           style={{ aspectRatio: '105/68', background: '#1a3320' }}
           onClick={() => onShotSelect?.(null)}
         >
-          {drawFieldBaseLandscape()}
+          <rect x="10" y="10" width="1030" height="660" fill="none" stroke="#2a5535" strokeWidth="2" />
+          <line x1="525" y1="10" x2="525" y2="670" stroke="#2a5535" strokeWidth="2" />
+          <circle cx="525" cy="340" r="91.5" fill="none" stroke="#2a5535" strokeWidth="2" />
+          <rect x="10" y="144" width="162" height="392" fill="none" stroke="#2a5535" strokeWidth="2" />
+          <rect x="10" y="251" width="54" height="178" fill="none" stroke="#2a5535" strokeWidth="2" />
+          <rect x="878" y="144" width="162" height="392" fill="none" stroke="#2a5535" strokeWidth="2" />
+          <rect x="986" y="251" width="54" height="178" fill="none" stroke="#2a5535" strokeWidth="2" />
+          <line x1="10" y1="305" x2="10" y2="375" stroke="white" strokeOpacity="0.7" strokeWidth="3" />
+          <line x1="1040" y1="305" x2="1040" y2="375" stroke="white" strokeOpacity="0.7" strokeWidth="3" />
 
-          {visibleShots.map((shot) => {
-            const origin = getShotOrigin(shot);
-            if (!origin) return null;
-
-            const isHomeShot = shot.isHome ?? shotIsHomeFallback;
-            const start = mapHalfPitchOriginLandscape(origin, isHomeShot);
-            const end = getShotEndLandscape(shot, isHomeShot);
+          {portraitShots.map(({ shot, start, end }) => {
+            const startL = portraitToLandscape(start);
+            const endL = end ? portraitToLandscape(end) : null;
             const selected = selectedShotId === shot.id;
 
             return (
@@ -364,36 +341,36 @@ export default function FieldMap({
                 }}
                 className="cursor-pointer"
               >
-                {end && (
+                {endL && (
                   <line
-                    x1={start.x}
-                    y1={start.y}
-                    x2={end.x}
-                    y2={end.y}
-                    stroke={shot.isOnTarget ? '#7dd3fc' : '#f8fafc'}
-                    strokeOpacity={selected ? 0.96 : 0.82}
-                    strokeWidth={selected ? 7 : 5}
+                  x1={startL.x}
+                  y1={startL.y}
+                  x2={endL.x}
+                  y2={endL.y}
+                    stroke={getShotDisplayColor(shot)}
+                    strokeOpacity={selected ? 0.98 : 0.88}
+                    strokeWidth={selected ? 8 : 6}
                     strokeLinecap="round"
                   />
                 )}
                 {shot.isGoal ? (
                   <text
-                    x={start.x}
-                    y={start.y}
+                    x={startL.x}
+                    y={startL.y}
                     textAnchor="middle"
                     dominantBaseline="central"
-                    fontSize="28"
+                    fontSize={selected ? '34' : '30'}
                   >
                     ⚽
                   </text>
                 ) : (
                   <circle
-                    cx={start.x}
-                    cy={start.y}
-                    r={selected ? SHOT_MARKER_RADIUS + 3 : SHOT_MARKER_RADIUS}
-                    fill={shot.isOnTarget ? '#7dd3fc' : '#f8fafc'}
+                    cx={startL.x}
+                    cy={startL.y}
+                    r={selected ? SHOT_MARKER_RADIUS + 4 : SHOT_MARKER_RADIUS}
+                    fill={getShotDisplayColor(shot)}
                     stroke="#0f172a"
-                    strokeWidth={selected ? 4 : 2.5}
+                    strokeWidth={selected ? 4.5 : 3}
                   />
                 )}
               </g>
@@ -417,11 +394,11 @@ export default function FieldMap({
           })}
 
           {selectedShot && (() => {
-            const origin = getShotOrigin(selectedShot);
-            if (!origin) return null;
-            const anchor = mapHalfPitchOriginLandscape(origin, selectedShot.isHome ?? shotIsHomeFallback);
-            const popupX = Math.min(Math.max(anchor.x + 18, 18), FIELD_L_W - 338);
-            const popupY = Math.min(Math.max(anchor.y - 128, 18), FIELD_L_H - 138);
+            const selected = portraitShots.find((entry) => entry.shot.id === selectedShot.id);
+            if (!selected) return null;
+            const anchor = portraitToLandscape(selected.start);
+            const popupX = clamp(anchor.x + 24, 18, FIELD_L_W - (SHOT_POPUP_W + 18));
+            const popupY = clamp(anchor.y - 164, 18, FIELD_L_H - (SHOT_POPUP_H + 18));
             return <ShotPopup x={popupX} y={popupY} shot={selectedShot} />;
           })()}
         </svg>
@@ -445,15 +422,17 @@ export default function FieldMap({
         style={{ aspectRatio: '68/105', background: '#1a3320' }}
         onClick={() => onShotSelect?.(null)}
       >
-        {drawFieldBasePortrait()}
+        <rect x="10" y="10" width="660" height="1030" fill="none" stroke="#2a5535" strokeWidth="2" />
+        <line x1="10" y1="525" x2="670" y2="525" stroke="#2a5535" strokeWidth="2" />
+        <circle cx="340" cy="525" r="91.5" fill="none" stroke="#2a5535" strokeWidth="2" />
+        <rect x="144" y="10" width="392" height="162" fill="none" stroke="#2a5535" strokeWidth="2" />
+        <rect x="251" y="10" width="178" height="54" fill="none" stroke="#2a5535" strokeWidth="2" />
+        <rect x="144" y="878" width="392" height="162" fill="none" stroke="#2a5535" strokeWidth="2" />
+        <rect x="251" y="986" width="178" height="54" fill="none" stroke="#2a5535" strokeWidth="2" />
+        <line x1="305" y1="10" x2="375" y2="10" stroke="white" strokeOpacity="0.7" strokeWidth="3" />
+        <line x1="305" y1="1040" x2="375" y2="1040" stroke="white" strokeOpacity="0.7" strokeWidth="3" />
 
-        {visibleShots.map((shot) => {
-          const origin = getShotOrigin(shot);
-          if (!origin) return null;
-
-          const isHomeShot = shot.isHome ?? shotIsHomeFallback;
-          const start = mapHalfPitchOriginPortrait(origin, isHomeShot);
-          const end = getShotEndPortrait(shot, isHomeShot);
+        {portraitShots.map(({ shot, start, end }) => {
           const selected = selectedShotId === shot.id;
 
           return (
@@ -471,9 +450,9 @@ export default function FieldMap({
                   y1={start.y}
                   x2={end.x}
                   y2={end.y}
-                  stroke={shot.isOnTarget ? '#7dd3fc' : '#f8fafc'}
-                  strokeOpacity={selected ? 0.96 : 0.82}
-                  strokeWidth={selected ? 7 : 5}
+                  stroke={getShotDisplayColor(shot)}
+                  strokeOpacity={selected ? 0.98 : 0.88}
+                  strokeWidth={selected ? 8 : 6}
                   strokeLinecap="round"
                 />
               )}
@@ -483,7 +462,7 @@ export default function FieldMap({
                   y={start.y}
                   textAnchor="middle"
                   dominantBaseline="central"
-                  fontSize="28"
+                  fontSize={selected ? '34' : '30'}
                 >
                   ⚽
                 </text>
@@ -491,10 +470,10 @@ export default function FieldMap({
                 <circle
                   cx={start.x}
                   cy={start.y}
-                  r={selected ? SHOT_MARKER_RADIUS + 3 : SHOT_MARKER_RADIUS}
-                  fill={shot.isOnTarget ? '#7dd3fc' : '#f8fafc'}
+                  r={selected ? SHOT_MARKER_RADIUS + 4 : SHOT_MARKER_RADIUS}
+                  fill={getShotDisplayColor(shot)}
                   stroke="#0f172a"
-                  strokeWidth={selected ? 4 : 2.5}
+                  strokeWidth={selected ? 4.5 : 3}
                 />
               )}
             </g>
@@ -518,11 +497,10 @@ export default function FieldMap({
         })}
 
         {selectedShot && (() => {
-          const origin = getShotOrigin(selectedShot);
-          if (!origin) return null;
-          const anchor = mapHalfPitchOriginPortrait(origin, selectedShot.isHome ?? shotIsHomeFallback);
-          const popupX = Math.min(Math.max(anchor.x + 18, 18), FIELD_W - 338);
-          const popupY = Math.min(Math.max(anchor.y - 128, 18), FIELD_H - 138);
+          const selected = portraitShots.find((entry) => entry.shot.id === selectedShot.id);
+          if (!selected) return null;
+          const popupX = clamp(selected.start.x + 24, 18, FIELD_W - (SHOT_POPUP_W + 18));
+          const popupY = clamp(selected.start.y - 164, 18, FIELD_H - (SHOT_POPUP_H + 18));
           return <ShotPopup x={popupX} y={popupY} shot={selectedShot} />;
         })()}
       </svg>

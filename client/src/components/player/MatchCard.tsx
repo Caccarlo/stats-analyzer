@@ -983,6 +983,22 @@ export default function MatchCard({
                 <MatchTeamBadge team={event.awayTeam} />
               </>
             )}
+            {(details?.goals ?? 0) > 0 && (
+              <span className="flex items-center gap-px text-[10px] leading-none flex-shrink-0">
+                <span style={{ filter: 'grayscale(1) brightness(1.15)' }}>⚽</span>
+                {(details?.goals ?? 0) > 1 && (
+                  <span className="text-[9px] font-medium text-text-muted">{details?.goals}</span>
+                )}
+              </span>
+            )}
+            {(details?.assists ?? 0) > 0 && (
+              <span className="flex items-center gap-px text-[10px] leading-none flex-shrink-0">
+                <span style={{ filter: 'grayscale(1) brightness(1.15)' }}>👟</span>
+                {(details?.assists ?? 0) > 1 && (
+                  <span className="text-[9px] font-medium text-text-muted">{details?.assists}</span>
+                )}
+              </span>
+            )}
           </div>
         </div>
         <div className={`text-text-muted text-right flex-shrink-0 ${compact ? 'mx-1.5 text-[10px]' : 'mx-2 text-[11px]'}`}>

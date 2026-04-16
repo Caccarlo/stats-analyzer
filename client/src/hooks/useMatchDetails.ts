@@ -40,6 +40,8 @@ export interface CachedMatchDetails {
   lineupsStatus: DataAvailability;
   jerseyMap: Map<number, string>;
   onBench: boolean;
+  goals: number | null;
+  assists: number | null;
 }
 
 interface MatchDetailsResult extends CachedMatchDetails {
@@ -140,6 +142,8 @@ export function createSeededMatchDetails(seed?: MatchDetailsSeed): CachedMatchDe
     lineupsStatus: 'idle',
     jerseyMap: new Map<number, string>(),
     onBench: seed?.onBench ?? false,
+    goals: seed?.incidents?.goals ?? null,
+    assists: seed?.incidents?.assists ?? null,
   };
 }
 
@@ -158,6 +162,8 @@ export function mergeMatchDetailsWithSeed(
       cached.cardInfoStatus === 'loaded' || !seed.incidents ? cached.cardInfoStatus : 'loaded',
     didNotPlay: deriveDidNotPlay(cached.officialStats ?? seed.officialStats ?? null),
     onBench: cached.onBench || Boolean(seed.onBench),
+    goals: cached.goals ?? seed.incidents?.goals ?? null,
+    assists: cached.assists ?? seed.incidents?.assists ?? null,
   };
 }
 
@@ -421,6 +427,8 @@ export async function fetchMatchDetails(
     lineupsStatus,
     jerseyMap: buildJerseyMap(lineups),
     onBench: Boolean(seed?.onBench),
+    goals: seed?.incidents?.goals ?? null,
+    assists: seed?.incidents?.assists ?? null,
   };
 
   matchDetailsCache.set(key, result);

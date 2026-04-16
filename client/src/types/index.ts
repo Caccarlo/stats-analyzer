@@ -111,6 +111,10 @@ export interface AggregatedStats {
   totalRedCards: number;
   avgYellowCardsPerMatch: string;
   avgRedCardsPerMatch: string;
+  totalGoals: number;
+  avgGoalsPerMatch: string;
+  totalAssists: number;
+  avgAssistsPerMatch: string;
 }
 
 // === Partite ===
@@ -301,6 +305,7 @@ export interface PlayerFilterState {
   showHome: boolean;
   showAway: boolean;
   showCards: boolean;
+  showGoalsAssists: boolean;
   showStartersOnly: boolean;
   committedLine: number;
   sufferedLine: number;

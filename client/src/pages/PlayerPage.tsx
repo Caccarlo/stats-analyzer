@@ -181,6 +181,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowAway,
     showCards,
     setShowCards,
+    showGoalsAssists,
+    setShowGoalsAssists,
     committedLine,
     setCommittedLine,
     sufferedLine,
@@ -593,6 +595,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     let totalRed = 0;
     let totalShots = 0;
     let totalShotsOnTarget = 0;
+    let totalGoals = 0;
+    let totalAssists = 0;
     let committedOver = 0;
     let sufferedOver = 0;
     let shotsOver = 0;
@@ -611,6 +615,9 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
       if (d.cardInfo?.type === 'yellow') totalYellow++;
       else if (d.cardInfo?.type === 'red') totalRed++;
       else if (d.cardInfo?.type === 'yellowRed') { totalYellow++; totalRed++; }
+
+      totalGoals += d.goals ?? 0;
+      totalAssists += d.assists ?? 0;
 
       if (committed > committedLine) committedOver++;
       if (suffered > sufferedLine) sufferedOver++;
@@ -641,6 +648,10 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
           totalRedCards: totalRed,
           avgYellowCardsPerMatch: appearances > 0 ? (totalYellow / appearances).toFixed(2) : '—',
           avgRedCardsPerMatch: appearances > 0 ? (totalRed / appearances).toFixed(2) : '—',
+          totalGoals,
+          avgGoalsPerMatch: appearances > 0 ? (totalGoals / appearances).toFixed(2) : '—',
+          totalAssists,
+          avgAssistsPerMatch: appearances > 0 ? (totalAssists / appearances).toFixed(2) : '—',
         },
         committedHitRate: { over: committedOver, total: appearances },
         sufferedHitRate: { over: sufferedOver, total: appearances },
@@ -687,7 +698,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
     setShowShots(true);
     setShowShotsOnTarget(false);
     setShowCards(false);
-  }, [setSelectedPeriod, setShowHome, setShowAway, setShowStartersOnly, setShowCommitted, setShowSuffered, setShowShots, setShowShotsOnTarget, setShowCards]);
+    setShowGoalsAssists(false);
+  }, [setSelectedPeriod, setShowHome, setShowAway, setShowStartersOnly, setShowCommitted, setShowSuffered, setShowShots, setShowShotsOnTarget, setShowCards, setShowGoalsAssists]);
 
   // ── Full-page loader: only on the very first visit (never on filter/season changes) ──
   const waitingForSeasonContext =
@@ -738,6 +750,8 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
             onShowShotsOnTargetChange={setShowShotsOnTarget}
             showCards={showCards}
             onShowCardsChange={setShowCards}
+            showGoalsAssists={showGoalsAssists}
+            onShowGoalsAssistsChange={setShowGoalsAssists}
             showHome={showHome}
             onShowHomeChange={setShowHome}
             showAway={showAway}
@@ -782,6 +796,7 @@ export default function PlayerPage({ playerId, playerData, panelIndex = 0 }: Pla
                   showShots={showShots}
                   showShotsOnTarget={showShotsOnTarget}
                   showCards={showCards}
+                  showGoalsAssists={showGoalsAssists}
                   committedLine={committedLine}
                   sufferedLine={sufferedLine}
                   shotsLine={shotsLine}

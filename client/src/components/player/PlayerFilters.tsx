@@ -29,6 +29,8 @@ interface PlayerFiltersProps {
   onShowAwayChange: (v: boolean) => void;
   showCards: boolean;
   onShowCardsChange: (v: boolean) => void;
+  showGoalsAssists: boolean;
+  onShowGoalsAssistsChange: (v: boolean) => void;
   showStartersOnly: boolean;
   onShowStartersOnlyChange: (v: boolean) => void;
   startersFilterEnabled: boolean;
@@ -89,6 +91,8 @@ export default function PlayerFilters({
   onShowAwayChange,
   showCards,
   onShowCardsChange,
+  showGoalsAssists,
+  onShowGoalsAssistsChange,
   showStartersOnly,
   onShowStartersOnlyChange,
   startersFilterEnabled,
@@ -164,6 +168,7 @@ export default function PlayerFilters({
 
   const showFilters = [showCommitted, showSuffered, showShots, showShotsOnTarget, showCards];
   const showSetters = [onShowCommittedChange, onShowSufferedChange, onShowShotsChange, onShowShotsOnTargetChange, onShowCardsChange];
+  // showGoalsAssists is an independent toggle (like showCards) — handled separately
   const activeCount = showFilters.filter(Boolean).length;
 
   const handleToggleShow = (idx: number) => {
@@ -463,6 +468,16 @@ export default function PlayerFilters({
                 }`}
               >
                 Cartellini
+              </button>
+              <button
+                onClick={() => onShowGoalsAssistsChange(!showGoalsAssists)}
+                className={`${controlChipClass} text-left ${
+                  showGoalsAssists
+                    ? 'bg-emerald-400/15 border-emerald-400 text-emerald-400'
+                    : 'bg-surface border-border text-text-muted hover:border-border-hover'
+                }`}
+              >
+                Goal/Assist
               </button>
             </div>
           </div>

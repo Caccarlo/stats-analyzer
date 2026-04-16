@@ -36,6 +36,8 @@ interface PlayerDataResult {
   setShowAway: (v: boolean) => void;
   showCards: boolean;
   setShowCards: (v: boolean) => void;
+  showGoalsAssists: boolean;
+  setShowGoalsAssists: (v: boolean) => void;
   showStartersOnly: boolean;
   setShowStartersOnly: (v: boolean) => void;
   ensureTournamentsEnabled: (ids: Set<number>) => void;
@@ -74,6 +76,7 @@ export function usePlayerData(
   const [showHome, setShowHome] = useState(() => initialFilterState?.showHome ?? true);
   const [showAway, setShowAway] = useState(() => initialFilterState?.showAway ?? true);
   const [showCards, setShowCards] = useState(() => initialFilterState?.showCards ?? false);
+  const [showGoalsAssists, setShowGoalsAssists] = useState(() => initialFilterState?.showGoalsAssists ?? false);
   const [showStartersOnly, setShowStartersOnly] = useState(() => initialFilterState?.showStartersOnly ?? false);
   const [committedLine, setCommittedLine] = useState(() => initialFilterState?.committedLine ?? 0.5);
   const [sufferedLine, setSufferedLine] = useState(() => initialFilterState?.sufferedLine ?? 0.5);
@@ -216,13 +219,14 @@ export function usePlayerData(
       showHome,
       showAway,
       showCards,
+      showGoalsAssists,
       showStartersOnly,
       committedLine,
       sufferedLine,
       shotsLine,
       shotsOnTargetLine,
     });
-  }, [selectedPeriod, enabledTournaments, showCommitted, showSuffered, showShots, showShotsOnTarget, showHome, showAway, showCards, showStartersOnly, committedLine, sufferedLine, shotsLine, shotsOnTargetLine]);
+  }, [selectedPeriod, enabledTournaments, showCommitted, showSuffered, showShots, showShotsOnTarget, showHome, showAway, showCards, showGoalsAssists, showStartersOnly, committedLine, sufferedLine, shotsLine, shotsOnTargetLine]);
 
   // Aggregate stats (only enabled tournaments)
   const enabledStats = Array.from(statsByTournament.entries())
@@ -281,6 +285,8 @@ export function usePlayerData(
     setShowAway,
     showCards,
     setShowCards,
+    showGoalsAssists,
+    setShowGoalsAssists,
     showStartersOnly,
     setShowStartersOnly,
     ensureTournamentsEnabled,

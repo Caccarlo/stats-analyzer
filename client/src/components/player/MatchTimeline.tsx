@@ -140,20 +140,6 @@ function getPlayedMinutesLabel(
   return null;
 }
 
-function OpponentCrest({ team }: { team: Team }) {
-  return (
-    <div className="flex items-center justify-center min-h-[26px]">
-      <img
-        src={getTeamImageUrl(team.id)}
-        alt={team.name}
-        className="w-4 h-4 object-contain"
-        onError={(e) => {
-          (e.target as HTMLImageElement).style.display = 'none';
-        }}
-      />
-    </div>
-  );
-}
 
 function abbreviateTournamentName(name: string): string {
   if (!name) return '';
@@ -330,7 +316,7 @@ export default function MatchTimeline({
                 />
 
                 {playedMinutesLabel && (
-                  <div className="absolute top-1 right-1 z-10 text-[7px] leading-none font-medium tabular-nums text-white/75 drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)] pointer-events-none">
+                  <div className="absolute top-1 right-1 z-10 text-[7px] leading-none font-medium tabular-nums text-text-secondary drop-shadow-[0_1px_1px_rgba(0,0,0,0.6)] pointer-events-none">
                     {playedMinutesLabel}
                   </div>
                 )}
@@ -367,8 +353,38 @@ export default function MatchTimeline({
                   </div>
                 )}
 
-                <div className="relative z-10 mt-3 mb-0.5">
-                  <OpponentCrest team={opponentTeam} />
+                <div className="relative z-10 mt-3 mb-0.5 flex items-center justify-center min-h-[26px]">
+                  {/* Slot sinistro (assist) — larghezza fissa per mantenere lo stemma sempre centrato */}
+                  <span className="w-[30px] flex items-center justify-end text-[8px] leading-none flex-shrink-0">
+                    {(details?.assists ?? 0) > 0 && (
+                      <span className="flex items-center gap-px">
+                        {(details?.assists ?? 0) > 1 && (
+                          <span className="font-medium text-text-secondary">{details?.assists}</span>
+                        )}
+                        <span style={{ filter: 'grayscale(1) brightness(1.15)' }}>👟</span>
+                      </span>
+                    )}
+                  </span>
+                  {/* Stemma avversario (sempre al centro) */}
+                  <img
+                    src={getTeamImageUrl(opponentTeam.id)}
+                    alt={opponentTeam.name}
+                    className="w-4 h-4 object-contain flex-shrink-0"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                  {/* Slot destro (goal) — larghezza fissa simmetrica */}
+                  <span className="w-[30px] flex items-center justify-start text-[8px] leading-none flex-shrink-0">
+                    {(details?.goals ?? 0) > 0 && (
+                      <span className="flex items-center gap-px">
+                        <span style={{ filter: 'grayscale(1) brightness(1.15)' }}>⚽</span>
+                        {(details?.goals ?? 0) > 1 && (
+                          <span className="font-medium text-text-secondary">{details?.goals}</span>
+                        )}
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="relative z-10 text-[10px] leading-tight text-text-secondary font-medium whitespace-nowrap">
                   {scoreline}

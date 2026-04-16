@@ -7,6 +7,7 @@ interface StatsOverviewProps {
   showShots: boolean;
   showShotsOnTarget: boolean;
   showCards: boolean;
+  showGoalsAssists: boolean;
   committedLine: number;
   sufferedLine: number;
   shotsLine: number;
@@ -25,6 +26,7 @@ export default function StatsOverview({
   showShots,
   showShotsOnTarget,
   showCards,
+  showGoalsAssists,
   committedLine,
   sufferedLine,
   shotsLine,
@@ -180,6 +182,35 @@ export default function StatsOverview({
             label="Rossi / partita"
             value={stats.avgRedCardsPerMatch}
             color="text-negative"
+            compact={compact}
+          />
+        </div>
+      )}
+
+      {showGoalsAssists && (
+        <div className={`grid grid-cols-4 ${gridGapClass}`}>
+          <StatCard
+            label="Goal"
+            value={stats.totalGoals}
+            color="text-emerald-400"
+            compact={compact}
+          />
+          <StatCard
+            label="Goal / partita"
+            value={stats.avgGoalsPerMatch}
+            color="text-emerald-400"
+            compact={compact}
+          />
+          <StatCard
+            label="Assist"
+            value={stats.totalAssists}
+            color="text-sky-300"
+            compact={compact}
+          />
+          <StatCard
+            label="Assist / partita"
+            value={stats.avgAssistsPerMatch}
+            color="text-sky-300"
             compact={compact}
           />
         </div>

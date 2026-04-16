@@ -37,5 +37,9 @@ export function calculateStats(statsByTournament: PlayerSeasonStats[]): Aggregat
     totalRedCards: totals.redCards,
     avgYellowCardsPerMatch: safeDiv(totals.yellowCards, totals.appearances),
     avgRedCardsPerMatch: safeDiv(totals.redCards, totals.appearances),
+    totalGoals: 0,
+    avgGoalsPerMatch: '0.00',
+    totalAssists: 0,
+    avgAssistsPerMatch: '0.00',
   };
 }

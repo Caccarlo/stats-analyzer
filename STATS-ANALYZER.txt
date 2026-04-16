@@ -8,7 +8,8 @@ feature:
 sotto alle medie dei falli, e sotto ai cartellini quando sono attivati, deve essere aggiunta anche la media dei tiri, l'hit rate e vanno aggiunti i dati nelle card timeline, per i tiri usare il colore bianco, per i tiri in porta l'azzurro, devono essere tutti e quattro i quadrati sulla stessa riga, se non c'è abbastanza spazio vanno rimpiccioliti leggermente per farceli stare, ma non credo serva, forse in alcune viewport più piccole. all'interno dei field delle match card, non nelle heatmap, se i tiri e/o tiri in porta sono attivi, vanno mostrate le esatte posizioni da cui il giocatore ha effettuato il tiro, con la traiettoria identica a quella mostrata su sofascore, se il tiro non è un tiro in porta allora è bianco, se è finito in porta allora azzurro, devono essere piccoli ma visibili.
 
 
-- goal e assist pagina giocatore - specifiche - per ogni pagina giocatore devono essere mostrati goal e assist per le partite selezionate. di base le opzioni devono essere disattivate come i cartellini, da attive vanno mostrate medie e tutto quanto, nelle matchcard al fianco del risultato mettere icona del pallone se ha segnato di una scarpa se ha fatto assist 
+- goal e assist pagina giocatore - specifiche - per ogni pagina giocatore deve essere aggiunto il filtro goal e assist. di base deve essere disattivata come i cartellini, da attiva vanno mostrati in una sola riga i goal totali e la media a partita, gli assist totali e la media a partita, nelle matchcard sulla riga del risultato, mettere icona del pallone se ha segnato, di una scarpa se ha fatto assist, con al fianco del pallone per esempio un 2 se ha fatto 2 goal, come per gli assist o qualsiasi altro numero 3,4,5,6 ecc.
+nella card della timeline, a prescindere che il filtro sia attivo o meno, anche qui come per i cartellini, va mostrata comunque un'icona per il goal se ha segnato e per l'assist se ha fatto assist, con un numero al fianco se ne ha fatto più di uno, entrambi vanno sulla stessa riga dello stemma della squadra affrontata, il pallone sulla destra, la scarpa sulla sinistra, piccoli come il cartellino, abbastanza centrati orizzontalmente considerando però anche l'eventuale presenza del numero al fianco. il numero deve essere messo alla destra del pallone se ha fatto più di un goal e sulla sinistra della scarpa se ha fatto più di un assist. 
 
 - quota bookmakers - specifiche - 
 
@@ -16,8 +17,15 @@ sotto alle medie dei falli, e sotto ai cartellini quando sono attivati, deve ess
 
 - paritite passate e future pagina campionato - specifiche - 
 
-- pagina unita per squadre avversarie - specifiche -
+- tabella stats giocatori pagina squadra - specifiche - per ogni pagina squadra va aggiunta una tabella, in cima è possibile selezionare la competizione (di default tutte), come nella tabella delle ultime e prossime partite, poi un'altra selezione, subito sotto, con la possibilità di scegliere una sezione statistica, per esempio falli commessi o falli subiti, o tiri, o tiri in porta ecc. in base alla statistica selezionata va mostrata all'interno della tabella una classifica della squadra con diverse statistiche allegate, per esempio: 
+inter - tutte le competizioni - falli commessi - classifica di default da quello che ha commesso in totale più falli fino a quello che ne ha commessi meno, la classifica deve avere il nome del giocatore sulla sinistra, il numero di falli commessi, il numero di partite giocate, la media dei falli a partita, i minuti totali giocati e la media sui 90 min, per ognuna di queste voci, tranne il nome del giocatore, deve essere possibile cambiare la classifica, quindi se cliccata in alto la tab relativa alla media sui 90 minuti va mostrato per primo quello con la media sui 90 minuti più alta. 
 
+- pagina unita per squadre avversarie - specifiche - quando in split view sono aperte due squadre che sono l'una la prossima avversaria dell'altra, oppure quando si clicca la riga di una partita nel calendario, vorrei che le pagine delle due squadre si unissero in una pagina unica, con un unico campo leggermente più grande, che nella metà campo sinistra mostra la squadra di casa e nella metà campo di destra mostra quella fuori casa, come fa già sofascore. 
+c'è la possibilità che una squadra abbia una avversaria ma che quella avversaria abbia un'altra partita prima e quindi non abbia effettivamente l'avversaria corrispondente, in quel caso vorrei che se aperte separatamente sia mostrato un piccolo tasto per far unire le due pagine in una unica, se dalla squadra che ha l'altra come avversaria premiamo il prossimo avverario allora si apre in automatico la pagina unita.
+il campo deve essere mostrato al centro, le due sezioni delle due squadre per ultime e prossime partite devono essere mostrate sulla sinistra (squadra casa) e sulla destra (squadra trasferta) del campo.
+non devono più essere mostrati tasti indietro o x in più, tutte le informazioni presenti della squadra in trasferta devono partire dalla destra della pagina.
+centrato sotto al campo deve essere mostrata la tabella stats giocatori divisa in due sezioni, destra (squadra trasferta) e sinistra (squadra casa), la divisione deve essere precisamente al centro della pagina disponibile e per le due sezioni deve essere possibile selezionare diverse stats da visualizzare nel menù in alto.
+ 
 
 fix: 
 

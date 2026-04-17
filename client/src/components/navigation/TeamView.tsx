@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import {
   getTeamPlayers,
@@ -9,7 +9,8 @@ import {
 } from '@/api/sofascore';
 import { getFormationPositions } from '@/utils/positionMapping';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
-import type { Player, MatchEvent, LineupPlayer } from '@/types';
+import { getShotsCount, getShotsOnTargetCount } from '@/utils/playerStats';
+import type { Player, MatchEvent, LineupPlayer, MatchLineups } from '@/types';
 import { useViewport } from '@/hooks/useViewport';
 
 const PAGE_SIZE = 5;
@@ -18,6 +19,15 @@ const MATCHES_SECTION_HARD_MIN_WIDTH = 160;    // -20% vs 200
 const LAYOUT_GAP = 20;
 const LANDSCAPE_LAYOUT_MIN_PANEL_WIDTH = 620;
 const PORTRAIT_RIGHT_MIN_PANEL_WIDTH = 420;
+const TABLE_PANEL_ROW_HEIGHT = 22;
+const TABLE_BODY_MAX_HEIGHT_COMPACT = 171;
+const TABLE_BODY_MAX_HEIGHT_REGULAR = 171;
+const STATS_TABLE_MIN_WIDTH = 352;
+const TEAM_STATS_FETCH_BATCH_SIZE = 4;
+const STATS_TABLE_COLUMNS = '100px 40px 52px 48px 40px 40px';
+
+type TeamStatsSectionId = 'foulsCommitted' | 'foulsSuffered' | 'shots' | 'shotsOnTarget';
+type TeamStatsSortKey = 'total' | 'appearances' | 'perMatch' | 'minutes' | 'per90';
 const LANDSCAPE_FIELD_WIDTH = 400;             // fisso: altezza risultante ≈ altezza naturale sezione partite
 const PORTRAIT_FIELD_MIN_WIDTH = 220;
 const PORTRAIT_FIELD_MAX_WIDTH = 300;
@@ -33,6 +43,21 @@ interface CompetitionOption {
   name: string;
 }
 
+interface TeamStatsSectionOption {
+  id: TeamStatsSectionId;
+  label: string;
+  getValue: (statistics: Record<string, unknown> | undefined) => number;
+}
+
+interface TeamPlayerStatsRow {
+  player: Player;
+  total: number;
+  appearances: number;
+  perMatch: number;
+  minutes: number;
+  per90: number;
+}
+
 function formatMatchDate(ts: number): string {
   return new Date(ts * 1000).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' });
 }
@@ -44,6 +69,83 @@ function formatMatchTime(ts: number): string {
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
+
+function parseSeasonDateRange(year: string): { startTimestamp: number; endTimestamp: number } | null {
+  const shortSeasonMatch = year.match(/^(\d{2})\/(\d{2})$/);
+  if (shortSeasonMatch) {
+    const startYear = 2000 + Number(shortSeasonMatch[1]);
+    const endYear = 2000 + Number(shortSeasonMatch[2]);
+    return {
+      startTimestamp: Date.UTC(startYear, 6, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(endYear, 5, 30, 23, 59, 59) / 1000,
+    };
+  }
+
+  const longSeasonMatch = year.match(/^(\d{4})\/(\d{2}|\d{4})$/);
+  if (longSeasonMatch) {
+    const startYear = Number(longSeasonMatch[1]);
+    const rawEndYear = longSeasonMatch[2];
+    const endYear = rawEndYear.length === 2 ? 2000 + Number(rawEndYear) : Number(rawEndYear);
+    return {
+      startTimestamp: Date.UTC(startYear, 6, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(endYear, 5, 30, 23, 59, 59) / 1000,
+    };
+  }
+
+  const singleYearMatch = year.match(/^(\d{4})$/);
+  if (singleYearMatch) {
+    const seasonYear = Number(singleYearMatch[1]);
+    return {
+      startTimestamp: Date.UTC(seasonYear, 0, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(seasonYear, 11, 31, 23, 59, 59) / 1000,
+    };
+  }
+
+  return null;
+}
+
+function getNumericStatValue(
+  statistics: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): number | null {
+  if (!statistics) return null;
+
+  for (const key of keys) {
+    const value = statistics[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function formatDecimalStat(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : '0.00';
+}
+
+const TEAM_STATS_SECTIONS: TeamStatsSectionOption[] = [
+  {
+    id: 'foulsCommitted',
+    label: 'Falli commessi',
+    getValue: (statistics) => getNumericStatValue(statistics, ['fouls']) ?? 0,
+  },
+  {
+    id: 'foulsSuffered',
+    label: 'Falli subiti',
+    getValue: (statistics) => getNumericStatValue(statistics, ['wasFouled']) ?? 0,
+  },
+  {
+    id: 'shots',
+    label: 'Tiri',
+    getValue: (statistics) => getShotsCount((statistics ?? null) as Record<string, unknown> | null) ?? 0,
+  },
+  {
+    id: 'shotsOnTarget',
+    label: 'Tiri in porta',
+    getValue: (statistics) => getShotsOnTargetCount((statistics ?? null) as Record<string, unknown> | null) ?? 0,
+  },
+];
 
 function getEventCompetition(event: MatchEvent): CompetitionOption | null {
   const tournament = event.tournament?.uniqueTournament;
@@ -118,6 +220,11 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
   const [displayOffset, setDisplayOffset] = useState(0);
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [hasPrefetchedMatches, setHasPrefetchedMatches] = useState(false);
+  const [selectedStatsCompetitionId, setSelectedStatsCompetitionId] = useState<'all' | number>('all');
+  const [selectedStatsSectionId, setSelectedStatsSectionId] = useState<TeamStatsSectionId>('foulsCommitted');
+  const [statsSortKey, setStatsSortKey] = useState<TeamStatsSortKey>('total');
+  const [statsLineupsMap, setStatsLineupsMap] = useState<Map<number, MatchLineups | null>>(new Map());
+  const [statsHistoryStatus, setStatsHistoryStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +244,11 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
     setActiveTab('last');
     setSelectedCompetitionId('all');
     setHasPrefetchedMatches(false);
+    setSelectedStatsCompetitionId('all');
+    setSelectedStatsSectionId('foulsCommitted');
+    setStatsSortKey('total');
+    setStatsLineupsMap(new Map());
+    setStatsHistoryStatus('idle');
 
     (async () => {
       try {
@@ -345,6 +457,10 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
   }, [selectedCompetitionId]);
 
   useEffect(() => {
+    setStatsSortKey('total');
+  }, [selectedStatsSectionId]);
+
+  useEffect(() => {
     if (displayOffset === 0) return;
     if (activeEvents.length === 0) {
       setDisplayOffset(0);
@@ -356,6 +472,187 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
       setDisplayOffset(maxOffset);
     }
   }, [activeEvents.length, displayOffset]);
+
+  const referenceSeasonYear = pastEvents[0]?.season?.year ?? nextEvent?.season?.year ?? null;
+  const statsSeasonDateRange = useMemo(
+    () => (referenceSeasonYear ? parseSeasonDateRange(referenceSeasonYear) : null),
+    [referenceSeasonYear],
+  );
+  const reachedOlderStatsSeason = useMemo(() => {
+    if (!referenceSeasonYear) return false;
+
+    return statsSeasonDateRange
+      ? pastEvents.some((event) => event.startTimestamp < statsSeasonDateRange.startTimestamp)
+      : pastEvents.some((event) => event.season?.year && event.season.year !== referenceSeasonYear);
+  }, [pastEvents, referenceSeasonYear, statsSeasonDateRange]);
+
+  useEffect(() => {
+    if (loading || !referenceSeasonYear || statsHistoryStatus === 'error') return;
+    if (!hasMorePast || reachedOlderStatsSeason) {
+      setStatsHistoryStatus('loaded');
+      return;
+    }
+
+    let cancelled = false;
+    setStatsHistoryStatus('loading');
+    const nextPage = pastApiPage + 1;
+
+    void (async () => {
+      try {
+        const events = await getTeamEventsByDirection(teamId, 'last', nextPage);
+        if (cancelled) return;
+
+        if (events.length === 0) {
+          setHasMorePast(false);
+          setStatsHistoryStatus('loaded');
+          return;
+        }
+
+        setPastEvents((current) => mergeTeamEvents(current, events, 'last'));
+        setPastApiPage((current) => Math.max(current, nextPage));
+      } catch (error) {
+        console.error('loadStatsHistory error:', error);
+        if (!cancelled) setStatsHistoryStatus('error');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, referenceSeasonYear, statsHistoryStatus, hasMorePast, reachedOlderStatsSeason, pastApiPage, teamId]);
+
+  const currentSeasonPastEvents = useMemo(() => {
+    if (!referenceSeasonYear) return [];
+
+    return pastEvents.filter(
+      (event) => (
+        event.status?.type === 'finished' && (
+          statsSeasonDateRange
+            ? event.startTimestamp >= statsSeasonDateRange.startTimestamp && event.startTimestamp <= statsSeasonDateRange.endTimestamp
+            : event.season?.year === referenceSeasonYear
+        )
+      ),
+    );
+  }, [pastEvents, referenceSeasonYear, statsSeasonDateRange]);
+
+  const statsCompetitionOptions = useMemo(
+    () => buildCompetitionOptions(currentSeasonPastEvents, null),
+    [currentSeasonPastEvents],
+  );
+
+  const statsRosterIds = useMemo(() => new Set(roster.map((player) => player.id)), [roster]);
+
+  useEffect(() => {
+    if (selectedStatsCompetitionId === 'all') return;
+    if (statsCompetitionOptions.some((competition) => competition.id === selectedStatsCompetitionId)) return;
+    setSelectedStatsCompetitionId('all');
+  }, [statsCompetitionOptions, selectedStatsCompetitionId]);
+
+  const nextStatsLineupBatch = useMemo(
+    () => currentSeasonPastEvents.filter((event) => !statsLineupsMap.has(event.id)).slice(0, TEAM_STATS_FETCH_BATCH_SIZE),
+    [currentSeasonPastEvents, statsLineupsMap],
+  );
+
+  useEffect(() => {
+    if (nextStatsLineupBatch.length === 0) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const batchResults = await Promise.all(
+          nextStatsLineupBatch.map(async (event) => ({
+            eventId: event.id,
+            lineups: await getMatchLineups(event.id),
+          })),
+        );
+
+        if (cancelled) return;
+
+        setStatsLineupsMap((current) => {
+          const next = new Map(current);
+          batchResults.forEach(({ eventId, lineups }) => {
+            next.set(eventId, lineups);
+          });
+          return next;
+        });
+      } catch (error) {
+        console.error('loadTeamStatsLineups error:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [nextStatsLineupBatch]);
+
+  const selectedStatsSection = useMemo(
+    () => TEAM_STATS_SECTIONS.find((section) => section.id === selectedStatsSectionId) ?? TEAM_STATS_SECTIONS[0],
+    [selectedStatsSectionId],
+  );
+
+  const filteredStatsEvents = useMemo(
+    () => currentSeasonPastEvents.filter((event) => matchesCompetition(event, selectedStatsCompetitionId)),
+    [currentSeasonPastEvents, selectedStatsCompetitionId],
+  );
+
+  const teamStatsRows = useMemo(() => {
+    const aggregates = new Map<number, { player: Player; total: number; appearances: number; minutes: number }>();
+
+    roster.forEach((player) => {
+      aggregates.set(player.id, { player, total: 0, appearances: 0, minutes: 0 });
+    });
+
+    filteredStatsEvents.forEach((event) => {
+      const lineups = statsLineupsMap.get(event.id);
+      if (!lineups) return;
+
+      const teamLineup =
+        event.homeTeam.id === teamId
+          ? lineups.home
+          : event.awayTeam.id === teamId
+            ? lineups.away
+            : null;
+
+      if (!teamLineup) return;
+
+      teamLineup.players.forEach((lineupPlayer) => {
+        if (!statsRosterIds.has(lineupPlayer.player.id)) return;
+
+        const statistics = lineupPlayer.statistics as Record<string, unknown> | undefined;
+        const total = selectedStatsSection.getValue(statistics);
+        const minutes = getNumericStatValue(statistics, ['minutesPlayed']) ?? 0;
+        const appeared = minutes > 0 || (!lineupPlayer.substitute && statistics !== undefined);
+        const current = aggregates.get(lineupPlayer.player.id);
+        if (!current) return;
+
+        current.total += total;
+        current.minutes += minutes;
+        if (appeared) current.appearances += 1;
+      });
+    });
+
+    const rows = [...aggregates.values()]
+      .filter((row) => row.appearances > 0)
+      .map<TeamPlayerStatsRow>((row) => ({
+        player: row.player,
+        total: row.total,
+        appearances: row.appearances,
+        perMatch: row.appearances > 0 ? row.total / row.appearances : 0,
+        minutes: row.minutes,
+        per90: row.minutes > 0 ? (row.total * 90) / row.minutes : 0,
+      }));
+
+    return rows.sort((left, right) => {
+      const leftValue = left[statsSortKey];
+      const rightValue = right[statsSortKey];
+
+      if (rightValue !== leftValue) return rightValue - leftValue;
+      return left.player.name.localeCompare(right.player.name, 'it');
+    });
+  }, [roster, filteredStatsEvents, statsLineupsMap, selectedStatsSection, teamId, statsSortKey, statsRosterIds]);
+
+  const loadingTeamStats = statsHistoryStatus === 'loading' || nextStatsLineupBatch.length > 0;
 
   const canGoLeft = activeTab === 'last'
     ? (displayOffset + PAGE_SIZE < activeEvents.length || (hasMorePast && !loadingMatches))
@@ -419,9 +716,15 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
   const fieldRenderWidth = layoutMode === 'portrait-right'
     ? portraitFieldWidthCandidate
     : Math.min(LANDSCAPE_FIELD_WIDTH, portraitBottomPanelWidth - 24);
-  const matchesSectionMinWidth = layoutMode === 'portrait-bottom'
-    ? 0
-    : (layoutMode === 'portrait-right' ? MATCHES_SECTION_HARD_MIN_WIDTH : MATCHES_SECTION_TARGET_MIN_WIDTH);
+  const sideTableWidth = layoutMode === 'portrait-right' ? MATCHES_SECTION_HARD_MIN_WIDTH : MATCHES_SECTION_TARGET_MIN_WIDTH;
+  const bottomTableWidth = compactDensity ? 145 : 200;
+  const tableBodyMaxHeight = compactDensity ? TABLE_BODY_MAX_HEIGHT_COMPACT : TABLE_BODY_MAX_HEIGHT_REGULAR;
+  const canPlaceStatsBesideMatches =
+    layoutMode === 'landscape-right' &&
+    hasMeasuredWidth &&
+    fieldRenderWidth + (LAYOUT_GAP * 2) + (sideTableWidth * 2) <= effectivePanelWidth;
+  const showStatsBesideMatches = layoutMode === 'portrait-bottom' || canPlaceStatsBesideMatches;
+  const showStatsBesideRosa = layoutMode !== 'portrait-bottom' && !canPlaceStatsBesideMatches;
   const fieldContainerStyle = { width: `${fieldRenderWidth}px`, maxWidth: '100%' } as const;
   // portrait-bottom usa campo orizzontale (landscape) come landscape-right
   const fieldOrientation = layoutMode === 'portrait-right' ? 'portrait' : 'landscape';
@@ -514,11 +817,17 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
   const emptyMatchesLabel = selectedCompetitionId === 'all'
     ? 'Nessuna partita disponibile'
     : 'Nessuna partita disponibile per questa competizione';
+  const emptyStatsLabel = selectedStatsCompetitionId === 'all'
+    ? 'Nessun dato statistico disponibile'
+    : 'Nessun dato statistico per questa competizione';
+  const sharedTablePanelStyle = layoutMode === 'portrait-bottom'
+    ? { width: `${bottomTableWidth}px`, maxWidth: '100%' }
+    : { width: `${sideTableWidth}px`, minWidth: `${sideTableWidth}px`, maxWidth: '100%' };
 
   const matchesSection = (
     <div
       className="min-w-0 bg-surface border border-border rounded-md overflow-hidden"
-      style={matchesSectionMinWidth > 0 ? { minWidth: `${matchesSectionMinWidth}px` } : undefined}
+      style={sharedTablePanelStyle}
     >
       {/* Filtro competizione */}
       <div className="flex justify-center px-1.5 py-0.5 border-b border-border bg-bg/30">
@@ -655,6 +964,142 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
     </div>
   );
 
+  const statsSection = (
+    <div
+      className="min-w-0 bg-surface border border-border rounded-md overflow-hidden"
+      style={sharedTablePanelStyle}
+    >
+      <div className="flex justify-center px-1.5 py-0.5 border-b border-border bg-bg/30">
+        <select
+          value={selectedStatsCompetitionId === 'all' ? 'all' : String(selectedStatsCompetitionId)}
+          onChange={(event) => {
+            const value = event.target.value;
+            setSelectedStatsCompetitionId(value === 'all' ? 'all' : Number(value));
+          }}
+          className="w-full h-6 bg-surface border border-border rounded px-1.5 text-[10px] text-center text-text-primary focus:outline-none focus:border-neon"
+          style={{ textAlignLast: 'center' }}
+          aria-label="Filtra statistiche per competizione"
+        >
+          <option value="all">Tutte</option>
+          {statsCompetitionOptions.map((competition) => (
+            <option key={competition.id} value={competition.id}>
+              {competition.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex justify-center px-1.5 py-0.5 border-b border-border bg-bg/20">
+        <select
+          value={selectedStatsSectionId}
+          onChange={(event) => {
+            setSelectedStatsSectionId(event.target.value as TeamStatsSectionId);
+          }}
+          className="w-full h-6 bg-surface border border-border rounded px-1.5 text-[10px] text-center text-text-primary focus:outline-none focus:border-neon"
+          style={{ textAlignLast: 'center' }}
+          aria-label="Seleziona sezione statistica"
+        >
+          {TEAM_STATS_SECTIONS.map((section) => (
+            <option key={section.id} value={section.id}>
+              {section.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: `${STATS_TABLE_MIN_WIDTH}px` }}>
+          <div className="grid border-b border-border bg-bg/20" style={{ gridTemplateColumns: STATS_TABLE_COLUMNS }}>
+            <div className="px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wide text-text-secondary">
+              Giocatore
+            </div>
+            {[
+              { key: 'total', label: 'Tot' },
+              { key: 'perMatch', label: 'xP' },
+              { key: 'per90', label: '/90' },
+              { key: 'appearances', label: 'PG' },
+              { key: 'minutes', label: 'Min' },
+            ].map((column) => (
+              <button
+                key={column.key}
+                onClick={() => setStatsSortKey(column.key as TeamStatsSortKey)}
+                className={`px-1 py-1 text-[9px] font-semibold uppercase tracking-wide transition-colors ${
+                  statsSortKey === column.key
+                    ? 'bg-neon/12 text-neon'
+                    : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+              >
+                {column.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ maxHeight: `${tableBodyMaxHeight}px` }} className="overflow-y-auto overflow-x-hidden">
+            {loadingTeamStats && teamStatsRows.length === 0 ? (
+              <div className="flex h-14 items-center justify-center gap-2 text-[10px] text-text-muted">
+                <div className="w-3 h-3 border border-neon border-t-transparent rounded-full animate-spin" />
+                Caricamento...
+              </div>
+            ) : filteredStatsEvents.length === 0 ? (
+              <div className="flex h-14 items-center justify-center px-3 text-center text-[10px] text-text-muted">
+                {emptyStatsLabel}
+              </div>
+            ) : teamStatsRows.length === 0 ? (
+              <div className="flex h-14 items-center justify-center px-3 text-center text-[10px] text-text-muted">
+                Nessun giocatore con presenze disponibili
+              </div>
+            ) : (
+              teamStatsRows.map((row) => (
+                <div
+                  key={row.player.id}
+                  className="grid border-b border-border/70 last:border-b-0 transition-colors hover:bg-surface-hover/70"
+                  style={{ minHeight: `${TABLE_PANEL_ROW_HEIGHT}px`, gridTemplateColumns: STATS_TABLE_COLUMNS }}
+                >
+                  <button
+                    onClick={() => handlePlayerClick(row.player)}
+                    className="truncate px-1.5 text-left text-[10px] text-text-primary hover:text-neon"
+                    title={row.player.name}
+                  >
+                    {row.player.shortName ?? row.player.name}
+                  </button>
+                  <div className="flex items-center justify-center px-1 text-[10px] tabular-nums text-text-primary">
+                    {row.total}
+                  </div>
+                  <div className="flex items-center justify-center px-1 text-[10px] tabular-nums text-text-secondary">
+                    {formatDecimalStat(row.perMatch)}
+                  </div>
+                  <div className="flex items-center justify-center px-1 text-[10px] tabular-nums text-text-secondary">
+                    {formatDecimalStat(row.per90)}
+                  </div>
+                  <div className="flex items-center justify-center px-1 text-[10px] tabular-nums text-text-primary">
+                    {row.appearances}
+                  </div>
+                  <div className="flex items-center justify-center px-1 text-[10px] tabular-nums text-text-secondary">
+                    {row.minutes}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 border-t border-border px-2 py-0.5 bg-bg/20 text-[9px] text-text-muted">
+        <span>{selectedStatsSection.label}</span>
+        <span>{teamStatsRows.length} giocatori</span>
+      </div>
+    </div>
+  );
+
+  const rosterSection = (
+    <RosaSection
+      benchByPosition={benchByPosition}
+      positionLabels={positionLabels}
+      compactDensity={compactDensity}
+      handlePlayerClick={handlePlayerClick}
+    />
+  );
+
   return (
     <div className={`w-full ${compactDensity ? 'team-view team-view--compact' : 'team-view'}`}>
       {/* Header squadra */}
@@ -723,13 +1168,18 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
               </div>
             )}
             {matchesSection}
+            {showStatsBesideMatches && statsSection}
           </div>
-          <RosaSection
-            benchByPosition={benchByPosition}
-            positionLabels={positionLabels}
-            compactDensity={compactDensity}
-            handlePlayerClick={handlePlayerClick}
-          />
+          {showStatsBesideRosa ? (
+            <div className="flex flex-row gap-5 items-start">
+              <div className="min-w-0 flex-1">
+                {rosterSection}
+              </div>
+              {statsSection}
+            </div>
+          ) : (
+            rosterSection
+          )}
         </>
       ) : layoutMode === 'portrait-right' ? (
         <>
@@ -773,13 +1223,18 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
               </div>
             )}
             {matchesSection}
+            {showStatsBesideMatches && statsSection}
           </div>
-          <RosaSection
-            benchByPosition={benchByPosition}
-            positionLabels={positionLabels}
-            compactDensity={compactDensity}
-            handlePlayerClick={handlePlayerClick}
-          />
+          {showStatsBesideRosa ? (
+            <div className="flex flex-row gap-5 items-start">
+              <div className="min-w-0 flex-1">
+                {rosterSection}
+              </div>
+              {statsSection}
+            </div>
+          ) : (
+            rosterSection
+          )}
         </>
       ) : (
         <>
@@ -823,13 +1278,11 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
               </div>
             </div>
           )}
-          <div className="mb-4 mx-auto" style={{ maxWidth: compactDensity ? '145px' : '200px' }}>{matchesSection}</div>
-          <RosaSection
-            benchByPosition={benchByPosition}
-            positionLabels={positionLabels}
-            compactDensity={compactDensity}
-            handlePlayerClick={handlePlayerClick}
-          />
+          <div className="mb-4 flex justify-center gap-3">
+            {matchesSection}
+            {statsSection}
+          </div>
+          {rosterSection}
         </>
       )}
     </div>

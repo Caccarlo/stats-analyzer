@@ -24,8 +24,10 @@ inter - tutte le competizioni - falli commessi - classifica di default da quello
 c'è la possibilità che una squadra abbia una avversaria ma che quella avversaria abbia un'altra partita prima e quindi non abbia effettivamente l'avversaria corrispondente, in quel caso vorrei che se aperte separatamente sia mostrato un piccolo tasto per far unire le due pagine in una unica, se dalla squadra che ha l'altra come avversaria premiamo il prossimo avverario allora si apre in automatico la pagina unita.
 il campo deve essere mostrato al centro, le due sezioni delle due squadre per ultime e prossime partite devono essere mostrate sulla sinistra (squadra casa) e sulla destra (squadra trasferta) del campo.
 non devono più essere mostrati tasti indietro o x in più, tutte le informazioni presenti della squadra in trasferta devono partire dalla destra della pagina.
-centrato sotto al campo deve essere mostrata la tabella stats giocatori divisa in due sezioni, destra (squadra trasferta) e sinistra (squadra casa), la divisione deve essere precisamente al centro della pagina disponibile e per le due sezioni deve essere possibile selezionare diverse stats da visualizzare nel menù in alto.
+centrato sotto al campo deve essere mostrata le tabelle stats giocatori unite ma divise destra (squadra trasferta) e sinistra (squadra casa), la divisione deve essere precisamente al centro della pagina disponibile e per le due sezioni deve essere possibile selezionare diverse stats da visualizzare nel menù in alto.
  
+attesi tiri e falli fuorigiochi, media delle ultime 5, calcolo attesi squadra solo per giocatori.
+capire quale modello utiizzare per calcolare gli attesi. 
 
 fix: 
 

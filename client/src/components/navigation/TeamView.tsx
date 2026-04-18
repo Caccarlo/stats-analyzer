@@ -734,8 +734,8 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
   // ly = 100 - pos.x  (lato sinistro ritratto → basso landscape)
   const getPlayerPos = (pos: { x: number; y: number }) =>
     fieldOrientation === 'landscape'
-      ? { left: `${100 - pos.y}%`, top: `${100 - pos.x}%` }
-      : { left: `${pos.x}%`, top: `${pos.y}%` };
+      ? { left: `${100 - pos.y}%`, top: `${pos.x}%` }
+      : { left: `${100 - pos.x}%`, top: `${pos.y}%` };
 
   const navContext = {
     leagueId: panel?.leagueId,

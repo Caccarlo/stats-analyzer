@@ -392,10 +392,13 @@ These rules must be followed automatically on every task.
 4. When complete, push the branch, create a PR with `gh pr create`, and merge with `gh pr merge`.
 5. After merge, switch back to `master` and pull.
 
-### Keep CLAUDE.md Up To Date
+### Keep AGENTS.md And CLAUDE.md Up To Date
+
+`AGENTS.md` is the Codex counterpart of this file and should stay aligned with it.
 
 After every change that affects structure, architecture, or conventions:
 
-1. Update the relevant sections of this file.
-2. Include the CLAUDE.md update in the same commit as the code change.
-3. Typical triggers: new files, new APIs, new hooks/utilities, navigation changes, design-token changes, or changed loading/filter behavior.
+1. Update the relevant sections of `CLAUDE.md`.
+2. Update the relevant sections of `AGENTS.md`.
+3. Include both documentation updates in the same commit as the code change.
+4. Typical triggers: new files, new APIs, new hooks/utilities, navigation changes, design-token changes, changed loading/filter behavior, or workflow-rule changes.

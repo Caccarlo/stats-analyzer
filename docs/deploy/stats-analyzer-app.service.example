@@ -1,0 +1,17 @@
+[Unit]
+Description=Stats Analyzer app
+After=network.target stats-analyzer-browser.service
+Requires=stats-analyzer-browser.service
+
+[Service]
+Type=simple
+User=stats
+Group=stats
+WorkingDirectory=/opt/stats-analyzer
+EnvironmentFile=/opt/stats-analyzer/.env.stats-analyzer
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

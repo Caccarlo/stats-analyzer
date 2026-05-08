@@ -15,7 +15,7 @@ Stats Analyzer is a football/soccer foul-analysis web app with an Italian UI.
   - browse Countries -> Leagues -> Teams -> Players
   - search directly for players, teams, or competitions
   - compare contexts with desktop split view
-- Data source: public SofaScore API, always accessed through the local Express proxy
+- Data source: public SofaScore API, accessed client-direct first for JSON with the local Express proxy as fallback
 - No database
 - No auth
 - No API keys
@@ -25,7 +25,7 @@ Stats Analyzer is a football/soccer foul-analysis web app with an Italian UI.
 | Layer | Tech | Port |
 | --- | --- | --- |
 | Client | React 19, TypeScript 5.9, Vite 8, Tailwind CSS 4 | 5173 |
-| Server | Express 4 proxy with CORS enabled | 3001 |
+| Server | Express 4 browser-backed proxy with CORS enabled, `playwright-core` | 3001 |
 
 Monorepo entrypoints:
 
@@ -54,10 +54,17 @@ npm run lint
 stats-analyzer/
 |-- AGENTS.md
 |-- CLAUDE.md
+|-- docs/
+|   `-- deploy/
+|       |-- sofascore-cdp-vps.md
+|       |-- stats-analyzer.env.example
+|       |-- stats-analyzer-browser.service.example
+|       `-- stats-analyzer-app.service.example
 |-- package.json
 |-- server/
 |   `-- index.js
 `-- client/
+    |-- .env.example
     |-- vite.config.ts
     `-- src/
         |-- App.tsx
@@ -79,13 +86,13 @@ Key responsibilities:
 
 - `client/src/App.tsx`: root composition, top bar, sidebar, split view, lifted home calendar state, measured team panel width
 - `client/src/context/NavigationContext.tsx`: reducer-driven navigation state, split open/close/swap logic, per-panel filter persistence
-- `client/src/api/sofascore.ts`: all client API calls, client TTL cache, in-flight dedupe, terminal 4xx handling, tournament paging helpers
+- `client/src/api/sofascore.ts`: all client API calls, client-direct SofaScore JSON fetch with proxy fallback, client TTL cache, in-flight dedupe, terminal 4xx handling, tournament paging helpers
 - `client/src/hooks/usePlayerData.ts`: player seasons, period/filter state, tournament enablement, aggregated season stats
 - `client/src/hooks/useMatchTimeline.ts`: event paging, context snapshots, progressive official stats / duration / substitution / lineup loading
 - `client/src/hooks/useMatchDetails.ts`: shared match-detail cache and rich-data helpers
 - `client/src/hooks/useTournamentViewData.ts`: standings vs phase reconstruction, latest valid season resolution, shared tournament snapshot cache
 - `client/src/pages/PlayerPage.tsx`: coordinates filters, timeline, selection, derived stats, empty/loading states, card layout
-- `server/index.js`: Express proxy for JSON and images with server-side caching
+- `server/index.js`: Express proxy for JSON and images with server-side TTL cache, in-flight dedupe, and persistent Chrome relay for SofaScore
 
 ## Architecture And Conventions
 
@@ -102,7 +109,21 @@ Key responsibilities:
   - lineups
 - Rich foul narrative is loaded on demand from match comments.
 - Both client and server use in-memory TTL caching. Reuse existing cache-aware helpers instead of bypassing them.
-- All SofaScore JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
+- SofaScore JSON calls are client-direct first (`https://www.sofascore.com/api/v1/*`) and fall back to `/api/sofascore/*` when direct browser access is blocked by challenge/CORS/fetch errors, timeout, non-JSON responses, `403`, or `429`.
+- Direct client JSON fetches must use `credentials: 'omit'`; do not send cross-origin SofaScore credentials from the app origin.
+- Client data-access flags:
+  - `VITE_SOFASCORE_DIRECT=false` disables direct browser JSON fetches.
+  - `VITE_SOFASCORE_PROXY_FALLBACK=false` disables proxy fallback when direct is enabled.
+  - `VITE_SOFASCORE_DIRECT_ORIGIN` overrides the default `https://www.sofascore.com/api/v1`.
+  - `VITE_SOFASCORE_DIRECT_TIMEOUT_MS` controls the direct browser timeout.
+- Images still go through `/api/img/*` by default.
+- The server no longer relies only on raw Node `fetch()` to SofaScore. In production it is expected to use a persistent real Chrome/Chromium session, either by:
+  - connecting to an existing browser via `SOFASCORE_BROWSER_CDP_URL`
+  - launching a local Chrome/Chromium binary via `SOFASCORE_BROWSER_EXECUTABLE_PATH`
+- The browser relay keeps a warmed page on `https://www.sofascore.com/` and executes in-page `fetch()` calls for both JSON and images, so SofaScore requests inherit a real browser session instead of a plain server-side fingerprint.
+- `SOFASCORE_DIRECT_FALLBACK` controls whether the old direct Node-fetch fallback remains allowed when no browser relay is configured.
+- The server exposes `/api/sofascore-browser/status` for relay diagnostics.
+- Production deploy should treat CDP mode (`SOFASCORE_BROWSER_CDP_URL`) as a proxy fallback, preferably on an IP/environment that is verified to pass SofaScore JSON. Example env and `systemd` units live in `docs/deploy/`.
 
 ## Working Rules For Codex
 

@@ -7,9 +7,9 @@ Football/soccer foul analysis web app. Users navigate Countries > Leagues > Team
 | Layer | Tech | Port |
 |-------|------|------|
 | Client | React 19, TypeScript 5.9, Vite 8, Tailwind CSS 4 | 5173 |
-| Server | Express 4 (CORS proxy to SofaScore) | 3001 |
+| Server | Express 4 browser-backed proxy to SofaScore with `playwright-core` | 3001 |
 
-No database, no auth, no API keys. All data comes from the public SofaScore API through the Express proxy.
+No database, no auth, no API keys. JSON data comes from the public SofaScore API with client-direct browser fetch first and the Express proxy as fallback.
 
 ```bash
 npm run install:all
@@ -33,16 +33,19 @@ powershell -Command "Stop-Process -Id 1234 -Force -ErrorAction SilentlyContinue;
 ```text
 stats-analyzer/
 |-- package.json                     # Monorepo: concurrently runs server + client
+|-- docs/
+|   `-- deploy/                     # VPS deploy examples for SofaScore CDP browser relay
 |-- server/
-|   `-- index.js                     # Express proxy (/api/sofascore/* and /api/img/*)
+|   `-- index.js                     # Express browser relay proxy (/api/sofascore/*, /api/img/*, /api/sofascore-browser/status)
 `-- client/
+    |-- .env.example                 # Vite flags for direct SofaScore JSON and proxy fallback
     |-- vite.config.ts               # Proxy /api -> :3001, alias @ -> src/
     |-- tsconfig.app.json            # Client TS config
     `-- src/
         |-- App.tsx                  # Root: wraps NavigationProvider, renders Sidebar + ContentPanel
         |-- index.css                # Tailwind imports + theme variables
         |-- types/index.ts           # Shared TypeScript interfaces
-        |-- api/sofascore.ts         # All API functions, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
+        |-- api/sofascore.ts         # All API functions, client-direct JSON fetch, proxy fallback, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
         |-- context/
         |   `-- NavigationContext.tsx
         |-- hooks/
@@ -90,18 +93,33 @@ stats-analyzer/
             `-- common/
                 |-- Badge.tsx
                 `-- PlayerDot.tsx
+            `-- navigation/ (continued)
+                `-- MatchupView.tsx   # Vista confronto unificata: campo landscape con entrambe le squadre, colonne partite ai lati, tabella stats + rosa divisa 50/50 sotto
 ```
 
 ## Architecture
 
 ```text
 Browser (5173) -> React App -> sofascore.ts
-    -> Vite dev proxy /api/* -> Express (3001)
-        -> sofascore.com/api/v1/*      # JSON data
-        -> api.sofascore.app/api/v1/*  # images
+    -> direct browser fetch -> sofascore.com/api/v1/*   # primary JSON path
+    -> fallback /api/sofascore/* -> Express (3001)
+        -> persistent Chrome/Chromium session            # fallback JSON path
+    -> /api/img/* -> Express (3001)
+        -> img.sofascore.com/api/v1/*                    # images
 ```
 
-- Server: minimal proxy with browser-like headers and in-memory TTL cache.
+- Client JSON access is direct-first because real user browsers/IPs are less likely to hit SofaScore's datacenter/VPS anti-bot path than a centralized server relay.
+- Direct client JSON fetches use `credentials: 'omit'`; `credentials: 'include'` should not be used cross-origin against SofaScore from the app.
+- `apiFetch` falls back from direct to `/api/sofascore/*` on challenge-like failures, CORS/fetch errors, timeout, non-JSON responses, `403`, `429`, and server errors. Terminal `404` handling remains endpoint-specific through `notFoundValue`.
+- Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, and `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`.
+- Server: browser-backed proxy with in-memory TTL cache, in-flight dedupe, and a persistent Chrome/Chromium relay.
+- The relay is expected to run in one of two modes:
+  - `SOFASCORE_BROWSER_CDP_URL`: connect to an already running real Chrome/Chromium session on the VPS via CDP.
+  - `SOFASCORE_BROWSER_EXECUTABLE_PATH`: launch a local Chrome/Chromium binary with a persistent user-data directory (`SOFASCORE_BROWSER_USER_DATA_DIR`).
+- The server keeps a warmed page on `https://www.sofascore.com/` and runs in-page `fetch()` calls so SofaScore sees a real browser session instead of raw Node requests.
+- `/api/sofascore-browser/status` reports whether the browser relay is configured and connected.
+- `SOFASCORE_DIRECT_FALLBACK` can keep the legacy direct Node-fetch path available as a non-browser fallback, but the intended production path is the browser relay.
+- The VPS CDP deploy path is now a fallback relay path, not the primary JSON strategy; use it only after verifying that the target IP/environment can fetch SofaScore JSON. Example env and service units live in `docs/deploy/`.
 - Client: no React Router; navigation is reducer-driven through `NavigationContext`.
 - Country/category navigation keeps both a UI `countryId` and the SofaScore source-of-truth `countryCategoryId`, so downstream views can keep dynamic country context without relying on hardcoded league mappings.
 - Teams navigation can also persist a selected `tournamentPhaseKey` / `tournamentPhaseName` for cup-style competitions, so the main panel and sidebar stay aligned on the chosen phase.
@@ -115,6 +133,7 @@ Browser (5173) -> React App -> sofascore.ts
 
 ```text
 home -> leagues -> teams -> team -> player
+matchup (full-screen, replaces split view when two opposing teams open)
 ```
 
 ### Reducer Actions
@@ -125,7 +144,33 @@ home -> leagues -> teams -> team -> player
 - `CLOSE_SPLIT`
 - `SWAP_SPLIT_AND_OPEN`
 - `UPDATE_PANEL_FILTERS`
+- `OPEN_MATCHUP` — closes any split and opens MatchupView full-screen in panel 0
 - `RESET`
+
+### MatchupView
+
+`MatchupView` is a full-screen view (no split) that shows two opposing teams side by side on a shared landscape field.
+
+**Triggers:**
+- Clicking a `MatchRow` in the home calendar (click on the row itself, not on a team button) → opens MatchupView directly with `homeTeamId`/`awayTeamId` from the event.
+- The "Unisci" button in `TeamView` when split view shows two teams that are NOT direct opponents → merges them into MatchupView.
+
+**Layout:**
+- Top: header with home team name, "vs", away team name, league name, back button.
+- Middle row (flex): left matches column (home team) | unified landscape field | right matches column (away team).
+- Bottom (flex 50/50): left half = home team stats table + full roster; right half = away team stats table + full roster. Each half scrolls independently vertically.
+
+**Field:**
+- Single SVG landscape field (`viewBox="0 0 1050 680"`, `aspect-ratio: 105/68`).
+- Home team players (green neon dots) positioned in the left half using `getHomePlayerPos`: `left = (100 - pos.y) * 0.5%`, `top = pos.x%`.
+- Away team players (red dots) positioned in the right half using `getAwayPlayerPos` (mirrored): `left = 50 + pos.y * 0.5%`, `top = (100 - pos.x)%`.
+- Formation badges shown top-left (home, green) and top-right (away, red).
+
+**Stats section:**
+- Each half has independent `selectedStat` and `selectedTournament` state.
+- Default competition = `leagueId` from the triggering event.
+- Stats table uses fixed column widths (`100px 40px 52px 48px 40px 40px`), does not adapt to available width.
+- Full roster (bench) wraps below the stats table, adapting to remaining space.
 
 ### Split View Rules
 
@@ -151,7 +196,7 @@ home -> leagues -> teams -> team -> player
 
 ## SofaScore API Endpoints
 
-All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
+JSON calls are client-direct first and fall back to `/api/sofascore/*`. Images go through `/api/img/*`.
 
 | Endpoint | Purpose | Used in |
 |----------|---------|---------|
@@ -176,7 +221,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 | `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Aggregated season stats | usePlayerData, MatchCard |
 | `player/{id}/events/last/{page}` | Match history plus statistics/incidents/onBench seeds | useMatchTimeline |
 | `event/{id}/player/{id}/heatmap` | Match heatmap for a player | HeatmapField |
-| `team/{id}/image`, `player/{id}/image`, etc. | Images | `/api/img/*` |
+| `team/{id}/image`, `player/{id}/image`, etc. | Images | `/api/img/*` via `img.sofascore.com/api/v1/*` |
 
 ## Business Logic
 
@@ -271,6 +316,7 @@ Other current behavior:
 - Timeline relevance now accepts any match with `event.status.type === 'finished'`, so events decided after extra time or penalties are included alongside regular full-time results.
 - In `Ultime N`, `useMatchTimeline` now loads all completed events without filtering by season ID and relies on `minPlayedEvents` / `maxEvents` to stop paging.
 - `apiFetch` deduplicates in-flight requests per path, so parallel consumers such as `TeamGrid` and `SidebarTeamList` share the same pending SofaScore call instead of duplicating retries.
+- `apiFetch` tries direct browser JSON access before proxy fallback by default. This can be disabled with `VITE_SOFASCORE_DIRECT=false` if SofaScore changes CORS behavior or if a deployment must force server relay mode.
 - `apiFetch` no longer retries terminal `4xx` responses except `429`, caches terminal `404` fallback payloads for endpoints that opt in, and also caches terminal `4xx` errors for the standard TTL.
 - `useTournamentViewData` keeps a shared in-memory tournament snapshot cache keyed by `{tournamentId, seasonId}` plus a latest-season alias, so reopening the same tournament view can hydrate synchronously without rebuilding phases or standings.
 - `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKeyOrWildcard, tournamentIdsKey, tournamentYearPairsKey, seasonDateRangeKey, maxEvents, minPlayedEvents}`.

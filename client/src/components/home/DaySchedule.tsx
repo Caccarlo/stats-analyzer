@@ -5,22 +5,51 @@ import CountrySection from './CountrySection';
 interface DayScheduleProps {
   groups: CountryGroup[];
   loading: boolean;
+  deferReveal?: boolean;
   error: string | null;
   onNavigateLeague: (leagueId: number, leagueName: string, seasonId: number) => void;
   onNavigateTeam: (teamId: number, teamName: string, event: MatchEvent) => void;
+  onOpenMatchup?: (event: MatchEvent) => void;
+  imageLoadScope?: string;
 }
 
 export default function DaySchedule({
   groups,
   loading,
+  deferReveal = false,
   error,
   onNavigateLeague,
   onNavigateTeam,
+  onOpenMatchup,
+  imageLoadScope,
 }: DayScheduleProps) {
-  if (loading) {
+  const renderGroups = () => (
+    <>
+      {groups.map((g) => (
+        <CountrySection
+          key={g.categoryId}
+          group={g}
+          onNavigateLeague={onNavigateLeague}
+          onNavigateTeam={onNavigateTeam}
+          onOpenMatchup={onOpenMatchup}
+          imageLoadScope={imageLoadScope}
+        />
+      ))}
+    </>
+  );
+
+  if (loading || deferReveal) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="w-5 h-5 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+      <div>
+        <div className="flex items-center justify-center py-12">
+          <div className="w-5 h-5 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+        </div>
+
+        {deferReveal && groups.length > 0 && (
+          <div className="opacity-0 pointer-events-none" aria-hidden="true">
+            {renderGroups()}
+          </div>
+        )}
       </div>
     );
   }
@@ -40,15 +69,6 @@ export default function DaySchedule({
   }
 
   return (
-    <div>
-      {groups.map((g) => (
-        <CountrySection
-          key={g.categoryId}
-          group={g}
-          onNavigateLeague={onNavigateLeague}
-          onNavigateTeam={onNavigateTeam}
-        />
-      ))}
-    </div>
+    <div>{renderGroups()}</div>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getTournamentImageUrl } from '@/api/sofascore';
+import PriorityImage from '@/components/common/PriorityImage';
 import type { MatchEvent } from '@/types';
 import MatchRow from './MatchRow';
 
@@ -10,6 +11,9 @@ interface LeagueSectionProps {
   defaultExpanded: boolean;
   onNavigateLeague: () => void;
   onNavigateTeam: (teamId: number, teamName: string, event: MatchEvent) => void;
+  onOpenMatchup?: (event: MatchEvent) => void;
+  expansionPriorityToken?: number;
+  imageLoadScope?: string;
 }
 
 export default function LeagueSection({
@@ -19,14 +23,27 @@ export default function LeagueSection({
   defaultExpanded,
   onNavigateLeague,
   onNavigateTeam,
+  onOpenMatchup,
+  expansionPriorityToken = 0,
+  imageLoadScope,
 }: LeagueSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [localExpansionPriorityToken, setLocalExpansionPriorityToken] = useState(0);
+
+  const mergedExpansionPriorityToken = Math.max(expansionPriorityToken, localExpansionPriorityToken);
+
+  const handleToggle = () => {
+    if (!expanded) {
+      setLocalExpansionPriorityToken((token) => token + 1);
+    }
+    setExpanded((value) => !value);
+  };
 
   return (
     <div className="border-b border-border/50 last:border-0">
       <div
         className="flex items-center gap-2 px-3 py-1.5 hover:bg-surface/30 transition-colors select-none cursor-default"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={handleToggle}
       >
         <svg
           className={`w-3.5 h-3.5 text-text-muted flex-shrink-0 transition-transform duration-150 ${expanded ? 'rotate-90' : ''}`}
@@ -37,13 +54,14 @@ export default function LeagueSection({
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
 
-        <img
+        <PriorityImage
           src={getTournamentImageUrl(tournamentId)}
           alt=""
           className="w-4 h-4 object-contain flex-shrink-0"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = 'none';
-          }}
+          width={16}
+          height={16}
+          loadScope={imageLoadScope}
+          hideOnError
         />
 
         <div className="flex-1 min-w-0">
@@ -67,7 +85,14 @@ export default function LeagueSection({
       {expanded && (
         <div className="pb-1">
           {events.map((event) => (
-            <MatchRow key={event.id} event={event} onNavigateTeam={onNavigateTeam} />
+            <MatchRow
+              key={event.id}
+              event={event}
+              onNavigateTeam={onNavigateTeam}
+              onOpenMatchup={onOpenMatchup}
+              expansionPriorityToken={mergedExpansionPriorityToken}
+              imageLoadScope={imageLoadScope}
+            />
           ))}
         </div>
       )}

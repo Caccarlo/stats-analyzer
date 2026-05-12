@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import {
   getTeamPlayers,
@@ -6,6 +6,8 @@ import {
   getMatchLineups,
   getTeamImageUrl,
   getTeamEventsByDirection,
+  createTeamNextMatchSummary,
+  resolveMatchupFromSummaries,
 } from '@/api/sofascore';
 import { getFormationPositions } from '@/utils/positionMapping';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
@@ -195,7 +197,7 @@ function matchesCompetition(event: MatchEvent, selectedCompetitionId: 'all' | nu
 type TeamViewLayoutMode = 'landscape-right' | 'portrait-right' | 'portrait-bottom';
 
 export default function TeamView({ teamId, panelIndex = 0, availableWidth }: TeamViewProps) {
-  const { state, selectPlayer, openSplitPlayer, openSplitTeam, selectTeam, navigateTo } = useNavigation();
+  const { state, selectPlayer, openSplitPlayer, openSplitTeam, selectTeam, navigateTo, openMatchup } = useNavigation();
   const { width, height } = useViewport();
   const hasSplit = state.panels.length > 1;
   const panel = state.panels[panelIndex];
@@ -685,8 +687,48 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
   const formationPositions = formation ? getFormationPositions(formation) : [];
   const opponent = nextEvent ? (isHome ? nextEvent.awayTeam : nextEvent.homeTeam) : null;
   const roundLabel = nextEvent ? getMatchRoundLabel(nextEvent.roundInfo, 'full') : null;
+  const currentNextMatchSummary = useMemo(
+    () => (nextEvent ? createTeamNextMatchSummary(nextEvent) : null),
+    [nextEvent],
+  );
 
   const isDesktop = width >= 1024;
+
+  const otherPanel = hasSplit ? state.panels[panelIndex === 0 ? 1 : 0] : null;
+  const otherNextMatchSummary = otherPanel?.view === 'team' ? otherPanel.nextMatchSummary : null;
+  const resolvedSplitMatchup = useMemo(
+    () => resolveMatchupFromSummaries(currentNextMatchSummary, otherNextMatchSummary),
+    [currentNextMatchSummary, otherNextMatchSummary],
+  );
+
+  // Persist the next real match on the team panel so split views can prove they refer to the same event.
+  useEffect(() => {
+    if (!currentNextMatchSummary) return;
+
+    const existing = panel?.nextMatchSummary;
+    const sameSummary = existing
+      && existing.eventId === currentNextMatchSummary.eventId
+      && existing.startTimestamp === currentNextMatchSummary.startTimestamp
+      && existing.homeTeamId === currentNextMatchSummary.homeTeamId
+      && existing.awayTeamId === currentNextMatchSummary.awayTeamId;
+
+    if (sameSummary) return;
+
+    navigateTo(panelIndex, 'team', { nextMatchSummary: currentNextMatchSummary });
+  }, [currentNextMatchSummary, navigateTo, panel?.nextMatchSummary, panelIndex]);
+
+  // Apertura automatica MatchupView quando entrambi i pannelli si aspettano a vicenda
+  const autoMatchupFired = useRef(false);
+  useEffect(() => {
+    autoMatchupFired.current = false;
+  }, [teamId, currentNextMatchSummary?.eventId]);
+  useEffect(() => {
+    if (!isDesktop || !hasSplit || autoMatchupFired.current) return;
+    if (!resolvedSplitMatchup) return;
+    autoMatchupFired.current = true;
+    openMatchup(resolvedSplitMatchup);
+  }, [hasSplit, isDesktop, openMatchup, resolvedSplitMatchup]);
+
   const compactDensity = width < 640 || height < 820;
   const effectivePanelWidth = availableWidth ?? 0;
   const hasMeasuredWidth = effectivePanelWidth > 0;
@@ -771,6 +813,11 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
       seasonId: undefined,
     };
     if (!isDesktop) { selectTeam(0, opponent.id, opponent.name); return; }
+    if (hasSplit && resolvedSplitMatchup) {
+      autoMatchupFired.current = true;
+      openMatchup(resolvedSplitMatchup);
+      return;
+    }
     if (!hasSplit) {
       navigateTo(0, 'team', { teamId: homeTeam.id, teamName: homeTeam.name, ...matchNavContext });
       openSplitTeam(awayTeam.id, awayTeam.name, matchNavContext);
@@ -1100,12 +1147,28 @@ export default function TeamView({ teamId, panelIndex = 0, availableWidth }: Tea
     />
   );
 
+  const showMergeButton = isDesktop && hasSplit && Boolean(resolvedSplitMatchup);
+
+  const handleMerge = () => {
+    if (!resolvedSplitMatchup) return;
+    openMatchup(resolvedSplitMatchup);
+  };
+
   return (
     <div className={`w-full ${compactDensity ? 'team-view team-view--compact' : 'team-view'}`}>
       {/* Header squadra */}
       <div className={`flex items-center ${compactDensity ? 'gap-2.5 mb-3' : 'gap-3 mb-4'}`}>
         <img src={getTeamImageUrl(teamId)} alt="" className={compactDensity ? 'w-9 h-9 object-contain' : 'w-10 h-10 object-contain'} />
-        <h2 className={`${compactDensity ? 'text-lg' : 'text-xl'} font-bold text-text-primary`}>{teamName || 'Squadra'}</h2>
+        <h2 className={`${compactDensity ? 'text-lg' : 'text-xl'} font-bold text-text-primary flex-1`}>{teamName || 'Squadra'}</h2>
+        {showMergeButton && (
+          <button
+            onClick={handleMerge}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded border border-border text-[11px] text-text-muted hover:border-neon hover:text-neon transition-colors"
+            title="Unisci le due squadre in un'unica vista"
+          >
+            Unisci
+          </button>
+        )}
       </div>
 
       {/* Prossima partita */}

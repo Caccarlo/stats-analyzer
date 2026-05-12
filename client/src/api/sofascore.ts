@@ -19,6 +19,8 @@ import type {
   SearchResult,
   PlayerSearchResult,
   TeamSearchResult,
+  MatchupNavigationTarget,
+  TeamNextMatchSummary,
 } from '@/types';
 
 // === Cache ===
@@ -562,6 +564,68 @@ export async function getMatchDurationMetadata(
   } catch {
     return null;
   }
+}
+
+function getEventCountryId(event: MatchEvent): string | undefined {
+  const category = event.tournament?.uniqueTournament?.category;
+  if (!category) return undefined;
+  return category.alpha2 ?? String(category.id);
+}
+
+export function createMatchupNavigationTarget(event: MatchEvent): MatchupNavigationTarget {
+  const tournament = event.tournament?.uniqueTournament;
+  const category = tournament?.category;
+
+  return {
+    eventId: event.id,
+    homeTeamId: event.homeTeam.id,
+    homeTeamName: event.homeTeam.name,
+    awayTeamId: event.awayTeam.id,
+    awayTeamName: event.awayTeam.name,
+    leagueId: tournament?.id,
+    leagueName: tournament?.name,
+    seasonId: event.season?.id,
+    countryId: getEventCountryId(event),
+    countryName: category?.name,
+    countryCategoryId: category?.id,
+  };
+}
+
+export function createTeamNextMatchSummary(event: MatchEvent): TeamNextMatchSummary {
+  return {
+    ...createMatchupNavigationTarget(event),
+    startTimestamp: event.startTimestamp,
+  };
+}
+
+export function resolveMatchupFromSummaries(
+  primary: TeamNextMatchSummary | null | undefined,
+  secondary: TeamNextMatchSummary | null | undefined,
+): MatchupNavigationTarget | null {
+  if (!primary || !secondary) return null;
+
+  const sameEvent =
+    primary.eventId === secondary.eventId &&
+    primary.startTimestamp === secondary.startTimestamp;
+  const sameTeams =
+    primary.homeTeamId === secondary.homeTeamId &&
+    primary.awayTeamId === secondary.awayTeamId;
+
+  if (!sameEvent || !sameTeams) return null;
+
+  return {
+    eventId: primary.eventId,
+    homeTeamId: primary.homeTeamId,
+    homeTeamName: primary.homeTeamName,
+    awayTeamId: primary.awayTeamId,
+    awayTeamName: primary.awayTeamName,
+    leagueId: primary.leagueId,
+    leagueName: primary.leagueName,
+    seasonId: primary.seasonId,
+    countryId: primary.countryId,
+    countryName: primary.countryName,
+    countryCategoryId: primary.countryCategoryId,
+  };
 }
 
 export async function getMatchAveragePositions(

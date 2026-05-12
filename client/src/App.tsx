@@ -10,6 +10,7 @@ import CountryList from '@/components/navigation/CountryList';
 import LeagueList from '@/components/navigation/LeagueList';
 import TeamGrid from '@/components/navigation/TeamGrid';
 import TeamView from '@/components/navigation/TeamView';
+import MatchupView from '@/components/navigation/MatchupView';
 import SidebarTeamList from '@/components/navigation/SidebarTeamList';
 import CalendarStrip from '@/components/home/CalendarStrip';
 import { todayISO } from '@/hooks/useCalendarData';
@@ -76,6 +77,7 @@ function AppContent() {
   const isDesktop = width >= 1024;
   const hasHamburgerNav = width < 768;
   const compactDensity = width < 640 || height < 820;
+  const isMatchupView = panel0.view === 'matchup';
   const isHomeView = !hasSplit && panel0.view === 'home';
   const mainPanelScrollMode = hasSplit && panel0.view === 'home' ? 'content' : 'panel';
   const splitPanelScrollMode = hasSplit && panel1?.view === 'home' ? 'content' : 'panel';
@@ -85,7 +87,8 @@ function AppContent() {
     if (!panel) return null;
 
     const showPlusButton = isDesktop && !hasSplit && panelIndex === 0
-      && (panel.view === 'team' || panel.view === 'player');
+      && (panel.view === 'team' || panel.view === 'player')
+      && !isMatchupView;
 
     switch (panel.view) {
       case 'player':
@@ -110,6 +113,21 @@ function AppContent() {
               panelIndex={panelIndex}
             />
           </div>
+        ) : null;
+
+      case 'matchup':
+        return panel.matchupEventId && panel.homeTeamId && panel.awayTeamId ? (
+          <MatchupView
+            key={`matchup-${panel.matchupEventId}`}
+            eventId={panel.matchupEventId}
+            homeTeamId={panel.homeTeamId}
+            homeTeamName={panel.homeTeamName ?? ''}
+            awayTeamId={panel.awayTeamId}
+            awayTeamName={panel.awayTeamName ?? ''}
+            leagueId={panel.leagueId}
+            leagueName={panel.leagueName}
+            seasonId={panel.seasonId}
+          />
         ) : null;
 
       case 'team':
@@ -191,6 +209,21 @@ function AppContent() {
               <div className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-neon border-l-2 border-neon bg-neon/5">
                 <span className="font-mono text-xs w-5 text-center opacity-60">{initials}</span>
                 <span className="font-medium">{name}</span>
+              </div>
+            </div>
+          </>
+        );
+      }
+
+      case 'matchup': {
+        const home = panel0.homeTeamName ?? '';
+        const away = panel0.awayTeamName ?? '';
+        return (
+          <>
+            <p className="px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide">Confronto</p>
+            <div className="py-1">
+              <div className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-neon border-l-2 border-neon bg-neon/5">
+                <span className="font-medium truncate">{home} vs {away}</span>
               </div>
             </div>
           </>

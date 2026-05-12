@@ -7,9 +7,9 @@ Football/soccer foul analysis web app. Users navigate Countries > Leagues > Team
 | Layer | Tech | Port |
 |-------|------|------|
 | Client | React 19, TypeScript 5.9, Vite 8, Tailwind CSS 4 | 5173 |
-| Server | Express 4 (CORS proxy to SofaScore) | 3001 |
+| Server | Express 4 browser-backed proxy to SofaScore with `playwright-core` | 3001 |
 
-No database, no auth, no API keys. All data comes from the public SofaScore API through the Express proxy.
+No database, no auth, no API keys. JSON data comes from the public SofaScore API with client-direct browser fetch first and the Express proxy as fallback.
 
 ```bash
 npm run install:all
@@ -33,16 +33,19 @@ powershell -Command "Stop-Process -Id 1234 -Force -ErrorAction SilentlyContinue;
 ```text
 stats-analyzer/
 |-- package.json                     # Monorepo: concurrently runs server + client
+|-- docs/
+|   `-- deploy/                     # VPS deploy examples for SofaScore CDP browser relay
 |-- server/
-|   `-- index.js                     # Express proxy (/api/sofascore/* and /api/img/*)
+|   `-- index.js                     # Express browser relay proxy (/api/sofascore/*, /api/img/*, /api/sofascore-browser/status) with direct-first image fetches
 `-- client/
+    |-- .env.example                 # Vite flags for direct SofaScore JSON and proxy fallback
     |-- vite.config.ts               # Proxy /api -> :3001, alias @ -> src/
     |-- tsconfig.app.json            # Client TS config
     `-- src/
         |-- App.tsx                  # Root: wraps NavigationProvider, renders Sidebar + ContentPanel
         |-- index.css                # Tailwind imports + theme variables
         |-- types/index.ts           # Shared TypeScript interfaces
-        |-- api/sofascore.ts         # All API functions, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
+        |-- api/sofascore.ts         # All API functions, client-direct JSON fetch, proxy fallback, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
         |-- context/
         |   `-- NavigationContext.tsx
         |-- hooks/
@@ -77,7 +80,7 @@ stats-analyzer/
             |   |-- CountryList.tsx     # Top 7 categories pinned first (IT, EN, ES, DE, FR, EU, World) + dynamic full category list from SofaScore
             |   |-- LeagueList.tsx      # Dynamic tournament list for the selected SofaScore category
             |   |-- TeamGrid.tsx         # League standings or cup-phase team grid depending on tournament structure
-            |   |-- TeamView.tsx         # Team roster + next match; opponent click always opens home left / away right
+            |   |-- TeamView.tsx         # Team roster + next match; persists next-match summary so split views can resolve a real shared matchup
             |   `-- SidebarTeamList.tsx  # Mirrors the selected league/cup phase team list in the sidebar
             |-- player/
             |   |-- PlayerHeader.tsx
@@ -89,23 +92,44 @@ stats-analyzer/
             |   `-- HeatmapField.tsx
             `-- common/
                 |-- Badge.tsx
+                |-- PriorityImage.tsx      # Visible-first image queue used by the home schedule; hides placeholders until real image load settles
                 `-- PlayerDot.tsx
+            `-- navigation/ (continued)
+                `-- MatchupView.tsx   # Vista confronto full-screen di una singola partita reale, con campo landscape, colonne partite ai lati e stats/rosa 50/50
 ```
 
 ## Architecture
 
 ```text
 Browser (5173) -> React App -> sofascore.ts
-    -> Vite dev proxy /api/* -> Express (3001)
-        -> sofascore.com/api/v1/*      # JSON data
-        -> api.sofascore.app/api/v1/*  # images
+    -> direct browser fetch -> sofascore.com/api/v1/*   # primary JSON path
+    -> fallback /api/sofascore/* -> Express (3001)
+        -> persistent Chrome/Chromium session            # fallback JSON path
+    -> /api/img/* -> Express (3001)
+        -> direct img.sofascore.com/api/v1/* first       # images
+        -> browser relay fallback if direct image fetch fails
 ```
 
-- Server: minimal proxy with browser-like headers and in-memory TTL cache.
+- Client JSON access is direct-first because real user browsers/IPs are less likely to hit SofaScore's datacenter/VPS anti-bot path than a centralized server relay.
+- Direct client JSON fetches use `credentials: 'omit'`; `credentials: 'include'` should not be used cross-origin against SofaScore from the app.
+- `apiFetch` falls back from direct to `/api/sofascore/*` on challenge-like failures, CORS/fetch errors, timeout, non-JSON responses, `403`, `429`, and server errors. Terminal `404` handling remains endpoint-specific through `notFoundValue`.
+- Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, and `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`.
+- Server: browser-backed proxy with in-memory TTL cache, in-flight dedupe, and a persistent Chrome/Chromium relay.
+- The relay is expected to run in one of two modes:
+  - `SOFASCORE_BROWSER_CDP_URL`: connect to an already running real Chrome/Chromium session on the VPS via CDP.
+  - `SOFASCORE_BROWSER_EXECUTABLE_PATH`: launch a local Chrome/Chromium binary with a persistent user-data directory (`SOFASCORE_BROWSER_USER_DATA_DIR`).
+- In local development, if `SOFASCORE_BROWSER_EXECUTABLE_PATH` is unset, the server auto-detects common Chrome/Chromium/Edge executable paths before falling back to direct Node fetches.
+- The server keeps a warmed page on `https://www.sofascore.com/` and runs in-page `fetch()` calls so SofaScore sees a real browser session instead of raw Node requests.
+- Image proxying is optimized separately: `/api/img/*` now tries a plain direct fetch to `img.sofascore.com` first and only falls back to the browser relay when that direct path fails or returns non-image content.
+- `/api/sofascore-browser/status` reports whether the browser relay is configured and connected.
+- `SOFASCORE_DIRECT_FALLBACK` can keep the legacy direct Node-fetch path available as a non-browser fallback, but the intended production path is the browser relay.
+- The VPS CDP deploy path is now a fallback relay path, not the primary JSON strategy; use it only after verifying that the target IP/environment can fetch SofaScore JSON. Example env and service units live in `docs/deploy/`.
 - Client: no React Router; navigation is reducer-driven through `NavigationContext`.
 - Country/category navigation keeps both a UI `countryId` and the SofaScore source-of-truth `countryCategoryId`, so downstream views can keep dynamic country context without relying on hardcoded league mappings.
 - Teams navigation can also persist a selected `tournamentPhaseKey` / `tournamentPhaseName` for cup-style competitions, so the main panel and sidebar stay aligned on the chosen phase.
 - `Tournament` objects in event data include an optional `category` field (id, name, alpha2) exposing country context. `TeamView` uses this in a fallback effect to populate missing `leagueId` and `countryId`/`countryCategoryId` on the panel, so `GO_BACK` can traverse the full hierarchy (player → team → teams → leagues) even when navigation started from search rather than the country list.
+- `MatchupView` is match-specific only: full-screen matchup navigation requires a canonical real-event target (`eventId` plus home/away/team context), not just two team ids.
+- `TeamView` persists a compact `nextMatchSummary` inside `PanelState` after loading `nextEvent`; split panels use that summary to prove they point to the same real match before auto-opening or merging into `MatchupView`.
 - `SearchResult` is a discriminated union: `PlayerSearchResult | TeamSearchResult | TournamentSearchResult`. Clicking any result calls `navigateTo` directly with all hierarchy fields not relevant to the target view set to `undefined` (leagueId, countryId, countryCategoryId, seasonId, etc.), so stale context from a previous navigation path is never inherited. Non-football results are filtered out in `searchAll` by checking `sport.slug` on the player entity or its team.
 - Match details are loaded progressively by `useMatchTimeline`, with cache reuse in `useMatchDetails`.
 
@@ -115,6 +139,7 @@ Browser (5173) -> React App -> sofascore.ts
 
 ```text
 home -> leagues -> teams -> team -> player
+matchup (full-screen, replaces split view when two opposing teams open)
 ```
 
 ### Reducer Actions
@@ -125,7 +150,34 @@ home -> leagues -> teams -> team -> player
 - `CLOSE_SPLIT`
 - `SWAP_SPLIT_AND_OPEN`
 - `UPDATE_PANEL_FILTERS`
+- `OPEN_MATCHUP` — closes any split and opens MatchupView full-screen in panel 0
 - `RESET`
+
+### MatchupView
+
+`MatchupView` is a full-screen view (no split) that shows two opposing teams side by side on a shared landscape field.
+
+**Triggers:**
+- Clicking a `MatchRow` in the home calendar (click on the row itself, not on a team button) → opens MatchupView from the clicked event's canonical matchup target.
+- Split `TeamView` panels auto-open MatchupView only when both panels resolve to the same real `nextEvent`.
+- The "Unisci" button in `TeamView` is shown only when the two split team panels already resolve to the same real match and simply need to be collapsed into the full-screen matchup view.
+
+**Layout:**
+- Top: header with home team name, "vs", away team name, league name, back button.
+- Middle row (flex): left matches column (home team) | unified landscape field | right matches column (away team).
+- Bottom (flex 50/50): left half = home team stats table + full roster; right half = away team stats table + full roster. Each half scrolls independently vertically.
+
+**Field:**
+- Single SVG landscape field (`viewBox="0 0 1050 680"`, `aspect-ratio: 105/68`).
+- Home team players (green neon dots) positioned in the left half using `getHomePlayerPos`: `left = (100 - pos.y) * 0.5%`, `top = pos.x%`.
+- Away team players (red dots) positioned in the right half using `getAwayPlayerPos` (mirrored): `left = 50 + pos.y * 0.5%`, `top = (100 - pos.x)%`.
+- Formation badges shown top-left (home, green) and top-right (away, red).
+
+**Stats section:**
+- Each half has independent `selectedStat` and `selectedTournament` state.
+- Default competition = `leagueId` from the triggering event.
+- Stats table uses fixed column widths (`100px 40px 52px 48px 40px 40px`), does not adapt to available width.
+- Full roster (bench) wraps below the stats table, adapting to remaining space.
 
 ### Split View Rules
 
@@ -144,14 +196,14 @@ home -> leagues -> teams -> team -> player
 - On mobile single-panel views, the SearchBar sits on the same top row as the fixed sidebar toggle, with left offset space reserved for the toggle instead of pushing the whole page down.
 - The mobile sidebar toggle is controlled from `App.tsx`; when the drawer is open, the same button switches to a close icon instead of rendering a second overlapping control.
 - On the single-panel home view, `App.tsx` lifts `calendarDate` state and renders a raw top bar made of compact search row + `CalendarStrip`, while the content area starts flush under that strip with no duplicate padding.
-- Clicking "next opponent" in `TeamView` always arranges the match as home team on the left (panel 0) and away team on the right (panel 1), regardless of which panel the click came from. If the arrangement is already correct, the click does nothing. If one panel has a player page, it is preserved on the side matching the player's team; only the other panel is replaced with the new team.
+- Clicking "next opponent" in `TeamView` always arranges the match as home team on the left (panel 0) and away team on the right (panel 1), regardless of which panel the click came from. If one panel has a player page, it is preserved on the side matching the player's team; only the other panel is replaced with the new team. The full-screen matchup opens only after both team panels can prove they reference that same real match.
 - `TeamView` derives `teamName` from `panel.teamName` (set at navigation time) as the primary source, then falls back to `nextEvent.homeTeam/awayTeam.name` if the panel name is missing. This prevents national team pages from showing a club name taken from a player's team.
 - `App.tsx` now measures the real available width of each rendered `TeamView` panel through a stable wrapper that stays mounted even while the team view is loading, and passes that width into `TeamView` so the formation layout never falls back to raw viewport width.
 - `TeamView` bench cards are minimal text chips only: no player avatars, reduced padding, abbreviated names, and optional compact jersey number.
 
 ## SofaScore API Endpoints
 
-All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
+JSON calls are client-direct first and fall back to `/api/sofascore/*`. Images go through `/api/img/*`, which is direct-first on the server with browser fallback.
 
 | Endpoint | Purpose | Used in |
 |----------|---------|---------|
@@ -176,7 +228,7 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 | `player/{id}/unique-tournament/{tid}/season/{sid}/statistics/overall` | Aggregated season stats | usePlayerData, MatchCard |
 | `player/{id}/events/last/{page}` | Match history plus statistics/incidents/onBench seeds | useMatchTimeline |
 | `event/{id}/player/{id}/heatmap` | Match heatmap for a player | HeatmapField |
-| `team/{id}/image`, `player/{id}/image`, etc. | Images | `/api/img/*` |
+| `team/{id}/image`, `player/{id}/image`, etc. | Images | `/api/img/*` via `img.sofascore.com/api/v1/*` |
 
 ## Business Logic
 
@@ -190,6 +242,8 @@ All JSON calls go through `/api/sofascore/*`. Images go through `/api/img/*`.
 - Country ordering is priority-based: the top categories are Italy, England, Spain, Germany, France, Europe, and World. If one of those has a configured primary competition on that day, it is promoted ahead of all other categories.
 - Inside each prioritized country, configured primary competitions (for example Serie A, Premier League, LaLiga, Bundesliga, Ligue 1, UEFA club cups, World Cup / Club World Cup) are shown first; the remaining competitions follow in alphabetical order.
 - Country sections default to expanded. Within each country, only the first available primary tournament is auto-expanded; if none is present, the first tournament is expanded.
+- Home country, tournament, and team logos should render through `PriorityImage`, which preloads only what is visible first, starts offscreen warm loads only after the visible queue empties, and immediately boosts images from user-expanded sections.
+- `HomeCalendar` keeps the existing green loader under the calendar strip active until the mounted schedule images for the selected date have settled. The schedule can mount invisibly to trigger those image requests, but it should not show a separate centered overlay spinner.
 - `LeagueSection` allows direct navigation to the tournament teams view via `selectLeague`, preserving `seasonId` from the scheduled event payload.
 - `MatchRow` allows direct navigation to either team page from the home calendar, carrying tournament/category context (`leagueId`, `leagueName`, `seasonId`, `countryCategoryId`, `countryId`, `countryName`) so downstream back-navigation remains coherent.
 
@@ -271,6 +325,7 @@ Other current behavior:
 - Timeline relevance now accepts any match with `event.status.type === 'finished'`, so events decided after extra time or penalties are included alongside regular full-time results.
 - In `Ultime N`, `useMatchTimeline` now loads all completed events without filtering by season ID and relies on `minPlayedEvents` / `maxEvents` to stop paging.
 - `apiFetch` deduplicates in-flight requests per path, so parallel consumers such as `TeamGrid` and `SidebarTeamList` share the same pending SofaScore call instead of duplicating retries.
+- `apiFetch` tries direct browser JSON access before proxy fallback by default. This can be disabled with `VITE_SOFASCORE_DIRECT=false` if SofaScore changes CORS behavior or if a deployment must force server relay mode.
 - `apiFetch` no longer retries terminal `4xx` responses except `429`, caches terminal `404` fallback payloads for endpoints that opt in, and also caches terminal `4xx` errors for the standard TTL.
 - `useTournamentViewData` keeps a shared in-memory tournament snapshot cache keyed by `{tournamentId, seasonId}` plus a latest-season alias, so reopening the same tournament view can hydrate synchronously without rebuilding phases or standings.
 - `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKeyOrWildcard, tournamentIdsKey, tournamentYearPairsKey, seasonDateRangeKey, maxEvents, minPlayedEvents}`.

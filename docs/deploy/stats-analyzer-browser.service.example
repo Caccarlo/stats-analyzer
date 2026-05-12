@@ -1,0 +1,22 @@
+[Unit]
+Description=Stats Analyzer Chrome relay for SofaScore CDP
+After=network.target
+
+[Service]
+Type=simple
+User=stats
+Group=stats
+ExecStart=/usr/bin/google-chrome \
+  --headless=new \
+  --disable-gpu \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/opt/stats-analyzer/chrome-profile \
+  https://www.sofascore.com/
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

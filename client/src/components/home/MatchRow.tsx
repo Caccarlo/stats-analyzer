@@ -1,9 +1,13 @@
 import type { MatchEvent } from '@/types';
 import { getTeamImageUrl } from '@/api/sofascore';
+import PriorityImage from '@/components/common/PriorityImage';
 
 interface MatchRowProps {
   event: MatchEvent;
   onNavigateTeam: (teamId: number, teamName: string, event: MatchEvent) => void;
+  onOpenMatchup?: (event: MatchEvent) => void;
+  expansionPriorityToken?: number;
+  imageLoadScope?: string;
 }
 
 function formatTime(ts: number): string {
@@ -79,21 +83,32 @@ function TeamName({
   );
 }
 
-export default function MatchRow({ event, onNavigateTeam }: MatchRowProps) {
+export default function MatchRow({
+  event,
+  onNavigateTeam,
+  onOpenMatchup,
+  expansionPriorityToken = 0,
+  imageLoadScope,
+}: MatchRowProps) {
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-surface/40 transition-colors">
+    <div
+      className={`flex items-center gap-2 px-3 py-1.5 transition-colors ${onOpenMatchup ? 'hover:bg-surface/60 cursor-pointer' : 'hover:bg-surface/40'}`}
+      onClick={onOpenMatchup ? () => onOpenMatchup(event) : undefined}
+    >
       <div className="flex items-center gap-1.5 flex-1 min-w-0 justify-end">
         <TeamName
           team={event.homeTeam}
           onClick={() => onNavigateTeam(event.homeTeam.id, event.homeTeam.name, event)}
         />
-        <img
+        <PriorityImage
           src={getTeamImageUrl(event.homeTeam.id)}
           alt=""
           className="w-5 h-5 object-contain flex-shrink-0"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = 'none';
-          }}
+          width={20}
+          height={20}
+          expansionPriorityToken={expansionPriorityToken}
+          loadScope={imageLoadScope}
+          hideOnError
         />
       </div>
 
@@ -103,13 +118,15 @@ export default function MatchRow({ event, onNavigateTeam }: MatchRowProps) {
       </div>
 
       <div className="flex items-center gap-1.5 flex-1 min-w-0">
-        <img
+        <PriorityImage
           src={getTeamImageUrl(event.awayTeam.id)}
           alt=""
           className="w-5 h-5 object-contain flex-shrink-0"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = 'none';
-          }}
+          width={20}
+          height={20}
+          expansionPriorityToken={expansionPriorityToken}
+          loadScope={imageLoadScope}
+          hideOnError
         />
         <TeamName
           team={event.awayTeam}

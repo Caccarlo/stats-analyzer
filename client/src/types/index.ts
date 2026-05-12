@@ -287,9 +287,27 @@ export interface MatchAnalysis {
   };
 }
 
+export interface MatchupNavigationTarget {
+  eventId: number;
+  homeTeamId: number;
+  homeTeamName: string;
+  awayTeamId: number;
+  awayTeamName: string;
+  leagueId?: number;
+  leagueName?: string;
+  seasonId?: number;
+  countryId?: string;
+  countryName?: string;
+  countryCategoryId?: number;
+}
+
+export interface TeamNextMatchSummary extends MatchupNavigationTarget {
+  startTimestamp: number;
+}
+
 // === Navigazione ===
 
-export type ViewType = 'home' | 'leagues' | 'teams' | 'team' | 'player';
+export type ViewType = 'home' | 'leagues' | 'teams' | 'team' | 'player' | 'matchup';
 
 export type SelectedPeriod =
   | { type: 'last'; count: 5 | 10 | 15 | 20 | 30 | 50 | 75 }
@@ -328,6 +346,14 @@ export interface PanelState {
   playerId?: number;
   playerData?: Player;
   filterState?: PlayerFilterState;
+  // matchup fields (used when view === 'matchup')
+  matchupEventId?: number;
+  homeTeamId?: number;
+  homeTeamName?: string;
+  awayTeamId?: number;
+  awayTeamName?: string;
+  // persisted by TeamView so split panels can prove they reference the same real match
+  nextMatchSummary?: TeamNextMatchSummary;
 }
 
 export interface NavigationState {

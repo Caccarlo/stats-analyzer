@@ -19,6 +19,8 @@ import type {
   SearchResult,
   PlayerSearchResult,
   TeamSearchResult,
+  MatchupNavigationTarget,
+  TeamNextMatchSummary,
 } from '@/types';
 
 // === Cache ===
@@ -33,24 +35,156 @@ interface ApiFetchOptions<T> {
   notFoundValue?: T;
 }
 
+type SofaScoreFetchStrategy = 'direct' | 'proxy';
+
 class ApiFetchError extends Error {
   status?: number;
   isTerminal: boolean;
+  canFallback: boolean;
+  strategy?: SofaScoreFetchStrategy;
 
-  constructor(message: string, status?: number, isTerminal = false) {
+  constructor(
+    message: string,
+    status?: number,
+    isTerminal = false,
+    canFallback = false,
+    strategy?: SofaScoreFetchStrategy,
+  ) {
     super(message);
     this.name = 'ApiFetchError';
     this.status = status;
     this.isTerminal = isTerminal;
+    this.canFallback = canFallback;
+    this.strategy = strategy;
   }
 }
 
 const cache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<unknown>>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minuti
+const SOFASCORE_DIRECT_ORIGIN = (
+  import.meta.env.VITE_SOFASCORE_DIRECT_ORIGIN
+  ?? 'https://www.sofascore.com/api/v1'
+).replace(/\/$/, '');
+const SOFASCORE_DIRECT_ENABLED = import.meta.env.VITE_SOFASCORE_DIRECT !== 'false';
+const SOFASCORE_PROXY_FALLBACK_ENABLED = import.meta.env.VITE_SOFASCORE_PROXY_FALLBACK !== 'false';
+const SOFASCORE_DIRECT_TIMEOUT_MS = Number(import.meta.env.VITE_SOFASCORE_DIRECT_TIMEOUT_MS ?? 12000);
 
 function isTerminalHttpStatus(status: number): boolean {
   return status >= 400 && status < 500 && status !== 429;
+}
+
+function getFetchStrategies(): SofaScoreFetchStrategy[] {
+  const strategies: SofaScoreFetchStrategy[] = [];
+
+  if (SOFASCORE_DIRECT_ENABLED && typeof window !== 'undefined') {
+    strategies.push('direct');
+  }
+
+  if (SOFASCORE_PROXY_FALLBACK_ENABLED || strategies.length === 0) {
+    strategies.push('proxy');
+  }
+
+  return strategies;
+}
+
+function getStrategyUrl(strategy: SofaScoreFetchStrategy, path: string): string {
+  if (strategy === 'direct') {
+    return `${SOFASCORE_DIRECT_ORIGIN}/${path}`;
+  }
+
+  return `/api/sofascore/${path}`;
+}
+
+function looksLikeChallengePayload(text: string): boolean {
+  return /"challenge"|\bchallenge\b/i.test(text);
+}
+
+function canFallbackFromDirect(status?: number, body = ''): boolean {
+  if (!status) return true;
+  if (status === 403 || status === 429) return true;
+  if (looksLikeChallengePayload(body)) return true;
+  return status >= 500;
+}
+
+async function fetchWithOptionalTimeout(url: string, strategy: SofaScoreFetchStrategy): Promise<Response> {
+  if (strategy !== 'direct' || SOFASCORE_DIRECT_TIMEOUT_MS <= 0) {
+    return fetch(url, {
+      headers: { Accept: 'application/json' },
+      credentials: strategy === 'direct' ? 'omit' : 'same-origin',
+    });
+  }
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), SOFASCORE_DIRECT_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      headers: { Accept: 'application/json' },
+      credentials: 'omit',
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function fetchJsonWithStrategy<T>(
+  path: string,
+  strategy: SofaScoreFetchStrategy,
+): Promise<T> {
+  const url = getStrategyUrl(strategy, path);
+
+  let res: Response;
+  try {
+    res = await fetchWithOptionalTimeout(url, strategy);
+  } catch (error) {
+    throw new ApiFetchError(
+      `${strategy} fetch failed for ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      undefined,
+      false,
+      strategy === 'direct',
+      strategy,
+    );
+  }
+
+  const contentType = res.headers.get('content-type') ?? '';
+  const text = await res.text();
+
+  if (!contentType.includes('application/json')) {
+    throw new ApiFetchError(
+      `${strategy} fetch returned non-JSON content (${res.status}) for ${path}`,
+      res.status,
+      false,
+      strategy === 'direct',
+      strategy,
+    );
+  }
+
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    throw new ApiFetchError(
+      `${strategy} fetch returned invalid JSON for ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      res.status,
+      false,
+      strategy === 'direct',
+      strategy,
+    );
+  }
+
+  if (!res.ok) {
+    throw new ApiFetchError(
+      `${strategy} API error ${res.status}: ${path}`,
+      res.status,
+      isTerminalHttpStatus(res.status) && !canFallbackFromDirect(res.status, text),
+      strategy === 'direct' && canFallbackFromDirect(res.status, text),
+      strategy,
+    );
+  }
+
+  return data as T;
 }
 
 function getCached(key: string): CacheEntry | null {
@@ -109,19 +243,30 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
       if (delays[attempt] > 0) {
         await new Promise((r) => setTimeout(r, delays[attempt]));
       }
-      try {
-        const res = await fetch(`/api/sofascore/${path}`);
-        if (!res.ok) {
-          if (res.status === 404 && options.notFoundValue !== undefined) {
+
+      const strategies = getFetchStrategies();
+      for (let strategyIndex = 0; strategyIndex < strategies.length; strategyIndex++) {
+        const strategy = strategies[strategyIndex];
+        const hasNextStrategy = strategyIndex < strategies.length - 1;
+
+        try {
+          const data = await fetchJsonWithStrategy<T>(path, strategy);
+          if (useCache) setDataCache(path, data);
+          return data;
+        } catch (e: unknown) {
+          const error = e instanceof ApiFetchError
+            ? e
+            : new ApiFetchError(String(e));
+
+          if (error.status === 404 && options.notFoundValue !== undefined) {
             if (useCache) setAbsenceCache(path, options.notFoundValue);
             return options.notFoundValue;
           }
 
-          const error = new ApiFetchError(
-            `API error ${res.status}: ${path}`,
-            res.status,
-            isTerminalHttpStatus(res.status),
-          );
+          if (hasNextStrategy && error.canFallback) {
+            lastError = error;
+            continue;
+          }
 
           if (error.isTerminal) {
             if (useCache) setErrorCache(path, error);
@@ -129,17 +274,8 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
           }
 
           lastError = error;
-          continue;
+          break;
         }
-        const data: T = await res.json();
-        if (useCache) setDataCache(path, data);
-        return data;
-      } catch (e: unknown) {
-        const error = e instanceof ApiFetchError
-          ? e
-          : new ApiFetchError(String(e));
-        if (error.isTerminal) throw error;
-        lastError = error;
       }
     }
 
@@ -428,6 +564,68 @@ export async function getMatchDurationMetadata(
   } catch {
     return null;
   }
+}
+
+function getEventCountryId(event: MatchEvent): string | undefined {
+  const category = event.tournament?.uniqueTournament?.category;
+  if (!category) return undefined;
+  return category.alpha2 ?? String(category.id);
+}
+
+export function createMatchupNavigationTarget(event: MatchEvent): MatchupNavigationTarget {
+  const tournament = event.tournament?.uniqueTournament;
+  const category = tournament?.category;
+
+  return {
+    eventId: event.id,
+    homeTeamId: event.homeTeam.id,
+    homeTeamName: event.homeTeam.name,
+    awayTeamId: event.awayTeam.id,
+    awayTeamName: event.awayTeam.name,
+    leagueId: tournament?.id,
+    leagueName: tournament?.name,
+    seasonId: event.season?.id,
+    countryId: getEventCountryId(event),
+    countryName: category?.name,
+    countryCategoryId: category?.id,
+  };
+}
+
+export function createTeamNextMatchSummary(event: MatchEvent): TeamNextMatchSummary {
+  return {
+    ...createMatchupNavigationTarget(event),
+    startTimestamp: event.startTimestamp,
+  };
+}
+
+export function resolveMatchupFromSummaries(
+  primary: TeamNextMatchSummary | null | undefined,
+  secondary: TeamNextMatchSummary | null | undefined,
+): MatchupNavigationTarget | null {
+  if (!primary || !secondary) return null;
+
+  const sameEvent =
+    primary.eventId === secondary.eventId &&
+    primary.startTimestamp === secondary.startTimestamp;
+  const sameTeams =
+    primary.homeTeamId === secondary.homeTeamId &&
+    primary.awayTeamId === secondary.awayTeamId;
+
+  if (!sameEvent || !sameTeams) return null;
+
+  return {
+    eventId: primary.eventId,
+    homeTeamId: primary.homeTeamId,
+    homeTeamName: primary.homeTeamName,
+    awayTeamId: primary.awayTeamId,
+    awayTeamName: primary.awayTeamName,
+    leagueId: primary.leagueId,
+    leagueName: primary.leagueName,
+    seasonId: primary.seasonId,
+    countryId: primary.countryId,
+    countryName: primary.countryName,
+    countryCategoryId: primary.countryCategoryId,
+  };
 }
 
 export async function getMatchAveragePositions(

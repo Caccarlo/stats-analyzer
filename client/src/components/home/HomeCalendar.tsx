@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useCalendarData, todayISO } from '@/hooks/useCalendarData';
 import { useNavigation } from '@/context/NavigationContext';
+import { createMatchupNavigationTarget } from '@/api/sofascore';
 import type { MatchEvent } from '@/types';
 import CalendarStrip from './CalendarStrip';
 import DaySchedule from './DaySchedule';
+import { usePriorityImageScopePending } from '@/components/common/PriorityImage';
 
 interface HomeCalendarProps {
   panelIndex?: number;
@@ -26,8 +28,28 @@ export default function HomeCalendar({
   const selectedDate = extDate ?? internalDate;
   const setSelectedDate = extSetDate ?? setInternalDate;
 
-  const { navigateTo, selectLeague } = useNavigation();
+  const { navigateTo, selectLeague, openMatchup } = useNavigation();
   const { groups, loading, error } = useCalendarData(selectedDate);
+  const imageLoadScope = `home-schedule:${selectedDate}`;
+  const [isDayReady, setIsDayReady] = useState(false);
+  const shouldTrackInitialImages = !isDayReady && !loading && !error && groups.length > 0;
+  const imagesPending = usePriorityImageScopePending(
+    shouldTrackInitialImages ? imageLoadScope : null,
+  );
+
+  useEffect(() => {
+    setIsDayReady(false);
+  }, [selectedDate]);
+
+  useEffect(() => {
+    if (loading || error) {
+      return;
+    }
+
+    if (groups.length === 0 || !imagesPending) {
+      setIsDayReady(true);
+    }
+  }, [error, groups.length, imagesPending, loading]);
 
   const handleNavigateLeague = (leagueId: number, leagueName: string, seasonId: number) => {
     selectLeague(panelIndex, leagueId, leagueName, seasonId);
@@ -47,6 +69,10 @@ export default function HomeCalendar({
     });
   };
 
+  const handleOpenMatchup = (event: MatchEvent) => {
+    openMatchup(createMatchupNavigationTarget(event));
+  };
+
   return (
     <div>
       {!calendarInTopBar && (
@@ -57,10 +83,13 @@ export default function HomeCalendar({
       <div className={schedulePaddingClass}>
         <DaySchedule
           groups={groups}
-          loading={loading}
+          loading={loading || (!error && !isDayReady)}
+          deferReveal={!loading && !error && groups.length > 0 && !isDayReady}
           error={error}
           onNavigateLeague={handleNavigateLeague}
           onNavigateTeam={handleNavigateTeam}
+          onOpenMatchup={handleOpenMatchup}
+          imageLoadScope={shouldTrackInitialImages ? imageLoadScope : undefined}
         />
       </div>
     </div>

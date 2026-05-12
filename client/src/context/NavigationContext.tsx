@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type ReactNode } from 'react';
-import type { PanelState, Player, PlayerFilterState, ViewType } from '@/types';
+import type { MatchupNavigationTarget, PanelState, Player, PlayerFilterState, ViewType } from '@/types';
 
 // === Stato ===
 
@@ -19,6 +19,7 @@ type NavAction =
   | { type: 'SWAP_SPLIT_AND_OPEN'; panelState: PanelState }
   | { type: 'CLOSE_SPLIT'; panel: number }
   | { type: 'UPDATE_PANEL_FILTERS'; panel: number; filterState: PlayerFilterState }
+  | { type: 'OPEN_MATCHUP'; matchup: MatchupNavigationTarget }
   | { type: 'RESET' };
 
 function reducer(state: NavState, action: NavAction): NavState {
@@ -32,6 +33,9 @@ function reducer(state: NavState, action: NavAction): NavState {
       if (action.data?.playerId !== undefined && action.data.playerId !== current.playerId) {
         updated.filterState = undefined;
       }
+      if (action.data?.teamId !== undefined && action.data.teamId !== current.teamId) {
+        updated.nextMatchSummary = undefined;
+      }
       panels[action.panel] = updated;
       return { panels };
     }
@@ -39,6 +43,11 @@ function reducer(state: NavState, action: NavAction): NavState {
     case 'GO_BACK': {
       const current = panels[action.panel];
       if (!current) return state;
+
+      // Matchup view goes back to home
+      if (current.view === 'matchup') {
+        return { panels: [{ view: 'home' }] };
+      }
 
       const viewOrder: ViewType[] = ['home', 'leagues', 'teams', 'team', 'player'];
       const idx = viewOrder.indexOf(current.view);
@@ -133,6 +142,25 @@ function reducer(state: NavState, action: NavAction): NavState {
       return { panels };
     }
 
+    case 'OPEN_MATCHUP': {
+      // Close any split and open matchup view in panel 0 as full-screen
+      const matchupPanel: PanelState = {
+        view: 'matchup',
+        matchupEventId: action.matchup.eventId,
+        homeTeamId: action.matchup.homeTeamId,
+        homeTeamName: action.matchup.homeTeamName,
+        awayTeamId: action.matchup.awayTeamId,
+        awayTeamName: action.matchup.awayTeamName,
+        leagueId: action.matchup.leagueId,
+        leagueName: action.matchup.leagueName,
+        seasonId: action.matchup.seasonId,
+        countryId: action.matchup.countryId,
+        countryName: action.matchup.countryName,
+        countryCategoryId: action.matchup.countryCategoryId,
+      };
+      return { panels: [matchupPanel] };
+    }
+
     case 'RESET':
       return initialState;
 
@@ -154,6 +182,7 @@ interface NavContextValue {
   swapSplitAndOpenTeam: (teamId: number, teamName?: string, context?: Partial<PanelState>) => void;
   swapSplitAndOpenPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string, context?: Partial<PanelState>) => void;
   openSplitHome: () => void;
+  openMatchup: (matchup: MatchupNavigationTarget) => void;
   closeSplit: (panel?: number) => void;
   updatePanelFilters: (panel: number, filterState: PlayerFilterState) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string, categoryId?: number) => void;
@@ -221,6 +250,10 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'OPEN_SPLIT', panelState: { view: 'home' } });
   };
 
+  const openMatchup = (matchup: MatchupNavigationTarget) => {
+    dispatch({ type: 'OPEN_MATCHUP', matchup });
+  };
+
   const closeSplit = (panel: number = 1) => {
     dispatch({ type: 'CLOSE_SPLIT', panel });
   };
@@ -268,6 +301,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         swapSplitAndOpenTeam,
         swapSplitAndOpenPlayer,
         openSplitHome,
+        openMatchup,
         closeSplit,
         updatePanelFilters,
         selectCountry,

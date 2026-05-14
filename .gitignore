@@ -4,3 +4,10 @@ dist/
 *.local
 .env
 .DS_Store
+.playwright-mcp/
+server-err.log
+server-out.log
+stats-analyzer-current.tar.gz
+temp-chrome-profile*/
+temp-edge-profile/
+server/.sofascore-browser-profile*

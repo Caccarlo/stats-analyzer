@@ -104,6 +104,7 @@ Key responsibilities:
 - Panel behavior matters. Many layout decisions depend on measured panel width, not only viewport width.
 - `MatchupView` is a match-specific screen. It must open only from a resolved real event (`eventId`); generic team-vs-team compare mode is intentionally unsupported.
 - Team panels persist a compact `nextMatchSummary` in `PanelState` after loading `nextEvent`, so split views can prove both sides reference the same real match before auto-opening or merging into `MatchupView`.
+- Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
 - `MatchupView` player stats tables should load finished matches across the opened match's full season context, not just the first page of team history, so the default competition filter remains populated reliably.
 - Home is a real data view, not a static landing page. It shows the daily football schedule and keeps calendar state in `App.tsx`.
 - Search is global and can open players, teams, or tournaments directly.
@@ -151,6 +152,7 @@ Follow these rules automatically on every task in this repo.
 
 - Do not overwrite, revert, or discard unrelated local changes unless the user explicitly asks.
 - If the worktree is dirty, isolate your own changes and leave unrelated edits intact.
+- Generated local artifacts such as `.playwright-mcp/`, `server-*.log`, `stats-analyzer-current.tar.gz`, `temp-*-profile/`, and `server/.sofascore-browser-profile*` should stay untracked and be cleaned up or ignored rather than committed.
 
 ### Keep Docs In Sync
 

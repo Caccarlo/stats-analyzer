@@ -130,6 +130,7 @@ Browser (5173) -> React App -> sofascore.ts
 - `Tournament` objects in event data include an optional `category` field (id, name, alpha2) exposing country context. `TeamView` uses this in a fallback effect to populate missing `leagueId` and `countryId`/`countryCategoryId` on the panel, so `GO_BACK` can traverse the full hierarchy (player → team → teams → leagues) even when navigation started from search rather than the country list.
 - `MatchupView` is match-specific only: full-screen matchup navigation requires a canonical real-event target (`eventId` plus home/away/team context), not just two team ids.
 - `TeamView` persists a compact `nextMatchSummary` inside `PanelState` after loading `nextEvent`; split panels use that summary to prove they point to the same real match before auto-opening or merging into `MatchupView`.
+- Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
 - In `MatchupView`, team player-stat tables are season-aware: they continue paging backward through team history until the opened match's season is covered, instead of relying only on the first `team/{id}/events/last/0` page.
 - `SearchResult` is a discriminated union: `PlayerSearchResult | TeamSearchResult | TournamentSearchResult`. Clicking any result calls `navigateTo` directly with all hierarchy fields not relevant to the target view set to `undefined` (leagueId, countryId, countryCategoryId, seasonId, etc.), so stale context from a previous navigation path is never inherited. Non-football results are filtered out in `searchAll` by checking `sport.slug` on the player entity or its team.
 - Match details are loaded progressively by `useMatchTimeline`, with cache reuse in `useMatchDetails`.
@@ -448,6 +449,7 @@ These rules must be followed automatically on every task.
 3. Commit often with concise messages describing why.
 4. When complete, push the branch, create a PR with `gh pr create`, and merge with `gh pr merge`.
 5. After merge, switch back to `master` and pull.
+6. Keep generated local artifacts such as `.playwright-mcp/`, `server-*.log`, `stats-analyzer-current.tar.gz`, `temp-*-profile/`, and `server/.sofascore-browser-profile*` untracked; clean them up or ignore them instead of committing them.
 
 ### Keep AGENTS.md And CLAUDE.md Up To Date
 

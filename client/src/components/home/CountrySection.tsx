@@ -10,7 +10,7 @@ interface CountrySectionProps {
   onNavigateLeague: (leagueId: number, leagueName: string, seasonId: number) => void;
   onNavigateTeam: (teamId: number, teamName: string, event: MatchEvent) => void;
   onOpenMatchup?: (event: MatchEvent) => void;
-  imageLoadScope?: string;
+  imageRevealSession?: string;
 }
 
 export default function CountrySection({
@@ -18,7 +18,7 @@ export default function CountrySection({
   onNavigateLeague,
   onNavigateTeam,
   onOpenMatchup,
-  imageLoadScope,
+  imageRevealSession,
 }: CountrySectionProps) {
   const [expanded, setExpanded] = useState(group.defaultExpanded);
   const [expansionPriorityToken, setExpansionPriorityToken] = useState(0);
@@ -56,7 +56,7 @@ export default function CountrySection({
           className="w-4 h-4 object-contain flex-shrink-0"
           width={16}
           height={16}
-          loadScope={imageLoadScope}
+          revealSession={imageRevealSession}
           hideOnError
         />
 
@@ -85,7 +85,7 @@ export default function CountrySection({
               onNavigateTeam={onNavigateTeam}
               onOpenMatchup={onOpenMatchup}
               expansionPriorityToken={expansionPriorityToken}
-              imageLoadScope={imageLoadScope}
+              imageRevealSession={imageRevealSession}
             />
           ))}
         </div>

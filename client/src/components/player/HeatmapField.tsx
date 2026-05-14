@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getPlayerMatchHeatmap } from '@/api/sofascore';
 import type { HeatmapPoint } from '@/types';
 
@@ -160,10 +160,17 @@ export default function HeatmapField({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [points, setPoints] = useState<HeatmapPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const markLoading = useCallback(() => {
+    setLoading(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    queueMicrotask(() => {
+      if (!cancelled) {
+        markLoading();
+      }
+    });
 
     getPlayerMatchHeatmap(eventId, playerId).then((data) => {
       if (!cancelled) {
@@ -175,7 +182,7 @@ export default function HeatmapField({
     return () => {
       cancelled = true;
     };
-  }, [eventId, playerId]);
+  }, [eventId, markLoading, playerId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

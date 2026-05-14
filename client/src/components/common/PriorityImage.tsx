@@ -1,7 +1,9 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ImgHTMLAttributes,
 } from 'react';
 
@@ -21,11 +23,19 @@ interface ScopeRecord {
   listeners: Set<() => void>;
 }
 
+interface RevealSessionRecord {
+  pendingCount: number;
+  trackedCount: number;
+  measuredCount: number;
+  listeners: Set<() => void>;
+}
+
 interface PriorityImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'loading'> {
   src: string;
   expansionPriorityToken?: number;
   hideOnError?: boolean;
   loadScope?: string;
+  revealSession?: string;
 }
 
 const PLACEHOLDER_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
@@ -35,6 +45,7 @@ const IMAGE_LOAD_TIMEOUT_MS = 15000;
 
 const imageRecords = new Map<string, ImageRecord>();
 const scopeRecords = new Map<string, ScopeRecord>();
+const revealSessionRecords = new Map<string, RevealSessionRecord>();
 
 let nextRequestId = 1;
 let activeHighPriorityLoads = 0;
@@ -118,6 +129,60 @@ function subscribeToScope(scope: string, listener: () => void): () => void {
 
 function subscribeToImage(src: string, listener: () => void): () => void {
   const record = getOrCreateRecord(src);
+  record.listeners.add(listener);
+  return () => {
+    record.listeners.delete(listener);
+  };
+}
+
+function getOrCreateRevealSessionRecord(session: string): RevealSessionRecord {
+  const existing = revealSessionRecords.get(session);
+  if (existing) {
+    return existing;
+  }
+
+  const created: RevealSessionRecord = {
+    pendingCount: 0,
+    trackedCount: 0,
+    measuredCount: 0,
+    listeners: new Set(),
+  };
+  revealSessionRecords.set(session, created);
+  return created;
+}
+
+function notifyRevealSessionListeners(session: string) {
+  const record = revealSessionRecords.get(session);
+  if (!record) return;
+  record.listeners.forEach((listener) => listener());
+}
+
+function adjustRevealSessionCounts(
+  session: string,
+  counts: Partial<Pick<RevealSessionRecord, 'pendingCount' | 'trackedCount' | 'measuredCount'>>,
+) {
+  const record = getOrCreateRevealSessionRecord(session);
+  record.pendingCount = Math.max(0, record.pendingCount + (counts.pendingCount ?? 0));
+  record.trackedCount = Math.max(0, record.trackedCount + (counts.trackedCount ?? 0));
+  record.measuredCount = Math.max(0, record.measuredCount + (counts.measuredCount ?? 0));
+  notifyRevealSessionListeners(session);
+}
+
+function getRevealSessionSnapshot(session: string) {
+  const record = revealSessionRecords.get(session);
+  if (!record) {
+    return null;
+  }
+
+  return {
+    pendingCount: record.pendingCount,
+    trackedCount: record.trackedCount,
+    measuredCount: record.measuredCount,
+  };
+}
+
+function subscribeToRevealSession(session: string, listener: () => void): () => void {
+  const record = getOrCreateRevealSessionRecord(session);
   record.listeners.add(listener);
   return () => {
     record.listeners.delete(listener);
@@ -246,25 +311,47 @@ function requestImageLoad(src: string, priority: LoadPriority) {
   pumpImageQueue();
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePriorityImageScopePending(scope: string | null | undefined): boolean {
   const normalizedScope = scope ?? null;
-  const [pending, setPending] = useState(() => (
-    normalizedScope ? getScopePendingCount(normalizedScope) > 0 : false
-  ));
+  return useSyncExternalStore(
+    (onStoreChange) => (normalizedScope ? subscribeToScope(normalizedScope, onStoreChange) : () => {}),
+    () => (normalizedScope ? getScopePendingCount(normalizedScope) > 0 : false),
+    () => false,
+  );
+}
 
-  useEffect(() => {
-    if (!normalizedScope) {
-      setPending(false);
-      return undefined;
-    }
+// eslint-disable-next-line react-refresh/only-export-components
+export function usePriorityImageRevealState(session: string | null | undefined) {
+  const normalizedSession = session ?? null;
+  return useSyncExternalStore(
+    (onStoreChange) => (normalizedSession ? subscribeToRevealSession(normalizedSession, onStoreChange) : () => {}),
+    () => {
+      if (!normalizedSession) {
+        return {
+          pending: false,
+          snapshotReady: true,
+        };
+      }
 
-    setPending(getScopePendingCount(normalizedScope) > 0);
-    return subscribeToScope(normalizedScope, () => {
-      setPending(getScopePendingCount(normalizedScope) > 0);
-    });
-  }, [normalizedScope]);
+      const snapshot = getRevealSessionSnapshot(normalizedSession);
+      if (!snapshot) {
+        return {
+          pending: false,
+          snapshotReady: false,
+        };
+      }
 
-  return pending;
+      return {
+        pending: snapshot.pendingCount > 0,
+        snapshotReady: snapshot.trackedCount === snapshot.measuredCount,
+      };
+    },
+    () => ({
+      pending: false,
+      snapshotReady: true,
+    }),
+  );
 }
 
 export default function PriorityImage({
@@ -277,37 +364,45 @@ export default function PriorityImage({
   expansionPriorityToken = 0,
   hideOnError = false,
   loadScope,
+  revealSession,
   ...imgProps
 }: PriorityImageProps) {
+  const supportsIntersectionObserver = typeof IntersectionObserver !== 'undefined';
   const imgRef = useRef<HTMLImageElement>(null);
-  const [status, setStatus] = useState<LoadStatus>(() => getImageStatus(src));
-  const [isVisible, setIsVisible] = useState(false);
-  const [hasMeasuredVisibility, setHasMeasuredVisibility] = useState(false);
+  const status = useSyncExternalStore(
+    (onStoreChange) => subscribeToImage(src, onStoreChange),
+    () => getImageStatus(src),
+    () => getImageStatus(src),
+  );
+  const [isVisible, setIsVisible] = useState(!supportsIntersectionObserver);
+  const [hasMeasuredVisibility, setHasMeasuredVisibility] = useState(!supportsIntersectionObserver);
   const lastExpansionTokenRef = useRef(expansionPriorityToken);
   const trackedScopeRef = useRef<string | null>(null);
   const trackedPendingRef = useRef(false);
-
-  useEffect(() => {
-    setStatus(getImageStatus(src));
-    return subscribeToImage(src, () => {
-      setStatus(getImageStatus(src));
-    });
-  }, [src]);
+  const initialViewportVisibilityRef = useRef<boolean | null>(null);
+  const trackedRevealSessionRef = useRef<string | null>(null);
+  const trackedRevealCandidateRef = useRef(false);
+  const trackedRevealMeasuredSessionRef = useRef<string | null>(null);
+  const trackedRevealMeasuredRef = useRef(false);
+  const trackedRevealPendingSessionRef = useRef<string | null>(null);
+  const trackedRevealPendingRef = useRef(false);
 
   useEffect(() => {
     const node = imgRef.current;
     if (!node) return undefined;
 
-    if (typeof IntersectionObserver === 'undefined') {
-      setIsVisible(true);
-      setHasMeasuredVisibility(true);
+    if (!supportsIntersectionObserver) {
       return undefined;
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        setIsVisible(Boolean(entry?.isIntersecting));
+        const nextIsVisible = Boolean(entry?.isIntersecting);
+        setIsVisible(nextIsVisible);
+        if (initialViewportVisibilityRef.current === null) {
+          initialViewportVisibilityRef.current = nextIsVisible;
+        }
         setHasMeasuredVisibility(true);
       },
       {
@@ -317,7 +412,13 @@ export default function PriorityImage({
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [supportsIntersectionObserver]);
+
+  useEffect(() => {
+    if (initialViewportVisibilityRef.current === null && hasMeasuredVisibility) {
+      initialViewportVisibilityRef.current = isVisible;
+    }
+  }, [hasMeasuredVisibility, isVisible]);
 
   useEffect(() => {
     if (!hasMeasuredVisibility) return;
@@ -365,6 +466,71 @@ export default function PriorityImage({
       }
     };
   }, [loadScope, status]);
+
+  useLayoutEffect(() => {
+    const nextSession = revealSession ?? null;
+    const shouldTrackCandidate = Boolean(nextSession);
+
+    trackedRevealSessionRef.current = nextSession;
+    trackedRevealCandidateRef.current = false;
+
+    if (nextSession && shouldTrackCandidate) {
+      adjustRevealSessionCounts(nextSession, { trackedCount: 1 });
+      trackedRevealCandidateRef.current = true;
+    }
+
+    return () => {
+      if (trackedRevealSessionRef.current && trackedRevealCandidateRef.current) {
+        adjustRevealSessionCounts(trackedRevealSessionRef.current, { trackedCount: -1 });
+        trackedRevealCandidateRef.current = false;
+      }
+    };
+  }, [revealSession]);
+
+  useEffect(() => {
+    const nextSession = revealSession ?? null;
+    const shouldTrackMeasured = Boolean(nextSession)
+      && hasMeasuredVisibility;
+
+    trackedRevealMeasuredSessionRef.current = nextSession;
+    trackedRevealMeasuredRef.current = false;
+
+    if (nextSession && shouldTrackMeasured) {
+      adjustRevealSessionCounts(nextSession, { measuredCount: 1 });
+      trackedRevealMeasuredRef.current = true;
+    }
+
+    return () => {
+      if (trackedRevealMeasuredSessionRef.current && trackedRevealMeasuredRef.current) {
+        adjustRevealSessionCounts(trackedRevealMeasuredSessionRef.current, { measuredCount: -1 });
+        trackedRevealMeasuredRef.current = false;
+      }
+    };
+  }, [hasMeasuredVisibility, revealSession]);
+
+  useEffect(() => {
+    const nextSession = revealSession ?? null;
+    const shouldTrackPending = Boolean(nextSession)
+      && status !== 'loaded'
+      && status !== 'error'
+      && hasMeasuredVisibility
+      && initialViewportVisibilityRef.current === true;
+
+    trackedRevealPendingSessionRef.current = nextSession;
+    trackedRevealPendingRef.current = false;
+
+    if (nextSession && shouldTrackPending) {
+      adjustRevealSessionCounts(nextSession, { pendingCount: 1 });
+      trackedRevealPendingRef.current = true;
+    }
+
+    return () => {
+      if (trackedRevealPendingSessionRef.current && trackedRevealPendingRef.current) {
+        adjustRevealSessionCounts(trackedRevealPendingSessionRef.current, { pendingCount: -1 });
+        trackedRevealPendingRef.current = false;
+      }
+    };
+  }, [hasMeasuredVisibility, revealSession, status]);
 
   if (hideOnError && status === 'error') {
     return null;

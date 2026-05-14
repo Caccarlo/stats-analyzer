@@ -402,6 +402,36 @@ export function useMatchTimeline(
   const substitutionLoadingRef = useRef(false);
   const detailsMapRef = useRef(detailsMap);
   const playerIdRef = useRef(playerId);
+  const applyEmptyTimeline = useCallback(() => {
+    setAllEvents([]);
+    setDetailsMap(new Map());
+    setEventDurationMetadataMap(new Map());
+    setLineupsLoadedIds(new Set());
+    setLoadingEvents(false);
+    setAllOfficialStatsLoaded(true);
+    setAllLineupsLoaded(true);
+    setRecentRichLoaded(true);
+  }, []);
+  const applyTimelineSnapshot = useCallback((snapshot: TimelineSnapshot) => {
+    setAllEvents(snapshot.allEvents);
+    setDetailsMap(snapshot.detailsMap);
+    setEventDurationMetadataMap(snapshot.eventDurationMetadataMap);
+    setLineupsLoadedIds(snapshot.lineupsLoadedIds);
+    setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
+    setAllLineupsLoaded(snapshot.allLineupsLoaded);
+    setRecentRichLoaded(true);
+    setLoadingEvents(false);
+  }, []);
+  const resetTimelineLoadingState = useCallback(() => {
+    setAllEvents([]);
+    setDetailsMap(new Map());
+    setEventDurationMetadataMap(new Map());
+    setLoadingEvents(true);
+    setAllOfficialStatsLoaded(false);
+    setLineupsLoadedIds(new Set());
+    setAllLineupsLoaded(false);
+    setRecentRichLoaded(true);
+  }, []);
 
   useEffect(() => {
     detailsMapRef.current = detailsMap;
@@ -419,28 +449,22 @@ export function useMatchTimeline(
     substitutionLoadingRef.current = false;
 
     if (stableSeasonIds !== null && stableSeasonIds.size === 0) {
-      setAllEvents([]);
-      setDetailsMap(new Map());
-      setEventDurationMetadataMap(new Map());
-      setLineupsLoadedIds(new Set());
-      setLoadingEvents(false);
-      setAllOfficialStatsLoaded(true);
-      setAllLineupsLoaded(true);
-      setRecentRichLoaded(true);
+      queueMicrotask(() => {
+        if (!cancelled) {
+          applyEmptyTimeline();
+        }
+      });
       return () => { cancelled = true; };
     }
 
     const cachedContext = timelineContextCache.get(contextKey);
     if (cachedContext) {
       const snapshot = cloneTimelineSnapshot(cachedContext);
-      setAllEvents(snapshot.allEvents);
-      setDetailsMap(snapshot.detailsMap);
-      setEventDurationMetadataMap(snapshot.eventDurationMetadataMap);
-      setLineupsLoadedIds(snapshot.lineupsLoadedIds);
-      setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
-      setAllLineupsLoaded(snapshot.allLineupsLoaded);
-      setRecentRichLoaded(true);
-      setLoadingEvents(false);
+      queueMicrotask(() => {
+        if (!cancelled) {
+          applyTimelineSnapshot(snapshot);
+        }
+      });
       return () => { cancelled = true; };
     }
 
@@ -456,25 +480,19 @@ export function useMatchTimeline(
     if (cachedPagesSnapshot) {
       const snapshot = cloneTimelineSnapshot(cachedPagesSnapshot);
       timelineContextCache.set(contextKey, cloneTimelineSnapshot(snapshot));
-      setAllEvents(snapshot.allEvents);
-      setDetailsMap(snapshot.detailsMap);
-      setEventDurationMetadataMap(snapshot.eventDurationMetadataMap);
-      setLineupsLoadedIds(snapshot.lineupsLoadedIds);
-      setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
-      setAllLineupsLoaded(snapshot.allLineupsLoaded);
-      setRecentRichLoaded(true);
-      setLoadingEvents(false);
+      queueMicrotask(() => {
+        if (!cancelled) {
+          applyTimelineSnapshot(snapshot);
+        }
+      });
       return () => { cancelled = true; };
     }
 
-    setAllEvents([]);
-    setDetailsMap(new Map());
-    setEventDurationMetadataMap(new Map());
-    setLoadingEvents(true);
-    setAllOfficialStatsLoaded(false);
-    setLineupsLoadedIds(new Set());
-    setAllLineupsLoaded(false);
-    setRecentRichLoaded(true);
+    queueMicrotask(() => {
+      if (!cancelled) {
+        resetTimelineLoadingState();
+      }
+    });
 
     async function loadPages() {
       let page = 0;
@@ -560,19 +578,24 @@ export function useMatchTimeline(
       const snapshot = buildSnapshotFromEvents(accumulated, combinedDetails);
       timelineContextCache.set(contextKey, cloneTimelineSnapshot(snapshot));
 
-      setAllEvents(snapshot.allEvents);
-      setDetailsMap(snapshot.detailsMap);
-      setEventDurationMetadataMap(snapshot.eventDurationMetadataMap);
-      setLineupsLoadedIds(snapshot.lineupsLoadedIds);
-      setAllOfficialStatsLoaded(snapshot.allOfficialStatsLoaded);
-      setAllLineupsLoaded(snapshot.allLineupsLoaded);
-      setRecentRichLoaded(true);
-      setLoadingEvents(false);
+      applyTimelineSnapshot(snapshot);
     }
 
     loadPages();
     return () => { cancelled = true; };
-  }, [playerId, stableSeasonIds, stableTournamentIds, stableTournamentYearPairs, stableSeasonDateRange, maxEvents, minPlayedEvents, contextKey]);
+  }, [
+    applyEmptyTimeline,
+    applyTimelineSnapshot,
+    contextKey,
+    maxEvents,
+    minPlayedEvents,
+    playerId,
+    resetTimelineLoadingState,
+    stableSeasonDateRange,
+    stableSeasonIds,
+    stableTournamentIds,
+    stableTournamentYearPairs,
+  ]);
 
   useEffect(() => {
     if (allEvents.length === 0) return;

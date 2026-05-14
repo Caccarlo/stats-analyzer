@@ -296,6 +296,7 @@ export interface MatchupNavigationTarget {
   leagueId?: number;
   leagueName?: string;
   seasonId?: number;
+  seasonYear?: string;
   countryId?: string;
   countryName?: string;
   countryCategoryId?: number;
@@ -339,6 +340,7 @@ export interface PanelState {
   leagueId?: number;
   leagueName?: string;
   seasonId?: number;
+  seasonYear?: string;
   tournamentPhaseKey?: string;
   tournamentPhaseName?: string;
   teamId?: number;

@@ -181,9 +181,17 @@ export function useCalendarData(selectedDate: string) {
 
     // Se già in cache locale, non mostrare loading
     if (!eventsMap.has(selectedDate)) {
-      setLoading(true);
+      queueMicrotask(() => {
+        if (!cancelled) {
+          setLoading(true);
+        }
+      });
     }
-    setError(null);
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setError(null);
+      }
+    });
 
     getScheduledEvents(selectedDate).then((events) => {
       if (!cancelled) {
@@ -202,7 +210,6 @@ export function useCalendarData(selectedDate: string) {
     });
 
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
   // Auto-refresh ogni 60s quando si visualizza la data di oggi
@@ -225,7 +232,6 @@ export function useCalendarData(selectedDate: string) {
 
   const groups: CountryGroup[] = useMemo(
     () => buildGroups((eventsMap.get(selectedDate) ?? []).filter((event) => isEventOnSelectedDate(event, selectedDate))),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [eventsMap, selectedDate]
   );
 

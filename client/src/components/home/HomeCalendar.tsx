@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useCalendarData, todayISO } from '@/hooks/useCalendarData';
 import { useNavigation } from '@/context/NavigationContext';
 import { createMatchupNavigationTarget } from '@/api/sofascore';
 import type { MatchEvent } from '@/types';
 import CalendarStrip from './CalendarStrip';
 import DaySchedule from './DaySchedule';
-import { usePriorityImageScopePending } from '@/components/common/PriorityImage';
+import { usePriorityImageRevealState } from '@/components/common/PriorityImage';
 
 interface HomeCalendarProps {
   panelIndex?: number;
@@ -30,26 +30,34 @@ export default function HomeCalendar({
 
   const { navigateTo, selectLeague, openMatchup } = useNavigation();
   const { groups, loading, error } = useCalendarData(selectedDate);
-  const imageLoadScope = `home-schedule:${selectedDate}`;
-  const [isDayReady, setIsDayReady] = useState(false);
-  const shouldTrackInitialImages = !isDayReady && !loading && !error && groups.length > 0;
-  const imagesPending = usePriorityImageScopePending(
-    shouldTrackInitialImages ? imageLoadScope : null,
+  const [readyDate, setReadyDate] = useState<string | null>(null);
+  const markDayReady = useCallback((date: string) => {
+    setReadyDate((current) => (current === date ? current : date));
+  }, []);
+  const isEmptyDay = !loading && !error && groups.length === 0;
+  const isDayReady = readyDate === selectedDate || isEmptyDay;
+  const revealSession = !isDayReady && !loading && !error && groups.length > 0
+    ? `home-schedule-reveal:${selectedDate}`
+    : null;
+  const revealState = usePriorityImageRevealState(
+    revealSession,
   );
-
-  useEffect(() => {
-    setIsDayReady(false);
-  }, [selectedDate]);
 
   useEffect(() => {
     if (loading || error) {
       return;
     }
 
-    if (groups.length === 0 || !imagesPending) {
-      setIsDayReady(true);
+    if (groups.length === 0) {
+      return;
     }
-  }, [error, groups.length, imagesPending, loading]);
+
+    if (revealState.snapshotReady && !revealState.pending) {
+      queueMicrotask(() => {
+        markDayReady(selectedDate);
+      });
+    }
+  }, [error, groups.length, loading, markDayReady, revealState.pending, revealState.snapshotReady, selectedDate]);
 
   const handleNavigateLeague = (leagueId: number, leagueName: string, seasonId: number) => {
     selectLeague(panelIndex, leagueId, leagueName, seasonId);
@@ -89,7 +97,7 @@ export default function HomeCalendar({
           onNavigateLeague={handleNavigateLeague}
           onNavigateTeam={handleNavigateTeam}
           onOpenMatchup={handleOpenMatchup}
-          imageLoadScope={shouldTrackInitialImages ? imageLoadScope : undefined}
+          imageRevealSession={revealSession ?? undefined}
         />
       </div>
     </div>

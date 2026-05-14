@@ -154,6 +154,7 @@ function reducer(state: NavState, action: NavAction): NavState {
         leagueId: action.matchup.leagueId,
         leagueName: action.matchup.leagueName,
         seasonId: action.matchup.seasonId,
+        seasonYear: action.matchup.seasonYear,
         countryId: action.matchup.countryId,
         countryName: action.matchup.countryName,
         countryCategoryId: action.matchup.countryCategoryId,
@@ -315,6 +316,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useNavigation() {
   const ctx = useContext(NavContext);
   if (!ctx) throw new Error('useNavigation must be used within NavigationProvider');

@@ -88,13 +88,13 @@ Key responsibilities:
 - `client/src/context/NavigationContext.tsx`: reducer-driven navigation state, split open/close/swap logic, per-panel filter persistence, real-match-only `MatchupView` opening
 - `client/src/api/sofascore.ts`: all client API calls, client-direct SofaScore JSON fetch with proxy fallback, client TTL cache, in-flight dedupe, terminal 4xx handling, tournament paging helpers, shared matchup target resolvers
 - `client/src/components/navigation/TeamView.tsx`: team page, next-match context persistence, split-view opponent orchestration, real-match matchup resolution
-- `client/src/components/navigation/MatchupView.tsx`: full-screen single-match comparison view with canonical event-driven lineups and side/team stats fallback handling
+- `client/src/components/navigation/MatchupView.tsx`: full-screen single-match comparison view with canonical event-driven lineups and season-aware team stats loading for the opened match
 - `client/src/hooks/usePlayerData.ts`: player seasons, period/filter state, tournament enablement, aggregated season stats
 - `client/src/hooks/useMatchTimeline.ts`: event paging, context snapshots, progressive official stats / duration / substitution / lineup loading
 - `client/src/hooks/useMatchDetails.ts`: shared match-detail cache and rich-data helpers
 - `client/src/hooks/useTournamentViewData.ts`: standings vs phase reconstruction, latest valid season resolution, shared tournament snapshot cache
 - `client/src/pages/PlayerPage.tsx`: coordinates filters, timeline, selection, derived stats, empty/loading states, card layout
-- `client/src/components/common/PriorityImage.tsx`: client-side image queue for home logos/flags with visible-first loading, expansion-triggered priority boosts, invisible placeholders, and timeout-based failure fallback
+- `client/src/components/common/PriorityImage.tsx`: client-side image queue for home logos/flags with visible-first loading, separate above-the-fold reveal-session tracking, expansion-triggered priority boosts, invisible placeholders, and timeout-based failure fallback
 - `server/index.js`: Express proxy for JSON and images with server-side TTL cache, in-flight dedupe, direct-first image fetches, and persistent Chrome relay fallback for SofaScore
 
 ## Architecture And Conventions
@@ -104,6 +104,8 @@ Key responsibilities:
 - Panel behavior matters. Many layout decisions depend on measured panel width, not only viewport width.
 - `MatchupView` is a match-specific screen. It must open only from a resolved real event (`eventId`); generic team-vs-team compare mode is intentionally unsupported.
 - Team panels persist a compact `nextMatchSummary` in `PanelState` after loading `nextEvent`, so split views can prove both sides reference the same real match before auto-opening or merging into `MatchupView`.
+- Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
+- `MatchupView` player stats tables should load finished matches across the opened match's full season context, not just the first page of team history, so the default competition filter remains populated reliably.
 - Home is a real data view, not a static landing page. It shows the daily football schedule and keeps calendar state in `App.tsx`.
 - Search is global and can open players, teams, or tournaments directly.
 - Player filter state is persisted in `PanelState.filterState`, so filters survive split/fullscreen transitions when the panel survives.
@@ -127,8 +129,9 @@ Key responsibilities:
   - launching a local Chrome/Chromium binary via `SOFASCORE_BROWSER_EXECUTABLE_PATH`
 - In local development, if `SOFASCORE_BROWSER_EXECUTABLE_PATH` is not set, the server auto-detects a common Chrome/Chromium/Edge executable path before falling back to direct Node fetches.
 - The browser relay keeps a warmed page on `https://www.sofascore.com/` and executes in-page `fetch()` calls for JSON plus fallback image requests, so blocked SofaScore requests can still inherit a real browser session instead of a plain server-side fingerprint.
-- Home schedule logos and flags should use `PriorityImage`, which loads visible items first, trickles offscreen items only after the visible queue drains, and promotes newly expanded sections to high priority immediately.
-- `HomeCalendar` / `DaySchedule` should keep the existing green loader under the calendar strip active until the currently mounted schedule images for that date have settled; the schedule content may mount invisibly to trigger those requests, but it should not show a separate centered overlay spinner.
+- Home schedule logos and flags should use `PriorityImage`, which keeps load priority separate from reveal gating: visible items load first, offscreen items trickle only after the visible queue drains, and newly expanded sections are promoted to high priority immediately.
+- `HomeCalendar` opens a fresh reveal session on every date change and closes the green loader once the images that were actually inside the initial viewport have either loaded or failed; images below the fold must never hold that gate open.
+- `DaySchedule` should keep schedule content mounted but visually hidden during the reveal session so `IntersectionObserver` and image requests can start immediately, without showing a separate centered overlay spinner or letting the hidden list capture interaction.
 - `SOFASCORE_DIRECT_FALLBACK` controls whether the old direct Node-fetch fallback remains allowed when no browser relay is configured.
 - The server exposes `/api/sofascore-browser/status` for relay diagnostics.
 - Production deploy should treat CDP mode (`SOFASCORE_BROWSER_CDP_URL`) as a proxy fallback, preferably on an IP/environment that is verified to pass SofaScore JSON. Example env and `systemd` units live in `docs/deploy/`.
@@ -149,6 +152,7 @@ Follow these rules automatically on every task in this repo.
 
 - Do not overwrite, revert, or discard unrelated local changes unless the user explicitly asks.
 - If the worktree is dirty, isolate your own changes and leave unrelated edits intact.
+- Generated local artifacts such as `.playwright-mcp/`, `server-*.log`, `stats-analyzer-current.tar.gz`, `temp-*-profile/`, and `server/.sofascore-browser-profile*` should stay untracked and be cleaned up or ignored rather than committed.
 
 ### Keep Docs In Sync
 

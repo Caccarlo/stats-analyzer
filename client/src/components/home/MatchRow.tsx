@@ -7,7 +7,7 @@ interface MatchRowProps {
   onNavigateTeam: (teamId: number, teamName: string, event: MatchEvent) => void;
   onOpenMatchup?: (event: MatchEvent) => void;
   expansionPriorityToken?: number;
-  imageLoadScope?: string;
+  imageRevealSession?: string;
 }
 
 function formatTime(ts: number): string {
@@ -88,7 +88,7 @@ export default function MatchRow({
   onNavigateTeam,
   onOpenMatchup,
   expansionPriorityToken = 0,
-  imageLoadScope,
+  imageRevealSession,
 }: MatchRowProps) {
   return (
     <div
@@ -107,7 +107,7 @@ export default function MatchRow({
           width={20}
           height={20}
           expansionPriorityToken={expansionPriorityToken}
-          loadScope={imageLoadScope}
+          revealSession={imageRevealSession}
           hideOnError
         />
       </div>
@@ -125,7 +125,7 @@ export default function MatchRow({
           width={20}
           height={20}
           expansionPriorityToken={expansionPriorityToken}
-          loadScope={imageLoadScope}
+          revealSession={imageRevealSession}
           hideOnError
         />
         <TeamName

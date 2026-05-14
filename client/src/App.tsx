@@ -127,6 +127,7 @@ function AppContent() {
             leagueId={panel.leagueId}
             leagueName={panel.leagueName}
             seasonId={panel.seasonId}
+            seasonYear={panel.seasonYear}
           />
         ) : null;
 

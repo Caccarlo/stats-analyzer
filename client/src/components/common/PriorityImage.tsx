@@ -181,6 +181,19 @@ function getRevealSessionSnapshot(session: string) {
   };
 }
 
+function getRevealSessionStateKey(session: string | null): string {
+  if (!session) {
+    return '0:1';
+  }
+
+  const snapshot = getRevealSessionSnapshot(session);
+  if (!snapshot) {
+    return '0:0';
+  }
+
+  return `${snapshot.pendingCount > 0 ? 1 : 0}:${snapshot.trackedCount === snapshot.measuredCount ? 1 : 0}`;
+}
+
 function subscribeToRevealSession(session: string, listener: () => void): () => void {
   const record = getOrCreateRevealSessionRecord(session);
   record.listeners.add(listener);
@@ -324,34 +337,17 @@ export function usePriorityImageScopePending(scope: string | null | undefined): 
 // eslint-disable-next-line react-refresh/only-export-components
 export function usePriorityImageRevealState(session: string | null | undefined) {
   const normalizedSession = session ?? null;
-  return useSyncExternalStore(
+  const stateKey = useSyncExternalStore(
     (onStoreChange) => (normalizedSession ? subscribeToRevealSession(normalizedSession, onStoreChange) : () => {}),
-    () => {
-      if (!normalizedSession) {
-        return {
-          pending: false,
-          snapshotReady: true,
-        };
-      }
-
-      const snapshot = getRevealSessionSnapshot(normalizedSession);
-      if (!snapshot) {
-        return {
-          pending: false,
-          snapshotReady: false,
-        };
-      }
-
-      return {
-        pending: snapshot.pendingCount > 0,
-        snapshotReady: snapshot.trackedCount === snapshot.measuredCount,
-      };
-    },
-    () => ({
-      pending: false,
-      snapshotReady: true,
-    }),
+    () => getRevealSessionStateKey(normalizedSession),
+    () => getRevealSessionStateKey(null),
   );
+
+  const [pendingFlag, snapshotReadyFlag] = stateKey.split(':');
+  return {
+    pending: pendingFlag === '1',
+    snapshotReady: snapshotReadyFlag === '1',
+  };
 }
 
 export default function PriorityImage({

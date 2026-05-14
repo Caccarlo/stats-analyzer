@@ -10,7 +10,7 @@ interface DayScheduleProps {
   onNavigateLeague: (leagueId: number, leagueName: string, seasonId: number) => void;
   onNavigateTeam: (teamId: number, teamName: string, event: MatchEvent) => void;
   onOpenMatchup?: (event: MatchEvent) => void;
-  imageLoadScope?: string;
+  imageRevealSession?: string;
 }
 
 export default function DaySchedule({
@@ -21,7 +21,7 @@ export default function DaySchedule({
   onNavigateLeague,
   onNavigateTeam,
   onOpenMatchup,
-  imageLoadScope,
+  imageRevealSession,
 }: DayScheduleProps) {
   const renderGroups = () => (
     <>
@@ -32,24 +32,16 @@ export default function DaySchedule({
           onNavigateLeague={onNavigateLeague}
           onNavigateTeam={onNavigateTeam}
           onOpenMatchup={onOpenMatchup}
-          imageLoadScope={imageLoadScope}
+          imageRevealSession={imageRevealSession}
         />
       ))}
     </>
   );
 
-  if (loading || deferReveal) {
+  if (loading && groups.length === 0) {
     return (
-      <div>
-        <div className="flex items-center justify-center py-12">
-          <div className="w-5 h-5 border-2 border-neon border-t-transparent rounded-full animate-spin" />
-        </div>
-
-        {deferReveal && groups.length > 0 && (
-          <div className="opacity-0 pointer-events-none" aria-hidden="true">
-            {renderGroups()}
-          </div>
-        )}
+      <div className="flex items-center justify-center py-12">
+        <div className="w-5 h-5 border-2 border-neon border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -68,7 +60,23 @@ export default function DaySchedule({
     );
   }
 
+  const showLoader = loading || deferReveal;
+  const contentIsHidden = deferReveal;
+
   return (
-    <div>{renderGroups()}</div>
+    <div>
+      {showLoader && (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-5 h-5 border-2 border-neon border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+
+      <div
+        className={contentIsHidden ? 'opacity-0 pointer-events-none overflow-hidden max-h-screen' : 'opacity-100 transition-opacity duration-150'}
+        aria-hidden={contentIsHidden ? 'true' : undefined}
+      >
+        {renderGroups()}
+      </div>
+    </div>
   );
 }

@@ -13,7 +13,7 @@ interface LeagueSectionProps {
   onNavigateTeam: (teamId: number, teamName: string, event: MatchEvent) => void;
   onOpenMatchup?: (event: MatchEvent) => void;
   expansionPriorityToken?: number;
-  imageLoadScope?: string;
+  imageRevealSession?: string;
 }
 
 export default function LeagueSection({
@@ -25,7 +25,7 @@ export default function LeagueSection({
   onNavigateTeam,
   onOpenMatchup,
   expansionPriorityToken = 0,
-  imageLoadScope,
+  imageRevealSession,
 }: LeagueSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [localExpansionPriorityToken, setLocalExpansionPriorityToken] = useState(0);
@@ -60,7 +60,7 @@ export default function LeagueSection({
           className="w-4 h-4 object-contain flex-shrink-0"
           width={16}
           height={16}
-          loadScope={imageLoadScope}
+          revealSession={imageRevealSession}
           hideOnError
         />
 
@@ -91,7 +91,7 @@ export default function LeagueSection({
               onNavigateTeam={onNavigateTeam}
               onOpenMatchup={onOpenMatchup}
               expansionPriorityToken={mergedExpansionPriorityToken}
-              imageLoadScope={imageLoadScope}
+              imageRevealSession={imageRevealSession}
             />
           ))}
         </div>

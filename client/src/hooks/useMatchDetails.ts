@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type {
   FoulMatchup,
   PlayerPosition,
@@ -444,26 +444,37 @@ export function useMatchDetails(
   const [details, setDetails] = useState<CachedMatchDetails>(() => createSeededMatchDetails(seed));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const applyDetails = useCallback((nextDetails: CachedMatchDetails) => {
+    setDetails(nextDetails);
+  }, []);
 
   useEffect(() => {
     if (!eventId || !playerId || !enabled) return;
 
+    let cancelled = false;
     const key = `${eventId}-${playerId}`;
     const cached = matchDetailsCache.get(key);
     if (cached) {
-      setDetails(mergeMatchDetailsWithSeed(cached, seed));
-      return;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        applyDetails(mergeMatchDetailsWithSeed(cached, seed));
+        setLoading(false);
+        setError(null);
+      });
+      return () => { cancelled = true; };
     }
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setDetails(createSeededMatchDetails(seed));
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setError(null);
+      setDetails(createSeededMatchDetails(seed));
+    });
 
     fetchMatchDetails(eventId, playerId, seed)
       .then((result) => {
         if (cancelled) return;
-        setDetails(result);
+        applyDetails(result);
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -473,7 +484,7 @@ export function useMatchDetails(
       });
 
     return () => { cancelled = true; };
-  }, [enabled, eventId, playerId, seed?.incidents, seed?.officialStats, seed?.onBench]);
+  }, [applyDetails, enabled, eventId, playerId, seed?.incidents, seed?.officialStats, seed?.onBench]);
 
   return {
     ...details,

@@ -311,6 +311,7 @@ function requestImageLoad(src: string, priority: LoadPriority) {
   pumpImageQueue();
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePriorityImageScopePending(scope: string | null | undefined): boolean {
   const normalizedScope = scope ?? null;
   return useSyncExternalStore(
@@ -320,6 +321,7 @@ export function usePriorityImageScopePending(scope: string | null | undefined): 
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function usePriorityImageRevealState(session: string | null | undefined) {
   const normalizedSession = session ?? null;
   return useSyncExternalStore(
@@ -365,10 +367,15 @@ export default function PriorityImage({
   revealSession,
   ...imgProps
 }: PriorityImageProps) {
+  const supportsIntersectionObserver = typeof IntersectionObserver !== 'undefined';
   const imgRef = useRef<HTMLImageElement>(null);
-  const [status, setStatus] = useState<LoadStatus>(() => getImageStatus(src));
-  const [isVisible, setIsVisible] = useState(false);
-  const [hasMeasuredVisibility, setHasMeasuredVisibility] = useState(false);
+  const status = useSyncExternalStore(
+    (onStoreChange) => subscribeToImage(src, onStoreChange),
+    () => getImageStatus(src),
+    () => getImageStatus(src),
+  );
+  const [isVisible, setIsVisible] = useState(!supportsIntersectionObserver);
+  const [hasMeasuredVisibility, setHasMeasuredVisibility] = useState(!supportsIntersectionObserver);
   const lastExpansionTokenRef = useRef(expansionPriorityToken);
   const trackedScopeRef = useRef<string | null>(null);
   const trackedPendingRef = useRef(false);
@@ -381,19 +388,10 @@ export default function PriorityImage({
   const trackedRevealPendingRef = useRef(false);
 
   useEffect(() => {
-    setStatus(getImageStatus(src));
-    return subscribeToImage(src, () => {
-      setStatus(getImageStatus(src));
-    });
-  }, [src]);
-
-  useEffect(() => {
     const node = imgRef.current;
     if (!node) return undefined;
 
-    if (typeof IntersectionObserver === 'undefined') {
-      setIsVisible(true);
-      setHasMeasuredVisibility(true);
+    if (!supportsIntersectionObserver) {
       return undefined;
     }
 
@@ -414,7 +412,7 @@ export default function PriorityImage({
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [supportsIntersectionObserver]);
 
   useEffect(() => {
     if (initialViewportVisibilityRef.current === null && hasMeasuredVisibility) {

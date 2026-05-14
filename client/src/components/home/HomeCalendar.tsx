@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useCalendarData, todayISO } from '@/hooks/useCalendarData';
 import { useNavigation } from '@/context/NavigationContext';
 import { createMatchupNavigationTarget } from '@/api/sofascore';
@@ -31,6 +31,9 @@ export default function HomeCalendar({
   const { navigateTo, selectLeague, openMatchup } = useNavigation();
   const { groups, loading, error } = useCalendarData(selectedDate);
   const [readyDate, setReadyDate] = useState<string | null>(null);
+  const markDayReady = useCallback((date: string) => {
+    setReadyDate((current) => (current === date ? current : date));
+  }, []);
   const isEmptyDay = !loading && !error && groups.length === 0;
   const isDayReady = readyDate === selectedDate || isEmptyDay;
   const revealSession = !isDayReady && !loading && !error && groups.length > 0
@@ -50,9 +53,11 @@ export default function HomeCalendar({
     }
 
     if (revealState.snapshotReady && !revealState.pending) {
-      setReadyDate(selectedDate);
+      queueMicrotask(() => {
+        markDayReady(selectedDate);
+      });
     }
-  }, [error, groups.length, loading, revealState.pending, revealState.snapshotReady, selectedDate]);
+  }, [error, groups.length, loading, markDayReady, revealState.pending, revealState.snapshotReady, selectedDate]);
 
   const handleNavigateLeague = (leagueId: number, leagueName: string, seasonId: number) => {
     selectLeague(panelIndex, leagueId, leagueName, seasonId);

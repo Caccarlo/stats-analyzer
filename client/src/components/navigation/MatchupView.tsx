@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigation } from '@/context/NavigationContext';
 import {
   getTeamPlayers,
@@ -124,6 +124,7 @@ interface MatchupViewProps {
   leagueId?: number;
   leagueName?: string;
   seasonId?: number;
+  seasonYear?: string;
 }
 
 // Componente sezione partite per una singola squadra
@@ -377,24 +378,60 @@ interface TeamStatsSectionProps {
   teamId: number;
   roster: Player[];
   defaultCompetitionId?: number;
+  defaultSeasonYear?: string;
   onPlayerClick: (player: Player) => void;
   bench: Player[];
 }
 
-function TeamStatsSection({ teamId, roster, defaultCompetitionId, onPlayerClick, bench }: TeamStatsSectionProps) {
+function parseSeasonDateRange(year: string): { startTimestamp: number; endTimestamp: number } | null {
+  const shortSeasonMatch = year.match(/^(\d{2})\/(\d{2})$/);
+  if (shortSeasonMatch) {
+    const startYear = 2000 + Number(shortSeasonMatch[1]);
+    const endYear = 2000 + Number(shortSeasonMatch[2]);
+    return {
+      startTimestamp: Date.UTC(startYear, 6, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(endYear, 5, 30, 23, 59, 59) / 1000,
+    };
+  }
+
+  const longSeasonMatch = year.match(/^(\d{4})\/(\d{2}|\d{4})$/);
+  if (longSeasonMatch) {
+    const startYear = Number(longSeasonMatch[1]);
+    const rawEndYear = longSeasonMatch[2];
+    const endYear = rawEndYear.length === 2 ? 2000 + Number(rawEndYear) : Number(rawEndYear);
+    return {
+      startTimestamp: Date.UTC(startYear, 6, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(endYear, 5, 30, 23, 59, 59) / 1000,
+    };
+  }
+
+  const singleYearMatch = year.match(/^(\d{4})$/);
+  if (singleYearMatch) {
+    const seasonYear = Number(singleYearMatch[1]);
+    return {
+      startTimestamp: Date.UTC(seasonYear, 0, 1, 0, 0, 0) / 1000,
+      endTimestamp: Date.UTC(seasonYear, 11, 31, 23, 59, 59) / 1000,
+    };
+  }
+
+  return null;
+}
+
+function TeamStatsSection({ teamId, roster, defaultCompetitionId, defaultSeasonYear, onPlayerClick, bench }: TeamStatsSectionProps) {
   const [selectedStatsCompetitionId, setSelectedStatsCompetitionId] = useState<'all' | number>(defaultCompetitionId ?? 'all');
   const [selectedStatsSectionId, setSelectedStatsSectionId] = useState<TeamStatsSectionId>('foulsCommitted');
   const [statsSortKey, setStatsSortKey] = useState<TeamStatsSortKey>('total');
   const [statsLineupsMap, setStatsLineupsMap] = useState<Map<number, MatchLineups | null>>(new Map());
   const [statsHistoryStatus, setStatsHistoryStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
   const [statsEvents, setStatsEvents] = useState<MatchEvent[]>([]);
+  const [statsApiPage, setStatsApiPage] = useState(0);
+  const [hasMoreStatsHistory, setHasMoreStatsHistory] = useState(true);
+  const markStatsHistoryLoaded = useCallback(() => {
+    setStatsHistoryStatus('loaded');
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setStatsLineupsMap(new Map());
-    setStatsHistoryStatus('idle');
-    setStatsEvents([]);
-    setSelectedStatsCompetitionId(defaultCompetitionId ?? 'all');
 
     (async () => {
       setStatsHistoryStatus('loading');
@@ -402,32 +439,8 @@ function TeamStatsSection({ teamId, roster, defaultCompetitionId, onPlayerClick,
         const events = await getTeamEventsByDirection(teamId, 'last', 0);
         if (cancelled) return;
         setStatsEvents(events);
-        setStatsHistoryStatus('loaded');
-
-        const rosterIds = new Set(roster.map((p) => p.id));
-        const batches: MatchEvent[][] = [];
-        for (let i = 0; i < events.length; i += TEAM_STATS_FETCH_BATCH_SIZE) {
-          batches.push(events.slice(i, i + TEAM_STATS_FETCH_BATCH_SIZE));
-        }
-        for (const batch of batches) {
-          if (cancelled) return;
-          const results = await Promise.all(batch.map((ev) => getMatchLineups(ev.id).catch(() => null)));
-          if (cancelled) return;
-          setStatsLineupsMap((prev) => {
-            const next = new Map(prev);
-            batch.forEach((ev, i) => {
-              const lineups = results[i];
-              if (lineups) {
-                const teamLineup = ev.homeTeam.id === teamId ? lineups.home : ev.awayTeam.id === teamId ? lineups.away : null;
-                if (teamLineup) {
-                  teamLineup.players = teamLineup.players.filter((lp) => rosterIds.has(lp.player.id));
-                }
-              }
-              next.set(ev.id, lineups);
-            });
-            return next;
-          });
-        }
+        setHasMoreStatsHistory(events.length > 0);
+        setStatsHistoryStatus(events.length === 0 ? 'loaded' : 'idle');
       } catch (e) {
         if (!cancelled) setStatsHistoryStatus('error');
         console.error('TeamStatsSection fetch error:', e);
@@ -435,30 +448,132 @@ function TeamStatsSection({ teamId, roster, defaultCompetitionId, onPlayerClick,
     })();
 
     return () => { cancelled = true; };
-  }, [teamId, roster, defaultCompetitionId]);
+  }, [teamId, defaultCompetitionId]);
 
-  const statsCompetitionOptions = useMemo(() => buildCompetitionOptions(statsEvents), [statsEvents]);
-  const finishedStatsEvents = useMemo(
-    () => statsEvents.filter((ev) => ev.status?.type === 'finished'),
-    [statsEvents],
+  const referenceSeasonYear = defaultSeasonYear ?? statsEvents[0]?.season?.year ?? null;
+  const statsSeasonDateRange = useMemo(
+    () => (referenceSeasonYear ? parseSeasonDateRange(referenceSeasonYear) : null),
+    [referenceSeasonYear],
   );
+  const reachedOlderStatsSeason = useMemo(() => {
+    if (!referenceSeasonYear) return false;
+
+    return statsSeasonDateRange
+      ? statsEvents.some((event) => event.startTimestamp < statsSeasonDateRange.startTimestamp)
+      : statsEvents.some((event) => event.season?.year && event.season.year !== referenceSeasonYear);
+  }, [referenceSeasonYear, statsEvents, statsSeasonDateRange]);
+
+  useEffect(() => {
+    if (!referenceSeasonYear || statsHistoryStatus === 'loading' || statsHistoryStatus === 'error') return;
+    if (!hasMoreStatsHistory || reachedOlderStatsSeason) {
+      if (statsHistoryStatus !== 'loaded') {
+        queueMicrotask(() => {
+          markStatsHistoryLoaded();
+        });
+      }
+      return;
+    }
+
+    let cancelled = false;
+    const nextPage = statsApiPage + 1;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setStatsHistoryStatus('loading');
+      }
+    });
+
+    void (async () => {
+      try {
+        const events = await getTeamEventsByDirection(teamId, 'last', nextPage);
+        if (cancelled) return;
+
+        if (events.length === 0) {
+          setHasMoreStatsHistory(false);
+          setStatsHistoryStatus('loaded');
+          return;
+        }
+
+        setStatsEvents((current) => mergeTeamEvents(current, events, 'last'));
+        setStatsApiPage((current) => Math.max(current, nextPage));
+        setStatsHistoryStatus('idle');
+      } catch (error) {
+        console.error('loadMatchupTeamStatsHistory error:', error);
+        if (!cancelled) setStatsHistoryStatus('error');
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasMoreStatsHistory, markStatsHistoryLoaded, reachedOlderStatsSeason, referenceSeasonYear, statsApiPage, statsHistoryStatus, teamId]);
+
+  const currentSeasonPastEvents = useMemo(
+    () => statsEvents.filter((event) => (
+      event.status?.type === 'finished' && (
+        !referenceSeasonYear
+          ? true
+          : statsSeasonDateRange
+            ? event.startTimestamp >= statsSeasonDateRange.startTimestamp && event.startTimestamp <= statsSeasonDateRange.endTimestamp
+            : event.season?.year === referenceSeasonYear
+      )
+    )),
+    [referenceSeasonYear, statsEvents, statsSeasonDateRange],
+  );
+  const statsCompetitionOptions = useMemo(() => buildCompetitionOptions(currentSeasonPastEvents), [currentSeasonPastEvents]);
   const effectiveSelectedStatsCompetitionId = useMemo<'all' | number>(() => {
     if (selectedStatsCompetitionId === 'all') return 'all';
     if (!statsCompetitionOptions.some((competition) => competition.id === selectedStatsCompetitionId)) {
       return 'all';
     }
-    return includesCompetition(finishedStatsEvents, selectedStatsCompetitionId)
+    return includesCompetition(currentSeasonPastEvents, selectedStatsCompetitionId)
       ? selectedStatsCompetitionId
       : 'all';
-  }, [finishedStatsEvents, selectedStatsCompetitionId, statsCompetitionOptions]);
+  }, [currentSeasonPastEvents, selectedStatsCompetitionId, statsCompetitionOptions]);
 
   const filteredStatsEvents = useMemo(() => {
-    if (effectiveSelectedStatsCompetitionId === 'all') return finishedStatsEvents;
-    return finishedStatsEvents.filter((ev) => ev.tournament?.uniqueTournament?.id === effectiveSelectedStatsCompetitionId);
-  }, [effectiveSelectedStatsCompetitionId, finishedStatsEvents]);
+    if (effectiveSelectedStatsCompetitionId === 'all') return currentSeasonPastEvents;
+    return currentSeasonPastEvents.filter((ev) => ev.tournament?.uniqueTournament?.id === effectiveSelectedStatsCompetitionId);
+  }, [currentSeasonPastEvents, effectiveSelectedStatsCompetitionId]);
 
   const selectedStatsSection = TEAM_STATS_SECTIONS.find((s) => s.id === selectedStatsSectionId) ?? TEAM_STATS_SECTIONS[0];
   const statsRosterIds = useMemo(() => new Set(roster.map((p) => p.id)), [roster]);
+  const nextStatsLineupBatch = useMemo(
+    () => currentSeasonPastEvents.filter((event) => !statsLineupsMap.has(event.id)).slice(0, TEAM_STATS_FETCH_BATCH_SIZE),
+    [currentSeasonPastEvents, statsLineupsMap],
+  );
+
+  useEffect(() => {
+    if (nextStatsLineupBatch.length === 0) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const batchResults = await Promise.all(
+          nextStatsLineupBatch.map(async (event) => ({
+            eventId: event.id,
+            lineups: await getMatchLineups(event.id),
+          })),
+        );
+
+        if (cancelled) return;
+
+        setStatsLineupsMap((current) => {
+          const next = new Map(current);
+          batchResults.forEach(({ eventId, lineups }) => {
+            next.set(eventId, lineups);
+          });
+          return next;
+        });
+      } catch (error) {
+        console.error('loadMatchupTeamStatsLineups error:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [nextStatsLineupBatch]);
 
   const teamStatsRows = useMemo<TeamPlayerStatsRow[]>(() => {
     const aggregates = new Map<number, { player: Player; total: number; appearances: number; minutes: number }>();
@@ -500,7 +615,7 @@ function TeamStatsSection({ teamId, roster, defaultCompetitionId, onPlayerClick,
       });
   }, [roster, filteredStatsEvents, statsLineupsMap, selectedStatsSection, teamId, statsSortKey, statsRosterIds]);
 
-  const loadingTeamStats = statsHistoryStatus === 'loading';
+  const loadingTeamStats = statsHistoryStatus === 'loading' || nextStatsLineupBatch.length > 0;
 
   const positionLabels: Record<string, string> = { G: 'Portieri', D: 'Difensori', M: 'Centrocampisti', F: 'Attaccanti' };
   const benchByPosition = bench.reduce<Record<string, Player[]>>((acc, p) => {
@@ -635,7 +750,7 @@ function TeamStatsSection({ teamId, roster, defaultCompetitionId, onPlayerClick,
   );
 }
 
-export default function MatchupView({ eventId, homeTeamId, homeTeamName, awayTeamId, awayTeamName, leagueId, leagueName }: MatchupViewProps) {
+export default function MatchupView({ eventId, homeTeamId, homeTeamName, awayTeamId, awayTeamName, leagueId, leagueName, seasonYear }: MatchupViewProps) {
   const { goBack, selectPlayer } = useNavigation();
 
   const [homeRoster, setHomeRoster] = useState<Player[]>([]);
@@ -828,9 +943,11 @@ export default function MatchupView({ eventId, homeTeamId, homeTeamName, awayTea
             <span className="text-sm font-semibold text-text-primary">{homeTeamName}</span>
           </div>
           <TeamStatsSection
+            key={`home-stats-${homeTeamId}-${leagueId ?? 'all'}-${seasonYear ?? 'unknown'}`}
             teamId={homeTeamId}
             roster={homeRoster}
             defaultCompetitionId={leagueId}
+            defaultSeasonYear={seasonYear}
             onPlayerClick={handlePlayerClick}
             bench={homeBench}
           />
@@ -844,9 +961,11 @@ export default function MatchupView({ eventId, homeTeamId, homeTeamName, awayTea
             <span className="text-sm font-semibold text-text-primary">{awayTeamName}</span>
           </div>
           <TeamStatsSection
+            key={`away-stats-${awayTeamId}-${leagueId ?? 'all'}-${seasonYear ?? 'unknown'}`}
             teamId={awayTeamId}
             roster={awayRoster}
             defaultCompetitionId={leagueId}
+            defaultSeasonYear={seasonYear}
             onPlayerClick={handlePlayerClick}
             bench={awayBench}
           />

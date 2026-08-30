@@ -437,37 +437,12 @@ async function fetchJsonFromSofaScore(cacheKey) {
 
 async function probeSofaScoreOnce() {
   return jsonUpstreamGate.schedule(async () => {
-    if (!isBrowserConfigured()) {
-      if (DIRECT_FALLBACK_ENABLED) {
-        return fetchDirectJson('sport/football/categories');
-      }
-      throw new Error('No SofaScore JSON fetch strategy configured');
-    }
-
-    const runtime = await getBrowserRuntime();
-    let page;
-    try {
-      page = await runtime.context.newPage();
-      const response = await page.goto(`${SOFASCORE_WEB_ORIGIN}/api/v1/sport/football/categories`, {
-        waitUntil: 'domcontentloaded',
-        timeout: BROWSER_FETCH_TIMEOUT_MS,
-      });
-      if (!response) {
-        throw new Error('SofaScore health probe returned no response');
-      }
-
-      const contentType = response.headers()['content-type'] || '';
-
-      return {
-        statusCode: response.status(),
-        contentType,
-        source: 'browser-probe',
-      };
-    } finally {
-      if (page && !page.isClosed()) {
-        await page.close().catch(() => {});
-      }
-    }
+    const result = await fetchJsonWithoutGate('sport/football/categories');
+    return {
+      statusCode: result.statusCode,
+      contentType: result.contentType,
+      source: `${result.source}-probe`,
+    };
   });
 }
 

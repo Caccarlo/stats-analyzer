@@ -15,6 +15,7 @@ const {
   buildMarketLines,
   annotatePointInTimeRatings,
   fitLeagueModel,
+  seasonYearValue,
   createShotPredictionService,
 } = require('../shot-predictions');
 
@@ -34,6 +35,18 @@ function makeObservation(index, overrides = {}) {
   };
 }
 
+function finishedEvent({ id, startTimestamp, season, homeTeamId, awayTeamId, tournamentId = 23 }) {
+  return {
+    id,
+    startTimestamp,
+    tournament: { uniqueTournament: { id: tournamentId, name: tournamentId === 23 ? 'Serie A' : 'Altra' } },
+    season,
+    homeTeam: { id: homeTeamId, name: `Team ${homeTeamId}` },
+    awayTeam: { id: awayTeamId, name: `Team ${awayTeamId}` },
+    status: { type: 'finished', code: 100, description: 'Ended' },
+  };
+}
+
 test('parser usa il periodo ALL e la chiave totalShotsOnGoal', () => {
   const parsed = extractTotalShots({
     statistics: [
@@ -49,6 +62,13 @@ test('parser rifiuta statistiche tiri incomplete', () => {
   assert.equal(extractTotalShots({
     statistics: [{ period: 'ALL', groups: [{ statisticsItems: [{ key: 'totalShotsOnGoal', homeValue: 7 }] }] }],
   }), null);
+});
+
+test('le stagioni abbreviate sono ordinate cronologicamente, incluse quelle del Novecento', () => {
+  assert.equal(seasonYearValue({ year: '26/27' }), 2026);
+  assert.equal(seasonYearValue({ name: '2025/26' }), 2025);
+  assert.equal(seasonYearValue({ year: '70/71' }), 1970);
+  assert.equal(seasonYearValue({ year: '1999-00' }), 1999);
 });
 
 test('peso temporale dimezza esattamente a ogni emivita', () => {
@@ -102,123 +122,91 @@ test('il cutoff esclude target e partite successive da ogni stima', () => {
   ]);
   const firstModel = fitLeagueModel(original, targetTimestamp, 180, 10, 'none');
   const secondModel = fitLeagueModel(mutated, targetTimestamp, 180, 10, 'none');
-  const first = firstModel.predict(1, 2);
-  const second = secondModel.predict(1, 2);
-  assert.deepEqual(first, second);
+  assert.deepEqual(firstModel.predict(1, 2), secondModel.predict(1, 2));
   assert.equal(firstModel.matches, 80);
   assert.equal(secondModel.matches, 80);
 });
 
-test('servizio storico separa previsione, dettagli point-in-time e medie descrittive', async () => {
-  const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-test-'));
+test('la V1 leggera usa soltanto le due squadre, le due stagioni corrette e le sedi pertinenti', async () => {
+  const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-lite-test-'));
   const seasons = [
-    { id: 30, name: '2025/26', year: '2025/26' },
-    { id: 20, name: '2024/25', year: '2024/25' },
-    { id: 10, name: '2023/24', year: '2023/24' },
+    { id: 95_836, name: '26/27', year: '26/27' },
+    { id: 76_457, name: '25/26', year: '25/26' },
+    { id: 91_130, name: '70/71', year: '70/71' },
   ];
-  const leagueEvents = new Map();
-  const statistics = new Map();
-  let index = 0;
-  for (const season of [...seasons].reverse()) {
-    const events = [];
-    for (let match = 0; match < 36; match += 1) {
-      const homeTeamId = (match % 6) + 1;
-      const awayTeamId = ((match + 2) % 6) + 1;
-      const event = {
-        id: 1_000 + index,
-        startTimestamp: 1_650_000_000 + index * 86_400,
-        tournament: { uniqueTournament: { id: 23, name: 'Serie A' } },
-        season,
-        homeTeam: { id: homeTeamId, name: `Team ${homeTeamId}` },
-        awayTeam: { id: awayTeamId, name: `Team ${awayTeamId}` },
-        status: { type: 'finished', code: 100, description: 'Ended' },
-      };
-      events.push(event);
-      statistics.set(event.id, {
-        statistics: [{
-          period: 'ALL',
-          groups: [{ statisticsItems: [{ key: 'totalShotsOnGoal', homeValue: 12 + index % 5, awayValue: 8 + index % 4 }] }],
-        }],
-      });
-      index += 1;
-    }
-    leagueEvents.set(season.id, events);
-  }
-
-  const targetTimestamp = 1_650_000_000 + index * 86_400;
   const target = {
     id: 999,
-    startTimestamp: targetTimestamp,
+    startTimestamp: 1_800_000_000,
     tournament: { uniqueTournament: { id: 23, name: 'Serie A' } },
     season: seasons[0],
     homeTeam: { id: 1, name: 'Team 1' },
     awayTeam: { id: 2, name: 'Team 2' },
-    status: { type: 'finished', code: 100, description: 'Ended' },
+    status: { type: 'notstarted', code: 0, description: 'Not started' },
   };
-  const promotedTarget = {
-    ...target,
-    id: 997,
-    homeTeam: { id: 99, name: 'Promoted 99' },
-  };
-  const later = {
-    ...target,
-    id: 998,
-    startTimestamp: targetTimestamp + 86_400,
-  };
-  leagueEvents.get(seasons[0].id).push(target, later);
-  statistics.set(target.id, {
-    statistics: [{ period: 'ALL', groups: [{ statisticsItems: [{ key: 'totalShotsOnGoal', homeValue: 99, awayValue: 98 }] }] }],
-  });
-  statistics.set(later.id, {
-    statistics: [{ period: 'ALL', groups: [{ statisticsItems: [{ key: 'totalShotsOnGoal', homeValue: 97, awayValue: 96 }] }] }],
-  });
-  const lowerSeasons = [
-    { id: 50, name: '2024/25', year: '2024/25' },
-    { id: 40, name: '2023/24', year: '2023/24' },
-  ];
-  const lowerEvents = new Map();
-  for (const lowerSeason of lowerSeasons) {
-    const events = [];
-    const homePool = lowerSeason.id === 50 ? [99, 7, 8, 9] : [1, 2, 3, 7];
-    const awayPool = [8, 9, 10, 11];
-    for (let match = 0; match < 32; match += 1) {
-      const event = {
-        id: 5_000 + lowerSeason.id * 100 + match,
-        startTimestamp: 1_620_000_000 + lowerSeason.id * 100_000 + match * 86_400,
-        tournament: { uniqueTournament: { id: 53, name: 'Serie B' } },
-        season: lowerSeason,
-        homeTeam: { id: homePool[match % homePool.length], name: `Lower ${homePool[match % homePool.length]}` },
-        awayTeam: { id: awayPool[match % awayPool.length], name: `Lower ${awayPool[match % awayPool.length]}` },
-        status: { type: 'finished', code: 100, description: 'Ended' },
-      };
-      events.push(event);
-      statistics.set(event.id, {
-        statistics: [{
-          period: 'ALL',
-          groups: [{ statisticsItems: [{ key: 'totalShotsOnGoal', homeValue: 13 + match % 4, awayValue: 9 + match % 3 }] }],
-        }],
-      });
-    }
-    lowerEvents.set(lowerSeason.id, events);
+  const statistics = new Map();
+  const homeEvents = [];
+  const awayEvents = [];
+  for (let index = 0; index < 10; index += 1) {
+    const season = index < 5 ? seasons[1] : seasons[0];
+    const homeEvent = finishedEvent({
+      id: 1_000 + index,
+      startTimestamp: 1_760_000_000 + index * 86_400,
+      season,
+      homeTeamId: 1,
+      awayTeamId: 10 + index,
+    });
+    const awayEvent = finishedEvent({
+      id: 2_000 + index,
+      startTimestamp: 1_761_000_000 + index * 86_400,
+      season,
+      homeTeamId: 20 + index,
+      awayTeamId: 2,
+    });
+    homeEvents.push(homeEvent);
+    awayEvents.push(awayEvent);
+    statistics.set(homeEvent.id, {
+      statistics: [{ period: 'ALL', groups: [{ statisticsItems: [{ key: 'totalShotsOnGoal', homeValue: 14 + index % 3, awayValue: 9 }] }] }],
+    });
+    statistics.set(awayEvent.id, {
+      statistics: [{ period: 'ALL', groups: [{ statisticsItems: [{ key: 'totalShotsOnGoal', homeValue: 11, awayValue: 10 + index % 3 }] }] }],
+    });
   }
+
+  const ancientHome = finishedEvent({ id: 3_001, startTimestamp: 20_000_000, season: seasons[2], homeTeamId: 1, awayTeamId: 31 });
+  const wrongVenueHome = finishedEvent({ id: 3_002, startTimestamp: 1_770_000_000, season: seasons[0], homeTeamId: 31, awayTeamId: 1 });
+  const wrongVenueAway = finishedEvent({ id: 3_003, startTimestamp: 1_770_100_000, season: seasons[0], homeTeamId: 2, awayTeamId: 32 });
+  const otherCompetition = finishedEvent({ id: 3_004, startTimestamp: 1_770_200_000, season: seasons[0], homeTeamId: 1, awayTeamId: 32, tournamentId: 35 });
+  const afterCutoff = finishedEvent({ id: 3_005, startTimestamp: target.startTimestamp + 86_400, season: seasons[0], homeTeamId: 1, awayTeamId: 32 });
+  const targetAsFinished = { ...target, status: { type: 'finished', code: 100, description: 'Ended' } };
+  [ancientHome, wrongVenueHome, wrongVenueAway, otherCompetition, afterCutoff, targetAsFinished].forEach((event) => {
+    statistics.set(event.id, {
+      statistics: [{ period: 'ALL', groups: [{ statisticsItems: [{ key: 'totalShotsOnGoal', homeValue: 99, awayValue: 98 }] }] }],
+    });
+  });
 
   const requestedEndpoints = [];
   const fetchSofaScore = async (endpoint) => {
     requestedEndpoints.push(endpoint);
     if (endpoint === 'event/999') return { event: target };
-    if (endpoint === 'event/997') return { event: promotedTarget };
     if (endpoint === 'unique-tournament/23/seasons') return { seasons };
-    if (endpoint === 'unique-tournament/53/seasons') return { seasons: lowerSeasons };
+    if (endpoint === 'team/1/events/last/0') {
+      return { events: [...homeEvents, ancientHome, wrongVenueHome, otherCompetition, afterCutoff, targetAsFinished], hasNextPage: false };
+    }
+    if (endpoint === 'team/2/events/last/0') {
+      return { events: [...awayEvents, wrongVenueAway, targetAsFinished], hasNextPage: false };
+    }
     if (endpoint === 'team/1/team-statistics/seasons') {
       return { uniqueTournamentSeasons: [{ uniqueTournament: { id: 23, name: 'Serie A' }, seasons }] };
     }
-    const eventPage = endpoint.match(/^unique-tournament\/23\/season\/(\d+)\/events\/last\/(\d+)$/);
-    if (eventPage) {
-      return { events: Number(eventPage[2]) === 0 ? leagueEvents.get(Number(eventPage[1])) : [], hasNextPage: false };
-    }
-    const lowerEventPage = endpoint.match(/^unique-tournament\/53\/season\/(\d+)\/events\/last\/(\d+)$/);
-    if (lowerEventPage) {
-      return { events: Number(lowerEventPage[2]) === 0 ? lowerEvents.get(Number(lowerEventPage[1])) : [], hasNextPage: false };
+    const leaguePage = endpoint.match(/^unique-tournament\/23\/season\/(\d+)\/events\/last\/(\d+)$/);
+    if (leaguePage) {
+      const requestedSeasonId = Number(leaguePage[1]);
+      return {
+        events: Number(leaguePage[2]) === 0
+          ? [...homeEvents, ...awayEvents].filter((event) => event.season.id === requestedSeasonId)
+          : [],
+        hasNextPage: false,
+      };
     }
     const statistic = endpoint.match(/^event\/(\d+)\/statistics$/);
     if (statistic && statistics.has(Number(statistic[1]))) return statistics.get(Number(statistic[1]));
@@ -226,46 +214,83 @@ test('servizio storico separa previsione, dettagli point-in-time e medie descrit
   };
 
   try {
-    const service = createShotPredictionService({ fetchSofaScore, cacheDir, upstreamMinIntervalMs: 0 });
-    const building = await service.getPrediction(target.id);
-    assert.equal(building.status, 'building');
+    const service = createShotPredictionService({
+      fetchSofaScore,
+      cacheDir,
+      upstreamMinIntervalMs: 0,
+    });
+    assert.equal((await service.getPrediction(target.id)).status, 'building');
     await service.jobs.get(`999:${MODEL_VERSION}`).promise;
     const ready = await service.getPrediction(target.id);
     assert.equal(ready.status, 'ready');
-    assert.ok(ready.prediction.expected.total < 60, 'il risultato target estremo non deve contaminare la media');
-    assert.deepEqual(ready.prediction.diagnostics.seasonsUsed.map((season) => season.id), [30, 20]);
+    assert.equal(ready.prediction.modelVersion, 'shots-v1.2.0-lite');
+    assert.equal(ready.prediction.diagnostics.matchesUsed, 20);
+    assert.deepEqual(ready.prediction.diagnostics.seasonsUsed.map((season) => season.id), [95_836, 76_457]);
+    assert.equal(ready.prediction.diagnostics.strength.retained, false);
+    assert.equal(ready.prediction.diagnostics.backtest.sampleSize, 0);
+    assert.equal(ready.prediction.distribution.type, 'poisson');
+
+    const requestedStatisticIds = requestedEndpoints
+      .map((endpoint) => endpoint.match(/^event\/(\d+)\/statistics$/)?.[1])
+      .filter(Boolean)
+      .map(Number);
+    assert.deepEqual(new Set(requestedStatisticIds), new Set([...homeEvents, ...awayEvents].map((event) => event.id)));
+    assert.equal(requestedEndpoints.some((endpoint) => endpoint.includes('/season/91130/')), false);
+    assert.equal(requestedEndpoints.some((endpoint) => endpoint.startsWith('unique-tournament/23/season/')), false);
 
     const details = await service.getDetails(target.id, 'expected-total', 'home', 1, 25);
-    assert.ok(details.matches.items.every((match) => match.eventId !== target.id && match.eventId !== later.id));
+    assert.equal(details.matches.total, 10);
+    assert.match(details.calculation.formula, /μ_casa = L_H × A_casa × V_trasferta/);
+    assert.ok(details.matches.items.every((match) => match.venue === 'home'));
     assert.ok(details.matches.items.every((match) => match.startTimestamp < target.startTimestamp));
 
     const catalog = await service.getAverageCatalog(1);
-    assert.equal(catalog.competitions[0].id, 23);
-    assert.deepEqual(catalog.competitions[0].seasons.map((season) => season.id), [30, 20]);
-    const averages = await service.getShotAverages(1, 23, seasons[0].id, 'all');
-    assert.ok(averages.shotsFor > 20, 'le medie descrittive devono poter includere target e partita successiva');
-
-    const promotedBuilding = await service.getPrediction(promotedTarget.id);
-    assert.equal(promotedBuilding.status, 'building');
-    await service.jobs.get(`997:${MODEL_VERSION}`).promise;
-    const promotedReady = await service.getPrediction(promotedTarget.id);
-    assert.equal(promotedReady.prediction.diagnostics.promotion.applied, true);
-    assert.equal(promotedReady.prediction.diagnostics.promotion.teams[0].teamId, 99);
-    assert.equal(promotedReady.prediction.diagnostics.promotion.teams[0].cohortSize, 0);
-    assert.match(promotedReady.prediction.diagnostics.promotion.note, /stagione precedente/i);
-    assert.equal(requestedEndpoints.some((endpoint) => endpoint.includes('/season/10/')), false);
-    assert.equal(requestedEndpoints.some((endpoint) => endpoint.includes('/season/40/')), false);
+    assert.deepEqual(catalog.competitions[0].seasons.map((season) => season.id), [95_836, 76_457]);
+    assert.equal(requestedEndpoints.some((endpoint) => endpoint.startsWith('unique-tournament/23/season/')), false);
+    const averages = await service.getShotAverages(1, 23, seasons[0].id, 'home');
+    assert.equal(averages.matches, 5);
+    assert.ok(averages.shotsFor > averages.shotsAgainst);
+    assert.equal(requestedEndpoints.some((endpoint) => endpoint === 'unique-tournament/23/season/95836/events/last/0'), true);
   } finally {
     await fs.promises.rm(cacheDir, { recursive: true, force: true });
   }
 });
 
-test('un 403 interrompe le richieste statistiche già accodate', async () => {
+test('una partita già iniziata viene rifiutata senza raccogliere lo storico', async () => {
+  const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-past-test-'));
+  const target = {
+    id: 999,
+    startTimestamp: 1_700_000_000,
+    tournament: { uniqueTournament: { id: 23, name: 'Serie A' } },
+    season: { id: 76_457, name: '25/26', year: '25/26' },
+    homeTeam: { id: 1, name: 'Team 1' },
+    awayTeam: { id: 2, name: 'Team 2' },
+  };
+  const requestedEndpoints = [];
+  try {
+    const service = createShotPredictionService({
+      cacheDir,
+      upstreamMinIntervalMs: 0,
+      fetchSofaScore: async (endpoint) => {
+        requestedEndpoints.push(endpoint);
+        if (endpoint === 'event/999') return { event: target };
+        throw new Error(`Endpoint inatteso: ${endpoint}`);
+      },
+    });
+    assert.equal((await service.getPrediction(target.id)).status, 'building');
+    await service.jobs.get(`999:${MODEL_VERSION}`).promise;
+    await assert.rejects(() => service.getPrediction(target.id), (error) => error.code === 'future_matches_only');
+    assert.deepEqual(requestedEndpoints, ['event/999']);
+  } finally {
+    await fs.promises.rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('un 403 interrompe subito la raccolta e apre il circuito', async () => {
   const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-circuit-test-'));
   const seasons = [
-    { id: 30, name: '2025/26', year: '2025/26' },
-    { id: 20, name: '2024/25', year: '2024/25' },
-    { id: 10, name: '2023/24', year: '2023/24' },
+    { id: 95_836, name: '26/27', year: '26/27' },
+    { id: 76_457, name: '25/26', year: '25/26' },
   ];
   const target = {
     id: 999,
@@ -275,28 +300,26 @@ test('un 403 interrompe le richieste statistiche già accodate', async () => {
     homeTeam: { id: 1, name: 'Team 1' },
     awayTeam: { id: 2, name: 'Team 2' },
   };
-  const events = Array.from({ length: 80 }, (_, index) => ({
+  const homeEvents = Array.from({ length: 8 }, (_, index) => finishedEvent({
     id: 10_000 + index,
-    startTimestamp: 1_700_000_000 + index * 86_400,
-    tournament: target.tournament,
-    season: index < 40 ? seasons[1] : seasons[0],
-    homeTeam: { id: (index % 6) + 1, name: `Team ${(index % 6) + 1}` },
-    awayTeam: { id: ((index + 2) % 6) + 1, name: `Team ${((index + 2) % 6) + 1}` },
-    status: { type: 'finished', code: 100, description: 'Ended' },
+    startTimestamp: 1_760_000_000 + index * 86_400,
+    season: seasons[index < 4 ? 1 : 0],
+    homeTeamId: 1,
+    awayTeamId: 10 + index,
+  }));
+  const awayEvents = Array.from({ length: 8 }, (_, index) => finishedEvent({
+    id: 20_000 + index,
+    startTimestamp: 1_761_000_000 + index * 86_400,
+    season: seasons[index < 4 ? 1 : 0],
+    homeTeamId: 20 + index,
+    awayTeamId: 2,
   }));
   let statisticsCalls = 0;
-
   const fetchSofaScore = async (endpoint) => {
     if (endpoint === 'event/999') return { event: target };
     if (endpoint === 'unique-tournament/23/seasons') return { seasons };
-    const page = endpoint.match(/^unique-tournament\/23\/season\/(\d+)\/events\/last\/(\d+)$/);
-    if (page) {
-      const seasonId = Number(page[1]);
-      return {
-        events: Number(page[2]) === 0 ? events.filter((event) => event.season.id === seasonId) : [],
-        hasNextPage: false,
-      };
-    }
+    if (endpoint === 'team/1/events/last/0') return { events: homeEvents, hasNextPage: false };
+    if (endpoint === 'team/2/events/last/0') return { events: awayEvents, hasNextPage: false };
     if (/^event\/\d+\/statistics$/.test(endpoint)) {
       statisticsCalls += 1;
       const error = new ShotModelError('Forbidden');
@@ -313,14 +336,30 @@ test('un 403 interrompe le richieste statistiche già accodate', async () => {
       upstreamMinIntervalMs: 0,
       upstreamCooldownMs: 60_000,
     });
-    const building = await service.getPrediction(target.id);
-    assert.equal(building.status, 'building');
+    assert.equal((await service.getPrediction(target.id)).status, 'building');
     await service.jobs.get(`999:${MODEL_VERSION}`).promise;
-    assert.ok(statisticsCalls <= 3, `attese al massimo 3 richieste attive, ricevute ${statisticsCalls}`);
+    assert.equal(statisticsCalls, 1);
     await assert.rejects(
       () => service.getPrediction(target.id),
       (error) => error.code === 'upstream_temporarily_blocked',
     );
+
+    const restartedService = createShotPredictionService({
+      fetchSofaScore,
+      cacheDir,
+      upstreamMinIntervalMs: 0,
+      upstreamCooldownMs: 60_000,
+    });
+    const restartedCircuit = await restartedService.getCircuitStatus();
+    assert.equal(restartedCircuit.blocked, true);
+    assert.equal(restartedCircuit.upstreamStatus, 403);
+    assert.equal((await restartedService.getPrediction(target.id)).status, 'building');
+    await restartedService.jobs.get(`999:${MODEL_VERSION}`).promise;
+    await assert.rejects(
+      () => restartedService.getPrediction(target.id),
+      (error) => error.code === 'upstream_temporarily_blocked',
+    );
+    assert.equal(statisticsCalls, 1, 'il riavvio non deve aggirare il cooldown persistente');
   } finally {
     await fs.promises.rm(cacheDir, { recursive: true, force: true });
   }

@@ -40,6 +40,7 @@ export default function MatchupPage(props: MatchupPageProps) {
 
   return (
     <ShotPredictionsView
+      key={props.eventId}
       eventId={props.eventId}
       homeTeamId={props.homeTeamId}
       homeTeamName={props.homeTeamName}

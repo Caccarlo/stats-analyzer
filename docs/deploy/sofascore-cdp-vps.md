@@ -86,9 +86,11 @@ SOFASCORE_GLOBAL_COOLDOWN_MS=900000
 Shot-model collection is paced once more before it reaches that global gate. Override either layer only after the upstream environment has been verified:
 
 ```bash
-SOFASCORE_MODEL_MIN_INTERVAL_MS=1000
-SOFASCORE_MODEL_COOLDOWN_MS=900000
+SOFASCORE_MODEL_MIN_INTERVAL_MS=5000
+SOFASCORE_MODEL_COOLDOWN_MS=86400000
 ```
+
+The lightweight prediction collector is single-flight. Its longer interval and 24-hour terminal cooldown are intentionally more conservative than the ordinary application gate; do not lower them until the upstream network has passed the isolated status probe.
 
 ## Enable and start
 

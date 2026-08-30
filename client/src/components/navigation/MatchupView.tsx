@@ -5,6 +5,8 @@ import {
   getTeamEventsByDirection,
   getMatchLineups,
   getTeamImageUrl,
+  getMatchEvent,
+  getMatchTotalShots,
 } from '@/api/sofascore';
 import { getFormationPositions } from '@/utils/positionMapping';
 import { getShotsCount, getShotsOnTargetCount } from '@/utils/playerStats';
@@ -131,9 +133,10 @@ interface MatchupViewProps {
 interface TeamMatchesSectionProps {
   teamId: number;
   defaultCompetitionId?: number;
+  targetEventId: number;
 }
 
-function TeamMatchesSection({ teamId, defaultCompetitionId }: TeamMatchesSectionProps) {
+function TeamMatchesSection({ teamId, defaultCompetitionId, targetEventId }: TeamMatchesSectionProps) {
   const [activeTab, setActiveTab] = useState<'last' | 'next'>('last');
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<'all' | number>(defaultCompetitionId ?? 'all');
   const [pastEvents, setPastEvents] = useState<MatchEvent[]>([]);
@@ -144,6 +147,7 @@ function TeamMatchesSection({ teamId, defaultCompetitionId }: TeamMatchesSection
   const [hasMoreFuture, setHasMoreFuture] = useState(true);
   const [displayOffset, setDisplayOffset] = useState(0);
   const [loadingMatches, setLoadingMatches] = useState(false);
+  const [targetShots, setTargetShots] = useState<{ home: number; away: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,9 +163,19 @@ function TeamMatchesSection({ teamId, defaultCompetitionId }: TeamMatchesSection
 
     (async () => {
       try {
-        const pastEvts = await getTeamEventsByDirection(teamId, 'last', 0);
+        const [pastEvts, targetEvent, shots] = await Promise.all([
+          getTeamEventsByDirection(teamId, 'last', 0),
+          getMatchEvent(targetEventId),
+          getMatchTotalShots(targetEventId),
+        ]);
         if (cancelled) return;
-        setPastEvents(mergeTeamEvents([], pastEvts, 'last'));
+        const belongsToTeam = targetEvent?.homeTeam.id === teamId || targetEvent?.awayTeam.id === teamId;
+        const targetFinished = targetEvent?.status?.type === 'finished' || targetEvent?.status?.code === 100;
+        setTargetShots(shots);
+        setPastEvents(mergeTeamEvents([], belongsToTeam && targetFinished ? [...pastEvts, targetEvent] : pastEvts, 'last'));
+        if (belongsToTeam && targetEvent && !targetFinished) {
+          setFutureEvents(mergeTeamEvents([], [targetEvent], 'next'));
+        }
         if (pastEvts.length === 0) setHasMorePast(false);
       } catch (e) {
         console.error('TeamMatchesSection fetch error:', e);
@@ -169,7 +183,7 @@ function TeamMatchesSection({ teamId, defaultCompetitionId }: TeamMatchesSection
     })();
 
     return () => { cancelled = true; };
-  }, [teamId, defaultCompetitionId]);
+  }, [teamId, defaultCompetitionId, targetEventId]);
 
   const activeEvents = activeTab === 'last' ? pastEvents : futureEvents;
   const hasMore = activeTab === 'last' ? hasMorePast : hasMoreFuture;
@@ -182,9 +196,17 @@ function TeamMatchesSection({ teamId, defaultCompetitionId }: TeamMatchesSection
   }, [competitionOptions, selectedCompetitionId]);
 
   const filteredEvents = useMemo(() => {
-    if (effectiveSelectedCompetitionId === 'all') return activeEvents;
-    return activeEvents.filter((ev) => ev.tournament?.uniqueTournament?.id === effectiveSelectedCompetitionId);
-  }, [activeEvents, effectiveSelectedCompetitionId]);
+    const filtered = effectiveSelectedCompetitionId === 'all'
+      ? activeEvents
+      : activeEvents.filter((ev) => ev.tournament?.uniqueTournament?.id === effectiveSelectedCompetitionId);
+    return [...filtered].sort((first, second) => {
+      if (first.id === targetEventId) return -1;
+      if (second.id === targetEventId) return 1;
+      return activeTab === 'last'
+        ? second.startTimestamp - first.startTimestamp
+        : first.startTimestamp - second.startTimestamp;
+    });
+  }, [activeEvents, activeTab, effectiveSelectedCompetitionId, targetEventId]);
 
   const visibleEvents = filteredEvents.slice(displayOffset, displayOffset + PAGE_SIZE);
 
@@ -314,8 +336,14 @@ function TeamMatchesSection({ teamId, defaultCompetitionId }: TeamMatchesSection
             const awayScore = ev.awayScore?.current;
             const homeTeamName = ev.homeTeam.shortName ?? ev.homeTeam.name;
             const awayTeamName = ev.awayTeam.shortName ?? ev.awayTeam.name;
+            const isTarget = ev.id === targetEventId;
             return (
-              <div key={ev.id} className="border-b border-border/70 last:border-b-0 transition-colors hover:bg-surface-hover/70">
+              <div
+                key={ev.id}
+                className={`border-b last:border-b-0 transition-colors hover:bg-surface-hover/70 ${
+                  isTarget ? 'border-neon/40 bg-neon/[0.07] shadow-[inset_2px_0_0_#4ade80]' : 'border-border/70'
+                }`}
+              >
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 px-1.5 py-0.5">
                   <div className="flex min-w-0 flex-col items-center gap-0.5 text-center">
                     <img src={getTeamImageUrl(ev.homeTeam.id)} alt="" className="w-[18px] h-[18px] object-contain"
@@ -334,6 +362,7 @@ function TeamMatchesSection({ teamId, defaultCompetitionId }: TeamMatchesSection
                       <span className="text-[11px] font-medium tabular-nums text-text-secondary">{formatMatchTime(ev.startTimestamp)}</span>
                     )}
                     <span className="text-[8px] text-text-muted leading-none">{formatMatchDate(ev.startTimestamp)}</span>
+                    {isTarget && <span className="text-[7px] font-semibold uppercase tracking-wide text-neon">Aperta</span>}
                   </div>
                   <div className="flex min-w-0 flex-col items-center gap-0.5 text-center">
                     <img src={getTeamImageUrl(ev.awayTeam.id)} alt="" className="w-[18px] h-[18px] object-contain"
@@ -341,6 +370,11 @@ function TeamMatchesSection({ teamId, defaultCompetitionId }: TeamMatchesSection
                     <span className="w-full truncate text-[10px] text-text-primary" title={ev.awayTeam.name}>{awayTeamName}</span>
                   </div>
                 </div>
+                {isTarget && isFinished && targetShots && (
+                  <div className="border-t border-neon/15 px-2 py-0.5 text-center font-mono text-[8px] text-text-secondary">
+                    Tiri finali {targetShots.home}–{targetShots.away}
+                  </div>
+                )}
               </div>
             );
           })
@@ -833,7 +867,7 @@ export default function MatchupView({ eventId, homeTeamId, homeTeamName, awayTea
       {/* Layout principale: colonna sx partite + campo + colonna dx partite */}
       <div className="flex flex-row gap-3 items-start mb-5">
         {/* Colonna sinistra: partite squadra di casa */}
-        <TeamMatchesSection teamId={homeTeamId} defaultCompetitionId={leagueId} />
+        <TeamMatchesSection teamId={homeTeamId} defaultCompetitionId={leagueId} targetEventId={eventId} />
 
         {/* Campo unificato landscape */}
         <div className="flex-1 min-w-0">
@@ -930,7 +964,7 @@ export default function MatchupView({ eventId, homeTeamId, homeTeamName, awayTea
         </div>
 
         {/* Colonna destra: partite squadra in trasferta */}
-        <TeamMatchesSection teamId={awayTeamId} defaultCompetitionId={leagueId} />
+        <TeamMatchesSection teamId={awayTeamId} defaultCompetitionId={leagueId} targetEventId={eventId} />
       </div>
 
       {/* Sezione inferiore: stats + rosa divisa 50/50 */}

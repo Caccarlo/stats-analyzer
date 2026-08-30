@@ -11,3 +11,4 @@ stats-analyzer-current.tar.gz
 temp-chrome-profile*/
 temp-edge-profile/
 server/.sofascore-browser-profile*
+server/.shot-model-cache/

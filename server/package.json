@@ -2,6 +2,9 @@
   "name": "stats-analyzer-server",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "test": "node --test --test-isolation=none"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.0",

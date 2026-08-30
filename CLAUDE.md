@@ -36,7 +36,9 @@ stats-analyzer/
 |-- docs/
 |   `-- deploy/                     # VPS deploy examples for SofaScore CDP browser relay
 |-- server/
-|   `-- index.js                     # Express browser relay proxy (/api/sofascore/*, /api/img/*, /api/sofascore-browser/status) with direct-first image fetches
+|   |-- index.js                     # Express browser relay proxy plus shot-model route registration
+|   |-- shot-predictions.js          # Point-in-time total-shots model, jobs, disk cache, prediction/detail/average APIs
+|   `-- test/                        # node:test math, parser, cutoff, and service-boundary tests
 `-- client/
     |-- .env.example                 # Vite flags for direct SofaScore JSON and proxy fallback
     |-- vite.config.ts               # Proxy /api -> :3001, alias @ -> src/
@@ -55,7 +57,8 @@ stats-analyzer/
         |   |-- useMatchTimeline.ts  # events/last loader + progressive officialStats/lineups/rich data queues
         |   |-- useTournamentViewData.ts # Shared tournament teams/phases loader with snapshot cache for TeamGrid + SidebarTeamList
         |   |-- useViewport.ts       # Shared window width/height hook used by responsive layout and density decisions
-        |   `-- useSplitCardSync.ts  # Cross-panel card height sync
+        |   |-- useSplitCardSync.ts  # Cross-panel card height sync
+        |   `-- useShotPrediction.ts # Starts/polls an on-demand server prediction job
         |-- utils/
         |   |-- foulPairing.ts
         |   |-- playerMatchVenue.ts
@@ -95,7 +98,9 @@ stats-analyzer/
                 |-- PriorityImage.tsx      # Visible-first image queue used by the home schedule; separates above-the-fold reveal gating from background warm loads and hides placeholders until real image load settles
                 `-- PlayerDot.tsx
             `-- navigation/ (continued)
-                `-- MatchupView.tsx   # Vista confronto full-screen di una singola partita reale, con campo landscape, colonne partite ai lati e stats/rosa 50/50 caricate sulla stagione della partita
+                |-- MatchupView.tsx        # Formazioni and descriptive match history for one real event
+                |-- MatchupPage.tsx        # Matchup shell switching Formazioni/Previsioni and prestarting the job
+                `-- ShotPredictionsView.tsx # Forecast, markets, drill-down, independent average panels
 ```
 
 ## Architecture
@@ -115,6 +120,7 @@ Browser (5173) -> React App -> sofascore.ts
 - `apiFetch` falls back from direct to `/api/sofascore/*` on challenge-like failures, CORS/fetch errors, timeout, non-JSON responses, `403`, `429`, and server errors. Terminal `404` handling remains endpoint-specific through `notFoundValue`.
 - Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, and `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`.
 - Server: browser-backed proxy with in-memory TTL cache, in-flight dedupe, and a persistent Chrome/Chromium relay.
+- Shot-model routes use the same relay, add a maximum-three-request queue, and persist raw statistics, metadata, averages, job details, and versioned forecasts under the Git-ignored `server/.shot-model-cache/`.
 - The relay is expected to run in one of two modes:
   - `SOFASCORE_BROWSER_CDP_URL`: connect to an already running real Chrome/Chromium session on the VPS via CDP.
   - `SOFASCORE_BROWSER_EXECUTABLE_PATH`: launch a local Chrome/Chromium binary with a persistent user-data directory (`SOFASCORE_BROWSER_USER_DATA_DIR`).
@@ -129,6 +135,11 @@ Browser (5173) -> React App -> sofascore.ts
 - Teams navigation can also persist a selected `tournamentPhaseKey` / `tournamentPhaseName` for cup-style competitions, so the main panel and sidebar stay aligned on the chosen phase.
 - `Tournament` objects in event data include an optional `category` field (id, name, alpha2) exposing country context. `TeamView` uses this in a fallback effect to populate missing `leagueId` and `countryId`/`countryCategoryId` on the panel, so `GO_BACK` can traverse the full hierarchy (player → team → teams → leagues) even when navigation started from search rather than the country list.
 - `MatchupView` is match-specific only: full-screen matchup navigation requires a canonical real-event target (`eventId` plus home/away/team context), not just two team ids.
+- `MatchupPage` owns the match-level section switch. `PanelState.matchupSection` is `formations | predictions`; the initial section is `formations`, while both teams' average filter selections persist independently in the same panel state.
+- Opening a matchup starts `GET /api/predictions/shots/:eventId` immediately. A `202 building` response is polled by `useShotPrediction`; the server job is deduplicated and continues if the component unmounts.
+- The prediction view replaces the formation field and players completely. It exposes expected home/away/total shots, an 80% interval, seven consecutive `.5` total-shot lines, Under/Over probabilities and fair no-margin odds, one drill-down at a time, and two independent descriptive-average panels.
+- Predictive and descriptive timelines must remain separate. Prediction datasets and “Partite usate” exclude the target event and every later event. Descriptive averages and `MatchupView` histories may use all currently finished data, including the target and later completed games.
+- `MatchupView` explicitly fetches the opened event and merges it into both teams' history, deduplicated by event id. It is pinned to the visible page, highlighted as `Aperta`, and shows final total shots when the event is finished.
 - `TeamView` persists a compact `nextMatchSummary` inside `PanelState` after loading `nextEvent`; split panels use that summary to prove they point to the same real match before auto-opening or merging into `MatchupView`.
 - Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
 - In `MatchupView`, team player-stat tables are season-aware: they continue paging backward through team history until the opened match's season is covered, instead of relying only on the first `team/{id}/events/last/0` page.
@@ -168,6 +179,38 @@ matchup (full-screen, replaces split view when two opposing teams open)
 - Top: header with home team name, "vs", away team name, league name, back button.
 - Middle row (flex): left matches column (home team) | unified landscape field | right matches column (away team).
 - Bottom (flex 50/50): left half = home team stats table + full roster; right half = away team stats table + full roster. Each half scrolls independently vertically.
+
+### Shot predictions V1
+
+Supported predictive leagues are Serie A (`23`), Premier League (`17`), LaLiga (`8`), Bundesliga (`35`), and Ligue 1 (`34`). Descriptive average catalogs may include any league, cup, or international competition returned by SofaScore.
+
+The model uses `event/{eventId}/statistics`, period `ALL`, key `totalShotsOnGoal` (the SofaScore label is “Total shots”). Before every calculation it applies:
+
+```text
+observation.startTimestamp < target.startTimestamp
+observation.eventId != target.eventId
+```
+
+The same cutoff governs baselines, opponent point-in-time strength, temporal ratings, promotion transfers, parameter selection, dispersion, and chronological backtests. It must never use final target-season standings, bookmaker prices, lineups, or absences.
+
+Selection grids and rules:
+
+- half-life: `60, 90, 120, 180, 270, 365` days;
+- rating shrinkage prior: `5, 10, 20` equivalent matches;
+- continuous strength effect: none, linear, or linear+quadratic; retain an extra term only when out-of-sample NLL improves by at least 1%, MAE does not worsen, and calibration error is acceptable;
+- total distribution: Poisson or negative binomial by out-of-sample likelihood, preferring Poisson when practically equivalent;
+- promoted-team equivalent matches: `5, 10, 20`, evaluated on historical promotion cohorts available before the cutoff.
+
+The total distribution is fitted and scored directly. It is not obtained by summing two counts assumed independent. A line `x.5` uses `P(Under)=P(T<=x)`, `P(Over)=1-P(Under)`, and fair odds `1/p`.
+
+Local APIs:
+
+- `GET /api/predictions/shots/:eventId` (`200`, `202`, `422`, `502`);
+- `GET /api/predictions/shots/:eventId/details?selection=...&source=...&page=...&pageSize=25`;
+- `GET /api/teams/:teamId/shot-averages/catalog`;
+- `GET /api/teams/:teamId/shot-averages?competitionId=...&seasonId=...&venue=all|home|away`.
+
+Past forecasts are immutable for the same model version. Future forecasts are refreshed after a newly completed relevant event or after six hours. Finished-match raw statistics are immutable and reusable across model versions.
 
 **Field:**
 - Single SVG landscape field (`viewBox="0 0 1050 680"`, `aspect-ratio: 105/68`).

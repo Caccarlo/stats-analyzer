@@ -21,6 +21,11 @@ import type {
   TeamSearchResult,
   MatchupNavigationTarget,
   TeamNextMatchSummary,
+  ShotAverageCatalog,
+  ShotAverageVenue,
+  ShotPredictionDetails,
+  ShotPredictionResponse,
+  TeamShotAverages,
 } from '@/types';
 
 // === Cache ===
@@ -753,6 +758,106 @@ export function getTournamentImageUrl(tournamentId: number): string {
 
 export function getCategoryImageUrl(categoryId: number): string {
   return `/api/img/category/${categoryId}/image`;
+}
+
+// === Previsioni e medie tiri (API locale) ===
+
+export class StatsAnalyzerApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'StatsAnalyzerApiError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function localApiFetch<T>(url: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    credentials: 'same-origin',
+  });
+  const data = await response.json().catch(() => null) as (T & { message?: string; code?: string }) | null;
+  if (!response.ok || !data) {
+    throw new StatsAnalyzerApiError(
+      data?.message || `Richiesta non riuscita (${response.status}).`,
+      response.status,
+      data?.code,
+    );
+  }
+  return data;
+}
+
+export function getShotPrediction(eventId: number, retry = false): Promise<ShotPredictionResponse> {
+  return localApiFetch<ShotPredictionResponse>(
+    `/api/predictions/shots/${eventId}${retry ? '?retry=1' : ''}`,
+  );
+}
+
+export function getShotPredictionDetails(
+  eventId: number,
+  selection: string,
+  source: 'home' | 'away',
+  page: number,
+): Promise<ShotPredictionDetails> {
+  const query = new URLSearchParams({
+    selection,
+    source,
+    page: String(page),
+    pageSize: '25',
+  });
+  return localApiFetch<ShotPredictionDetails>(`/api/predictions/shots/${eventId}/details?${query}`);
+}
+
+export function getTeamShotAverageCatalog(teamId: number): Promise<ShotAverageCatalog> {
+  return localApiFetch<ShotAverageCatalog>(`/api/teams/${teamId}/shot-averages/catalog`);
+}
+
+export function getTeamShotAverages(
+  teamId: number,
+  competitionId: number,
+  seasonId: number,
+  venue: ShotAverageVenue,
+): Promise<TeamShotAverages> {
+  const query = new URLSearchParams({
+    competitionId: String(competitionId),
+    seasonId: String(seasonId),
+    venue,
+  });
+  return localApiFetch<TeamShotAverages>(`/api/teams/${teamId}/shot-averages?${query}`);
+}
+
+export async function getMatchEvent(eventId: number): Promise<MatchEvent | null> {
+  try {
+    const data = await apiFetch<{ event?: MatchEvent }>(`event/${eventId}`);
+    return data.event ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getMatchTotalShots(eventId: number): Promise<{ home: number; away: number } | null> {
+  try {
+    const data = await apiFetch<{
+      statistics?: Array<{
+        period?: string;
+        groups?: Array<{
+          statisticsItems?: Array<{ key?: string; homeValue?: number; awayValue?: number }>;
+        }>;
+      }>;
+    }>(`event/${eventId}/statistics`);
+    const allPeriod = data.statistics?.find((period) => period.period === 'ALL') ?? data.statistics?.[0];
+    const item = allPeriod?.groups
+      ?.flatMap((group) => group.statisticsItems ?? [])
+      .find((statistic) => statistic.key === 'totalShotsOnGoal');
+    return typeof item?.homeValue === 'number' && typeof item.awayValue === 'number'
+      ? { home: item.homeValue, away: item.awayValue }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 // === Calendario giornaliero ===

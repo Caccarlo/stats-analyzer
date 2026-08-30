@@ -11,6 +11,7 @@ The primary JSON path is client-direct browser fetch from `client/src/api/sofasc
 - The Express proxy connects to that browser with `SOFASCORE_BROWSER_CDP_URL`.
 - The app keeps `SOFASCORE_DIRECT_FALLBACK=false` so a broken browser relay fails loudly instead of silently falling back to blocked direct fetches.
 - The frontend tries direct SofaScore JSON first unless `VITE_SOFASCORE_DIRECT=false` is set at build time.
+- Client-direct and server-relay requests are paced separately. Either side opens a queue-clearing cooldown circuit after a `403` or `429` instead of continuing to retry a blocked network.
 
 ## Why this setup
 
@@ -45,6 +46,8 @@ SOFASCORE_BROWSER_CDP_URL=http://127.0.0.1:9222
 SOFASCORE_BROWSER_HEADLESS=true
 SOFASCORE_DIRECT_FALLBACK=false
 SOFASCORE_BROWSER_FETCH_TIMEOUT_MS=20000
+SOFASCORE_GLOBAL_MIN_INTERVAL_MS=750
+SOFASCORE_GLOBAL_COOLDOWN_MS=900000
 ```
 
 Do not set `SOFASCORE_BROWSER_EXECUTABLE_PATH` in the final VPS CDP setup.
@@ -73,7 +76,14 @@ sudo chown -R stats:stats /opt/stats-analyzer/server/.shot-model-cache
 
 The directory contains cached SofaScore statistics and versioned forecasts. Keep it across ordinary app restarts and deployments; delete only the `predictions/` subdirectory when intentionally invalidating forecast outputs outside the normal model-version mechanism.
 
-Shot-model traffic is paced independently from ordinary proxy calls. The defaults start at most one model request per second and suspend queued work for 15 minutes after a `403` or `429`. Override only when the upstream environment has been verified:
+All server-side SofaScore JSON traffic passes through the global gate. The defaults start calls at least 750 ms apart and suspend queued work for 15 minutes after a `403` or `429`:
+
+```bash
+SOFASCORE_GLOBAL_MIN_INTERVAL_MS=750
+SOFASCORE_GLOBAL_COOLDOWN_MS=900000
+```
+
+Shot-model collection is paced once more before it reaches that global gate. Override either layer only after the upstream environment has been verified:
 
 ```bash
 SOFASCORE_MODEL_MIN_INTERVAL_MS=1000
@@ -102,9 +112,10 @@ Check the app relay:
 
 ```bash
 curl http://127.0.0.1:3001/api/sofascore-browser/status
-curl http://127.0.0.1:3001/api/sofascore/sport/football/categories
-curl http://127.0.0.1:3001/api/sofascore/sport/football/scheduled-events/2026-05-08
+curl "http://127.0.0.1:3001/api/sofascore-browser/status?probe=1"
 ```
+
+The first command is local-only and does not contact SofaScore. The second command performs one isolated upstream categories navigation. Use this single probe before opening the frontend on a new IP or hotspot. Do not follow it with broader endpoint tests unless `probe.reachable` is `true`.
 
 Expected relay status shape:
 
@@ -113,9 +124,21 @@ Expected relay status shape:
   "configured": true,
   "connected": true,
   "mode": "cdp",
-  "pageUrl": "https://www.sofascore.com/"
+  "pageUrl": "https://www.sofascore.com/",
+  "upstreamCircuit": {
+    "open": false,
+    "upstreamStatus": null,
+    "blockedUntil": null,
+    "active": 0,
+    "pending": 0,
+    "maximumConcurrent": 1,
+    "minimumIntervalMs": 750
+  },
+  "probe": null
 }
 ```
+
+With `?probe=1`, `probe.reachable=true` and `probe.statusCode=200` mean the tested network path is usable. A `403` or `429` opens the circuit immediately; queued server work is rejected locally during cooldown and the response exposes `blockedUntil`.
 
 ## Logs
 

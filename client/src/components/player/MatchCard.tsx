@@ -3,7 +3,7 @@ import { useNavigation } from '@/context/NavigationContext';
 import type { MatchDurationMetadata, MatchEvent, MatchShot, Player, Team, FoulMatchup, PlayerPosition, PlayerSeasonStats, CardType } from '@/types';
 import type { CachedMatchDetails } from '@/hooks/useMatchDetails';
 import { fetchMatchDetails, matchDetailsCache } from '@/hooks/useMatchDetails';
-import { getPlayerSeasonStats, getMatchAveragePositions, getMatchShotmap, getTeamImageUrl } from '@/api/sofascore';
+import { getPlayerImageUrl, getPlayerSeasonStats, getMatchAveragePositions, getMatchShotmap, getTeamImageUrl } from '@/api/sofascore';
 import { getMatchRoundLabel } from '@/utils/matchRoundLabel';
 import { clampMinute, getMatchDuration, getNominalMatchDuration, isLikelyFullMatch } from '@/utils/matchDuration';
 import { useViewport } from '@/hooks/useViewport';
@@ -671,7 +671,7 @@ export default function MatchCard({
   const playerNameRow = activePlayer ? (
     <div className="flex items-center gap-2 justify-center">
       <img
-        src={`https://api.sofascore.com/api/v1/player/${activePlayerId}/image`}
+        src={getPlayerImageUrl(activePlayerId)}
         alt={activePlayer.name}
         className={`${compact ? 'w-5 h-5' : 'w-6 h-6'} rounded-full object-cover bg-surface-2`}
         onError={(e) => {

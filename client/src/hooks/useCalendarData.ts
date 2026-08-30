@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { getScheduledEvents } from '@/api/sofascore';
 import type { MatchEvent } from '@/types';
 
@@ -172,15 +172,20 @@ function buildGroups(events: MatchEvent[]): CountryGroup[] {
 
 export function useCalendarData(selectedDate: string) {
   const [eventsMap, setEventsMap] = useState<Map<string, MatchEvent[]>>(new Map());
+  const eventsMapRef = useRef(eventsMap);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    eventsMapRef.current = eventsMap;
+  }, [eventsMap]);
 
   // Carica eventi per la data selezionata
   useEffect(() => {
     let cancelled = false;
 
     // Se già in cache locale, non mostrare loading
-    if (!eventsMap.has(selectedDate)) {
+    if (!eventsMapRef.current.has(selectedDate)) {
       queueMicrotask(() => {
         if (!cancelled) {
           setLoading(true);
@@ -202,9 +207,9 @@ export function useCalendarData(selectedDate: string) {
         });
         setLoading(false);
       }
-    }).catch(() => {
+    }).catch((caught) => {
       if (!cancelled) {
-        setError('Errore nel caricamento delle partite');
+        setError(caught instanceof Error ? caught.message : 'Errore nel caricamento delle partite');
         setLoading(false);
       }
     });
@@ -215,7 +220,8 @@ export function useCalendarData(selectedDate: string) {
   // Auto-refresh ogni 60s quando si visualizza la data di oggi
   useEffect(() => {
     const today = todayISO();
-    if (selectedDate !== today) return;
+    const hasSuccessfulData = eventsMap.has(today);
+    if (selectedDate !== today || error || !hasSuccessfulData) return;
 
     const interval = setInterval(() => {
       getScheduledEvents(today, true).then((events) => {
@@ -224,11 +230,13 @@ export function useCalendarData(selectedDate: string) {
           next.set(today, events);
           return next;
         });
-      }).catch(() => {});
+      }).catch((caught) => {
+        setError(caught instanceof Error ? caught.message : 'Errore nel caricamento delle partite');
+      });
     }, 60_000);
 
     return () => clearInterval(interval);
-  }, [selectedDate]);
+  }, [error, eventsMap, selectedDate]);
 
   const groups: CountryGroup[] = useMemo(
     () => buildGroups((eventsMap.get(selectedDate) ?? []).filter((event) => isEventOnSelectedDate(event, selectedDate))),

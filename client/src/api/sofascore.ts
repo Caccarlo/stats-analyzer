@@ -27,6 +27,7 @@ import type {
   ShotPredictionResponse,
   TeamShotAverages,
 } from '@/types';
+import { createRequestGate, RequestCircuitOpenError } from './requestGate';
 
 // === Cache ===
 
@@ -47,6 +48,7 @@ class ApiFetchError extends Error {
   isTerminal: boolean;
   canFallback: boolean;
   strategy?: SofaScoreFetchStrategy;
+  shouldOpenCircuit: boolean;
 
   constructor(
     message: string,
@@ -54,6 +56,7 @@ class ApiFetchError extends Error {
     isTerminal = false,
     canFallback = false,
     strategy?: SofaScoreFetchStrategy,
+    shouldOpenCircuit = false,
   ) {
     super(message);
     this.name = 'ApiFetchError';
@@ -61,6 +64,7 @@ class ApiFetchError extends Error {
     this.isTerminal = isTerminal;
     this.canFallback = canFallback;
     this.strategy = strategy;
+    this.shouldOpenCircuit = shouldOpenCircuit;
   }
 }
 
@@ -74,6 +78,11 @@ const SOFASCORE_DIRECT_ORIGIN = (
 const SOFASCORE_DIRECT_ENABLED = import.meta.env.VITE_SOFASCORE_DIRECT !== 'false';
 const SOFASCORE_PROXY_FALLBACK_ENABLED = import.meta.env.VITE_SOFASCORE_PROXY_FALLBACK !== 'false';
 const SOFASCORE_DIRECT_TIMEOUT_MS = Number(import.meta.env.VITE_SOFASCORE_DIRECT_TIMEOUT_MS ?? 12000);
+const sofaScoreRequestGate = createRequestGate({
+  maximumConcurrent: 1,
+  minimumIntervalMs: Number(import.meta.env.VITE_SOFASCORE_MIN_INTERVAL_MS ?? 750),
+  cooldownMs: Number(import.meta.env.VITE_SOFASCORE_COOLDOWN_MS ?? 15 * 60 * 1000),
+});
 
 function isTerminalHttpStatus(status: number): boolean {
   return status >= 400 && status < 500 && status !== 429;
@@ -113,25 +122,34 @@ function canFallbackFromDirect(status?: number, body = ''): boolean {
 }
 
 async function fetchWithOptionalTimeout(url: string, strategy: SofaScoreFetchStrategy): Promise<Response> {
-  if (strategy !== 'direct' || SOFASCORE_DIRECT_TIMEOUT_MS <= 0) {
+  if (strategy !== 'direct') {
     return fetch(url, {
       headers: { Accept: 'application/json' },
-      credentials: strategy === 'direct' ? 'omit' : 'same-origin',
+      credentials: 'same-origin',
     });
   }
 
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), SOFASCORE_DIRECT_TIMEOUT_MS);
-
-  try {
-    return await fetch(url, {
+  if (SOFASCORE_DIRECT_TIMEOUT_MS <= 0) {
+    return sofaScoreRequestGate.schedule(() => fetch(url, {
       headers: { Accept: 'application/json' },
       credentials: 'omit',
-      signal: controller.signal,
-    });
-  } finally {
-    window.clearTimeout(timeoutId);
+    }));
   }
+
+  return sofaScoreRequestGate.schedule(async () => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), SOFASCORE_DIRECT_TIMEOUT_MS);
+
+    try {
+      return await fetch(url, {
+        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  });
 }
 
 async function fetchJsonWithStrategy<T>(
@@ -144,6 +162,9 @@ async function fetchJsonWithStrategy<T>(
   try {
     res = await fetchWithOptionalTimeout(url, strategy);
   } catch (error) {
+    if (error instanceof RequestCircuitOpenError) {
+      throw new ApiFetchError(error.message, error.status, true, false, strategy);
+    }
     throw new ApiFetchError(
       `${strategy} fetch failed for ${path}: ${error instanceof Error ? error.message : String(error)}`,
       undefined,
@@ -181,12 +202,16 @@ async function fetchJsonWithStrategy<T>(
 
   if (!res.ok) {
     const canFallback = strategy === 'direct' && canFallbackFromDirect(res.status, text);
+    const shouldOpenCircuit = res.status === 403
+      || res.status === 429
+      || /sofascore_circuit_open|upstream_temporarily_blocked/i.test(text);
     throw new ApiFetchError(
       `${strategy} API error ${res.status}: ${path}`,
       res.status,
       isTerminalHttpStatus(res.status) && !canFallback,
       canFallback,
       strategy,
+      shouldOpenCircuit,
     );
   }
 
@@ -218,6 +243,13 @@ function setErrorCache(key: string, error: ApiFetchError) {
   });
 }
 
+function getClientCircuitError(): ApiFetchError | null {
+  const circuitError = sofaScoreRequestGate.getCircuitError();
+  return circuitError
+    ? new ApiFetchError(circuitError.message, circuitError.status, true)
+    : null;
+}
+
 // === Helper con retry e cache ===
 
 async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOptions<T> = true): Promise<T> {
@@ -236,6 +268,9 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
     }
   }
 
+  const existingCircuit = getClientCircuitError();
+  if (existingCircuit) throw existingCircuit;
+
   const inFlight = inFlightRequests.get(path);
   if (inFlight) {
     return inFlight as Promise<T>;
@@ -246,12 +281,16 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
     const delays = [0, 1000, 2000]; // retry con backoff
 
     for (let attempt = 0; attempt < delays.length; attempt++) {
+      const attemptCircuit = getClientCircuitError();
+      if (attemptCircuit) throw attemptCircuit;
       if (delays[attempt] > 0) {
         await new Promise((r) => setTimeout(r, delays[attempt]));
       }
 
       const strategies = getFetchStrategies();
       for (let strategyIndex = 0; strategyIndex < strategies.length; strategyIndex++) {
+        const strategyCircuit = getClientCircuitError();
+        if (strategyCircuit) throw strategyCircuit;
         const strategy = strategies[strategyIndex];
         const hasNextStrategy = strategyIndex < strategies.length - 1;
 
@@ -272,6 +311,13 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
           if (hasNextStrategy && error.canFallback) {
             lastError = error;
             continue;
+          }
+
+          if (!hasNextStrategy && error.shouldOpenCircuit) {
+            const circuitError = sofaScoreRequestGate.openCircuit(error.status === 429 ? 429 : 403);
+            const terminalError = new ApiFetchError(circuitError.message, error.status, true);
+            if (useCache) setErrorCache(path, terminalError);
+            throw terminalError;
           }
 
           if (error.isTerminal) {

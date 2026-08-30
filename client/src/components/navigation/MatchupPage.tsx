@@ -19,7 +19,7 @@ interface MatchupPageProps {
 
 export default function MatchupPage(props: MatchupPageProps) {
   const { state, updateMatchupAverageSelection } = useNavigation();
-  const predictionState = useShotPrediction(props.eventId);
+  const predictionState = useShotPrediction(props.eventId, props.section === 'predictions');
   const panel = state.panels[0];
 
   if (props.section === 'formations') {

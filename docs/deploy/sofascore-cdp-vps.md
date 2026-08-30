@@ -73,6 +73,13 @@ sudo chown -R stats:stats /opt/stats-analyzer/server/.shot-model-cache
 
 The directory contains cached SofaScore statistics and versioned forecasts. Keep it across ordinary app restarts and deployments; delete only the `predictions/` subdirectory when intentionally invalidating forecast outputs outside the normal model-version mechanism.
 
+Shot-model traffic is paced independently from ordinary proxy calls. The defaults start at most one model request per second and suspend queued work for 15 minutes after a `403` or `429`. Override only when the upstream environment has been verified:
+
+```bash
+SOFASCORE_MODEL_MIN_INTERVAL_MS=1000
+SOFASCORE_MODEL_COOLDOWN_MS=900000
+```
+
 ## Enable and start
 
 ```bash

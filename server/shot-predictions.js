@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const MODEL_VERSION = 'shots-v1.0.0';
+const MODEL_VERSION = 'shots-v1.1.0';
 const SUPPORTED_COMPETITIONS = new Map([
   [23, { name: 'Serie A', secondDivisionId: 53 }],
   [17, { name: 'Premier League', secondDivisionId: 18 }],
@@ -16,6 +16,9 @@ const PROMOTION_EQUIVALENT_MATCHES = [5, 10, 20];
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 const ONE_DAY = 24 * 60 * 60 * 1000;
 const MAX_EVENT_PAGES = 30;
+const HISTORY_SEASON_COUNT = 2;
+const DEFAULT_UPSTREAM_MIN_INTERVAL_MS = 1_000;
+const DEFAULT_UPSTREAM_COOLDOWN_MS = 15 * 60 * 1000;
 
 class ShotModelError extends Error {
   constructor(message, statusCode = 502, code = 'upstream_error') {
@@ -275,10 +278,15 @@ function createLimiter(maximumConcurrent) {
         runNext();
       });
   };
-  return (task) => new Promise((resolve, reject) => {
+  const schedule = (task) => new Promise((resolve, reject) => {
     queue.push({ task, resolve, reject });
     runNext();
   });
+  schedule.clearQueue = (error) => {
+    const pending = queue.splice(0);
+    pending.forEach((entry) => entry.reject(error));
+  };
+  return schedule;
 }
 
 class DiskJsonCache {
@@ -606,9 +614,13 @@ function selectModelParameters(observations) {
   };
 }
 
-function seasonSortValue(season) {
+function seasonYearValue(season) {
   const years = String(season?.year || season?.name || '').match(/\d{4}/g);
-  return years?.length ? Math.max(...years.map(Number)) : safeNumber(season?.id) || 0;
+  return years?.length ? Math.max(...years.map(Number)) : null;
+}
+
+function seasonSortValue(season) {
+  return seasonYearValue(season) ?? safeNumber(season?.id) ?? 0;
 }
 
 function formatEventLabel(observation) {
@@ -823,22 +835,71 @@ function buildCalculationDetails(prediction, selection) {
   };
 }
 
-function createShotPredictionService({ fetchSofaScore, cacheDir = path.join(__dirname, '.shot-model-cache') }) {
+function createShotPredictionService({
+  fetchSofaScore,
+  cacheDir = path.join(__dirname, '.shot-model-cache'),
+  upstreamMinIntervalMs = DEFAULT_UPSTREAM_MIN_INTERVAL_MS,
+  upstreamCooldownMs = DEFAULT_UPSTREAM_COOLDOWN_MS,
+}) {
   const cache = new DiskJsonCache(cacheDir);
   const limit = createLimiter(3);
   const inFlightFetches = new Map();
   const jobs = new Map();
   const averageJobs = new Map();
+  let nextUpstreamStartAt = 0;
+  let upstreamBlockedUntil = 0;
+  let upstreamBlockedError = null;
+
+  const getCircuitError = () => {
+    if (Date.now() >= upstreamBlockedUntil) {
+      upstreamBlockedUntil = 0;
+      upstreamBlockedError = null;
+      return null;
+    }
+    return upstreamBlockedError;
+  };
+
+  const waitForUpstreamSlot = async () => {
+    const now = Date.now();
+    const scheduledAt = Math.max(now, nextUpstreamStartAt);
+    nextUpstreamStartAt = scheduledAt + Math.max(0, upstreamMinIntervalMs);
+    const delay = scheduledAt - now;
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+  };
+
+  const blockUpstream = (error) => {
+    const upstreamStatus = error?.upstreamStatus || error?.statusCode;
+    if (upstreamStatus !== 403 && upstreamStatus !== 429) return error;
+    const blocked = new ShotModelError(
+      `SofaScore ha temporaneamente bloccato le richieste (${upstreamStatus}). Il modello è stato sospeso per evitare ulteriori tentativi.`,
+      502,
+      'upstream_temporarily_blocked',
+    );
+    blocked.upstreamStatus = upstreamStatus;
+    upstreamBlockedUntil = Date.now() + Math.max(0, upstreamCooldownMs);
+    upstreamBlockedError = blocked;
+    limit.clearQueue(blocked);
+    return blocked;
+  };
 
   const fetchCached = async (endpoint, { namespace = 'raw', maxAgeMs = ONE_DAY } = {}) => {
     const cached = await cache.get(namespace, endpoint, maxAgeMs);
     if (cached) return cached;
+    const circuitError = getCircuitError();
+    if (circuitError) throw circuitError;
     if (inFlightFetches.has(endpoint)) return inFlightFetches.get(endpoint);
     const promise = limit(async () => {
-      const data = await fetchSofaScore(endpoint);
-      if (!data || typeof data !== 'object') throw new ShotModelError(`Risposta SofaScore non valida per ${endpoint}`);
-      await cache.set(namespace, endpoint, data);
-      return data;
+      await waitForUpstreamSlot();
+      const queuedCircuitError = getCircuitError();
+      if (queuedCircuitError) throw queuedCircuitError;
+      try {
+        const data = await fetchSofaScore(endpoint);
+        if (!data || typeof data !== 'object') throw new ShotModelError(`Risposta SofaScore non valida per ${endpoint}`);
+        await cache.set(namespace, endpoint, data);
+        return data;
+      } catch (error) {
+        throw blockUpstream(error);
+      }
     }).finally(() => inFlightFetches.delete(endpoint));
     inFlightFetches.set(endpoint, promise);
     return promise;
@@ -879,7 +940,7 @@ function createShotPredictionService({ fetchSofaScore, cacheDir = path.join(__di
     if (targetSeason && !seasons.some((season) => season.id === targetSeason.id)) seasons.push(targetSeason);
     seasons.sort((first, second) => seasonSortValue(second) - seasonSortValue(first));
     const targetIndex = Math.max(0, seasons.findIndex((season) => season.id === targetSeason?.id));
-    return seasons.slice(targetIndex, targetIndex + 3);
+    return seasons.slice(targetIndex, targetIndex + HISTORY_SEASON_COUNT);
   };
 
   const loadLeagueDataset = async (event, progress) => {
@@ -987,7 +1048,7 @@ function createShotPredictionService({ fetchSofaScore, cacheDir = path.join(__di
     progress.stage = 'promotion';
     progress.message = 'Verifica del passaggio dalla seconda divisione';
     progress.completed = 0;
-    progress.total = 2;
+    progress.total = 1;
     const seasonPayload = await fetchCached(`unique-tournament/${competition.secondDivisionId}/seasons`, {
       namespace: 'metadata',
       maxAgeMs: ONE_DAY,
@@ -995,9 +1056,6 @@ function createShotPredictionService({ fetchSofaScore, cacheDir = path.join(__di
     const lowerSeasons = (Array.isArray(seasonPayload.seasons) ? [...seasonPayload.seasons] : [])
       .sort((first, second) => seasonSortValue(second) - seasonSortValue(first));
     const lowerPrevious = lowerSeasons.find((season) => seasonSortValue(season) < targetSeasonValue);
-    const lowerEarlier = lowerSeasons.find((season) => (
-      lowerPrevious && seasonSortValue(season) < seasonSortValue(lowerPrevious)
-    ));
     if (!lowerPrevious) {
       return { ...empty, note: 'Stagione precedente della seconda divisione non disponibile.' };
     }
@@ -1014,24 +1072,8 @@ function createShotPredictionService({ fetchSofaScore, cacheDir = path.join(__di
     )));
     if (promotedCandidates.length === 0) return empty;
 
-    let transitionTeams = [];
-    let earlierData = [];
-    let transitionTopData = [];
-    if (lowerEarlier) {
-      earlierData = await loadSupplementarySeason(
-        competition.secondDivisionId,
-        lowerEarlier,
-        event.startTimestamp,
-        progress,
-      );
-      const transitionTopSeason = topSeasons.find((season) => seasonSortValue(season) === seasonSortValue(lowerPrevious));
-      transitionTopData = transitionTopSeason
-        ? topObservations.filter((observation) => observation.seasonId === transitionTopSeason.id)
-        : [];
-      const lowerTeamIds = new Set(earlierData.flatMap((observation) => [observation.homeTeamId, observation.awayTeamId]));
-      const topTeamIds = new Set(transitionTopData.flatMap((observation) => [observation.homeTeamId, observation.awayTeamId]));
-      transitionTeams = [...lowerTeamIds].filter((teamId) => topTeamIds.has(teamId));
-    }
+    const transitionTeams = [];
+    const transitionTopData = [];
     progress.completed = progress.total;
 
     const dimensions = ['homeAttack', 'homeVulnerability', 'awayAttack', 'awayVulnerability'];
@@ -1121,7 +1163,7 @@ function createShotPredictionService({ fetchSofaScore, cacheDir = path.join(__di
       teams: teamDiagnostics,
       note: cohortSufficient
         ? 'Trasferimento stimato su promozioni concluse prima del cutoff.'
-        : 'Campione storico delle promozioni ridotto: rating trasferiti maggiormente verso 1 e intervallo ampliato.',
+        : 'Il limite alla stagione precedente non consente un campione storico di transizione: rating trasferiti verso 1 e intervallo ampliato.',
     };
   };
 
@@ -1345,6 +1387,13 @@ function createShotPredictionService({ fetchSofaScore, cacheDir = path.join(__di
         return empty;
       }
       const groups = Array.isArray(payload.uniqueTournamentSeasons) ? payload.uniqueTournamentSeasons : [];
+      const latestSeasonValue = groups.reduce((latest, group) => Math.max(
+        latest,
+        ...(Array.isArray(group.seasons) ? group.seasons : [])
+          .map(seasonYearValue)
+          .filter(Number.isFinite),
+      ), 0);
+      const oldestAllowedSeasonValue = latestSeasonValue - (HISTORY_SEASON_COUNT - 1);
       const competitions = groups
         .map((group) => ({
           id: group.uniqueTournament?.id,
@@ -1352,6 +1401,10 @@ function createShotPredictionService({ fetchSofaScore, cacheDir = path.join(__di
           categoryName: group.uniqueTournament?.category?.name || null,
           seasons: (Array.isArray(group.seasons) ? group.seasons : [])
             .map((season) => ({ id: season.id, name: season.name, year: season.year }))
+            .filter((season) => {
+              const yearValue = seasonYearValue(season);
+              return latestSeasonValue === 0 || yearValue === null || yearValue >= oldestAllowedSeasonValue;
+            })
             .sort((first, second) => seasonSortValue(second) - seasonSortValue(first)),
         }))
         .filter((competitionItem) => competitionItem.id && competitionItem.seasons.length > 0)

@@ -33,7 +33,7 @@ vi.mock('@/api/sofascore', () => ({
 
 const prediction: ShotPrediction = {
   eventId: 999,
-  modelVersion: 'shots-v1.0.0',
+  modelVersion: 'shots-v1.1.0',
   generatedAt: '2026-08-30T10:00:00.000Z',
   cutoffTimestamp: 1_800_000_000,
   cutoffIso: '2027-01-15T08:00:00.000Z',

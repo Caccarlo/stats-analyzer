@@ -207,7 +207,7 @@ function AveragePanel({
         <TeamLogo teamId={teamId} teamName={teamName} className="h-9 w-9" />
         <div className="min-w-0">
           <h3 id={`average-${side}-title`} className="truncate text-sm font-semibold text-text-primary">{teamName}</h3>
-          <p className="text-[11px] text-text-muted">Medie descrittive aggiornate</p>
+          <p className="text-[11px] text-text-muted">Stagione più recente e precedente</p>
         </div>
       </div>
 

@@ -99,7 +99,7 @@ stats-analyzer/
                 `-- PlayerDot.tsx
             `-- navigation/ (continued)
                 |-- MatchupView.tsx        # Formazioni and descriptive match history for one real event
-                |-- MatchupPage.tsx        # Matchup shell switching Formazioni/Previsioni and prestarting the job
+                |-- MatchupPage.tsx        # Matchup shell switching Formazioni/Previsioni and lazily enabling the job
                 `-- ShotPredictionsView.tsx # Forecast, markets, drill-down, independent average panels
 ```
 
@@ -120,7 +120,7 @@ Browser (5173) -> React App -> sofascore.ts
 - `apiFetch` falls back from direct to `/api/sofascore/*` on challenge-like failures, CORS/fetch errors, timeout, non-JSON responses, `403`, `429`, and server errors. Terminal `404` handling remains endpoint-specific through `notFoundValue`.
 - Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, and `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`.
 - Server: browser-backed proxy with in-memory TTL cache, in-flight dedupe, and a persistent Chrome/Chromium relay.
-- Shot-model routes use the same relay, add a maximum-three-request queue, and persist raw statistics, metadata, averages, job details, and versioned forecasts under the Git-ignored `server/.shot-model-cache/`.
+- Shot-model routes use the same relay, add a maximum-three-request paced queue plus a `403`/`429` circuit breaker, and persist raw statistics, metadata, averages, job details, and versioned forecasts under the Git-ignored `server/.shot-model-cache/`.
 - The relay is expected to run in one of two modes:
   - `SOFASCORE_BROWSER_CDP_URL`: connect to an already running real Chrome/Chromium session on the VPS via CDP.
   - `SOFASCORE_BROWSER_EXECUTABLE_PATH`: launch a local Chrome/Chromium binary with a persistent user-data directory (`SOFASCORE_BROWSER_USER_DATA_DIR`).
@@ -136,7 +136,7 @@ Browser (5173) -> React App -> sofascore.ts
 - `Tournament` objects in event data include an optional `category` field (id, name, alpha2) exposing country context. `TeamView` uses this in a fallback effect to populate missing `leagueId` and `countryId`/`countryCategoryId` on the panel, so `GO_BACK` can traverse the full hierarchy (player → team → teams → leagues) even when navigation started from search rather than the country list.
 - `MatchupView` is match-specific only: full-screen matchup navigation requires a canonical real-event target (`eventId` plus home/away/team context), not just two team ids.
 - `MatchupPage` owns the match-level section switch. `PanelState.matchupSection` is `formations | predictions`; the initial section is `formations`, while both teams' average filter selections persist independently in the same panel state.
-- Opening a matchup starts `GET /api/predictions/shots/:eventId` immediately. A `202 building` response is polled by `useShotPrediction`; the server job is deduplicated and continues if the component unmounts.
+- Selecting `Previsioni` starts `GET /api/predictions/shots/:eventId`; merely opening the matchup or remaining in `Formazioni` does not start model traffic. A `202 building` response is polled by `useShotPrediction`; the server job is deduplicated and continues if the component unmounts after it has started.
 - The prediction view replaces the formation field and players completely. It exposes expected home/away/total shots, an 80% interval, seven consecutive `.5` total-shot lines, Under/Over probabilities and fair no-margin odds, one drill-down at a time, and two independent descriptive-average panels.
 - Predictive and descriptive timelines must remain separate. Prediction datasets and “Partite usate” exclude the target event and every later event. Descriptive averages and `MatchupView` histories may use all currently finished data, including the target and later completed games.
 - `MatchupView` explicitly fetches the opened event and merges it into both teams' history, deduplicated by event id. It is pinned to the visible page, highlighted as `Aperta`, and shows final total shots when the event is finished.
@@ -193,13 +193,15 @@ observation.eventId != target.eventId
 
 The same cutoff governs baselines, opponent point-in-time strength, temporal ratings, promotion transfers, parameter selection, dispersion, and chronological backtests. It must never use final target-season standings, bookmaker prices, lineups, or absences.
 
+Model version `shots-v1.1.0` limits the dataset to the target season up to kickoff plus its immediately preceding season. Descriptive average catalogs independently expose only the team's latest available season and the immediately preceding one across its competitions.
+
 Selection grids and rules:
 
 - half-life: `60, 90, 120, 180, 270, 365` days;
 - rating shrinkage prior: `5, 10, 20` equivalent matches;
 - continuous strength effect: none, linear, or linear+quadratic; retain an extra term only when out-of-sample NLL improves by at least 1%, MAE does not worsen, and calibration error is acceptable;
 - total distribution: Poisson or negative binomial by out-of-sample likelihood, preferring Poisson when practically equivalent;
-- promoted-team equivalent matches: `5, 10, 20`, evaluated on historical promotion cohorts available before the cutoff.
+- promoted-team equivalent matches: `5, 10, 20`; the immediately preceding second-division season is allowed, while older transition cohorts are not downloaded. When the two-season window cannot estimate a transition, the transferred prior is neutralized toward `1` and uncertainty is reported.
 
 The total distribution is fitted and scored directly. It is not obtained by summing two counts assumed independent. A line `x.5` uses `P(Under)=P(T<=x)`, `P(Over)=1-P(Under)`, and fair odds `1/p`.
 
@@ -211,6 +213,8 @@ Local APIs:
 - `GET /api/teams/:teamId/shot-averages?competitionId=...&seasonId=...&venue=all|home|away`.
 
 Past forecasts are immutable for the same model version. Future forecasts are refreshed after a newly completed relevant event or after six hours. Finished-match raw statistics are immutable and reusable across model versions.
+
+Model requests start at least `SOFASCORE_MODEL_MIN_INTERVAL_MS` apart (default `1000`) with at most three in flight. The first `403` or `429` clears pending work and opens a cooldown controlled by `SOFASCORE_MODEL_COOLDOWN_MS` (default 15 minutes), preventing a failed job from continuing to drain its queue.
 
 **Field:**
 - Single SVG landscape field (`viewBox="0 0 1050 680"`, `aspect-ratio: 105/68`).
@@ -373,6 +377,7 @@ Other current behavior:
 - `apiFetch` deduplicates in-flight requests per path, so parallel consumers such as `TeamGrid` and `SidebarTeamList` share the same pending SofaScore call instead of duplicating retries.
 - `apiFetch` tries direct browser JSON access before proxy fallback by default. This can be disabled with `VITE_SOFASCORE_DIRECT=false` if SofaScore changes CORS behavior or if a deployment must force server relay mode.
 - `apiFetch` no longer retries terminal `4xx` responses except `429`, caches terminal `404` fallback payloads for endpoints that opt in, and also caches terminal `4xx` errors for the standard TTL.
+- A direct SofaScore `403` may use the proxy fallback once; if the proxy also returns `403`, that response is terminal and is not retried through the same exhausted strategy chain.
 - `useTournamentViewData` keeps a shared in-memory tournament snapshot cache keyed by `{tournamentId, seasonId}` plus a latest-season alias, so reopening the same tournament view can hydrate synchronously without rebuilding phases or standings.
 - `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKeyOrWildcard, tournamentIdsKey, tournamentYearPairsKey, seasonDateRangeKey, maxEvents, minPlayedEvents}`.
 - When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.

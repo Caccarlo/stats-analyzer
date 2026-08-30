@@ -180,11 +180,12 @@ async function fetchJsonWithStrategy<T>(
   }
 
   if (!res.ok) {
+    const canFallback = strategy === 'direct' && canFallbackFromDirect(res.status, text);
     throw new ApiFetchError(
       `${strategy} API error ${res.status}: ${path}`,
       res.status,
-      isTerminalHttpStatus(res.status) && !canFallbackFromDirect(res.status, text),
-      strategy === 'direct' && canFallbackFromDirect(res.status, text),
+      isTerminalHttpStatus(res.status) && !canFallback,
+      canFallback,
       strategy,
     );
   }

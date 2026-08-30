@@ -100,7 +100,7 @@ Key responsibilities:
 - `client/src/api/sofascore.ts`: all client API calls, client-direct SofaScore JSON fetch with proxy fallback, client TTL cache, in-flight dedupe, terminal 4xx handling, tournament paging helpers, shared matchup target resolvers
 - `client/src/components/navigation/TeamView.tsx`: team page, next-match context persistence, split-view opponent orchestration, real-match matchup resolution
 - `client/src/components/navigation/MatchupView.tsx`: full-screen single-match comparison view with canonical event-driven lineups and season-aware team stats loading for the opened match
-- `client/src/components/navigation/MatchupPage.tsx`: matchup shell that prestarts the server prediction job and swaps between `Formazioni` and `Previsioni`
+- `client/src/components/navigation/MatchupPage.tsx`: matchup shell that swaps between `Formazioni` and `Previsioni` and enables the prediction job only for the latter
 - `client/src/components/navigation/ShotPredictionsView.tsx`: shot forecast summary, seven fair total-shot lines, calculation/history drill-down, and two independent descriptive-average panels
 - `client/src/hooks/useShotPrediction.ts`: starts and polls the on-demand prediction job without cancelling server work when the view unmounts
 - `client/src/hooks/usePlayerData.ts`: player seasons, period/filter state, tournament enablement, aggregated season stats
@@ -119,15 +119,16 @@ Key responsibilities:
 - Panel behavior matters. Many layout decisions depend on measured panel width, not only viewport width.
 - `MatchupView` is a match-specific screen. It must open only from a resolved real event (`eventId`); generic team-vs-team compare mode is intentionally unsupported.
 - Matchup `PanelState` persists `matchupSection` plus separate home/away descriptive-average selections. `Formazioni` remains the default; `Previsioni` replaces the field/players instead of overlaying them.
-- `MatchupPage` starts the prediction job as soon as the real matchup opens, even while `Formazioni` is selected. The server job survives client navigation and is deduplicated by event/model version.
+- `MatchupPage` starts the prediction job only when the user selects `Previsioni`; opening or using `Formazioni` alone must never enqueue model traffic. Once started, the server job survives client navigation and is deduplicated by event/model version.
 - Historical shot predictions are strictly point-in-time: every model observation must satisfy `startTimestamp < target.startTimestamp` and `eventId !== target.eventId` before any baseline, rating, parameter selection, dispersion estimate, promotion transfer, or backtest is computed.
+- Predictive history is limited to the target season up to kickoff plus its immediately preceding season. Descriptive shot-average catalogs expose only the team's latest available season and the immediately preceding one; each selected season may still use all matches currently finished.
 - Descriptive data is deliberately separate from predictive data. Team averages and `MatchupView` history may include the opened match and later completed matches; prediction details never may. The opened event is fetched explicitly, deduplicated in both team histories, highlighted, and shows final total shots when available.
 - Shot predictions support only Serie A (23), Premier League (17), LaLiga (8), Bundesliga (35), and Ligue 1 (34). Descriptive average catalogs are not limited to those competitions.
 - The model parses `event/{eventId}/statistics`, `period=ALL`, `key=totalShotsOnGoal`; despite the internal key name SofaScore labels it “Total shots”. Missing-stat events are excluded and counted, while red-card matches remain.
 - Model selection is chronological: half-life grid `[60,90,120,180,270,365]`, shrinkage grid `[5,10,20]`, optional continuous strength term accepted only with at least 1% out-of-sample NLL improvement and non-worse MAE, then Poisson versus negative-binomial total distribution. Never derive the total by assuming independent team counts.
-- Promotion priors are learned from second-division seasons and historical promotion cohorts available before the cutoff. Insufficient cohorts are shrunk further toward 1, widen the reported interval, and create an explicit warning; do not add manual league multipliers.
+- Promotion priors may use the immediately preceding second-division season. Older transition cohorts are outside the two-season boundary; when no transition can be estimated inside that window, the prior is neutralized toward 1, the interval is widened, and an explicit warning is required.
 - Prediction and average routes are local Express APIs under `/api/predictions/*` and `/api/teams/*`; they must not use the client-direct SofaScore origin.
-- `server/.shot-model-cache/` is a Git-ignored persistent runtime cache. Raw finished-match statistics remain reusable across model versions; prediction results are keyed by `eventId + modelVersion`. SofaScore model fetch concurrency is capped at three.
+- `server/.shot-model-cache/` is a Git-ignored persistent runtime cache. Raw finished-match statistics remain reusable across model versions; prediction results are keyed by `eventId + modelVersion`. SofaScore model traffic is capped at three concurrent calls, paced by `SOFASCORE_MODEL_MIN_INTERVAL_MS` (one second by default), and protected by a queue-clearing cooldown circuit on `403`/`429`.
 - Team panels persist a compact `nextMatchSummary` in `PanelState` after loading `nextEvent`, so split views can prove both sides reference the same real match before auto-opening or merging into `MatchupView`.
 - Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
 - `MatchupView` player stats tables should load finished matches across the opened match's full season context, not just the first page of team history, so the default competition filter remains populated reliably.
@@ -143,6 +144,7 @@ Key responsibilities:
 - Both client and server use in-memory TTL caching. Reuse existing cache-aware helpers instead of bypassing them.
 - SofaScore JSON calls are client-direct first (`https://www.sofascore.com/api/v1/*`) and fall back to `/api/sofascore/*` when direct browser access is blocked by challenge/CORS/fetch errors, timeout, non-JSON responses, `403`, or `429`.
 - Direct client JSON fetches must use `credentials: 'omit'`; do not send cross-origin SofaScore credentials from the app origin.
+- A direct `403` may fall through once to the proxy, but a proxy `403` is terminal for that request and must not enter the generic retry loop.
 - Client data-access flags:
   - `VITE_SOFASCORE_DIRECT=false` disables direct browser JSON fetches.
   - `VITE_SOFASCORE_PROXY_FALLBACK=false` disables proxy fallback when direct is enabled.

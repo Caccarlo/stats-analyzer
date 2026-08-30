@@ -2,7 +2,7 @@
 
 ## Scope
 
-The V1 estimates match total shots for real SofaScore events in Serie A, Premier League, LaLiga, Bundesliga, and Ligue 1. It runs on demand when a matchup is opened and uses one pipeline for scheduled, live, and finished events.
+The V1 estimates match total shots for real SofaScore events in Serie A, Premier League, LaLiga, Bundesliga, and Ligue 1. It runs on demand only when `Previsioni` is selected and uses one pipeline for scheduled, live, and finished events.
 
 It returns expected home shots, expected away shots, expected total shots, an 80% central interval, a directly calibrated total-count distribution, and seven consecutive half-shot Under/Over lines with fair no-margin odds. Team-total market probabilities are intentionally out of scope until marginal team distributions are modelled separately.
 
@@ -17,7 +17,9 @@ eventId != E
 
 This applies to baselines, point-in-time opponent strength, temporal weights, ratings, promotion transfers, parameter selection, dispersion, and backtests. A historical target result or any later match therefore cannot change its forecast. Server tests mutate both and assert an identical forecast.
 
-Descriptive averages and the `Formazioni` history intentionally use all currently finished data. They may contain the target and later events and never share their rows with the model dataset.
+The predictive window contains only the target season up to kickoff and its immediately preceding season. For a 2025/26 target, no 2023/24 observation is downloaded or fitted.
+
+Descriptive averages expose only the team's latest available season and the immediately preceding season. Within either selected season they intentionally use all currently finished data, so they may contain the target and later events and never share their rows with the model dataset. The compact `Formazioni` history remains an independent recent-match view.
 
 ## Data and model
 
@@ -31,17 +33,17 @@ Descriptive averages and the `Formazioni` history intentionally use all currentl
 - Shrinkage candidates: `5, 10, 20` equivalent matches.
 - The optional continuous strength term is selected only with at least 1% out-of-sample likelihood improvement, non-worse MAE, and acceptable calibration.
 - Poisson and negative binomial are compared on the observed total directly; the simpler Poisson wins when the likelihood difference is negligible.
-- Promotion priors use the corresponding second division plus promotion cohorts completed before the cutoff. Small cohorts cause stronger data-derived shrinkage and interval expansion, with an explicit warning.
+- Promotion priors can use the corresponding second division's immediately preceding season. Older transition cohorts are not downloaded; when a transition cannot be estimated inside the two-season window, the transferred prior is neutralized toward `1`, the interval is expanded, and the limitation is shown explicitly.
 
 ## Runtime flow
 
-1. `MatchupPage` mounts and calls `GET /api/predictions/shots/:eventId` through `useShotPrediction`.
+1. `MatchupPage` enables `useShotPrediction` only after the user selects `Previsioni`; `Formazioni` produces no model request.
 2. A cache hit returns `200 ready`.
 3. A cache miss creates one deduplicated background job and returns `202 building` with progress.
 4. The client polls with bounded backoff. Leaving the page does not cancel server work.
 5. Model details and paginated source rows are loaded only after the user selects a result or market side.
 
-The global model fetch queue permits at most three simultaneous SofaScore requests.
+The global model fetch queue permits at most three simultaneous SofaScore requests and starts them at least one second apart by default. The relay reuses one warmed SofaScore page instead of navigating to the homepage for every statistic. A first upstream `403` or `429` clears all pending work and opens a 15-minute cooldown circuit, both configurable through `SOFASCORE_MODEL_MIN_INTERVAL_MS` and `SOFASCORE_MODEL_COOLDOWN_MS`.
 
 ## Persistent cache
 
@@ -65,7 +67,7 @@ GET /api/teams/:teamId/shot-averages/catalog
 GET /api/teams/:teamId/shot-averages?competitionId=23&seasonId=...&venue=home
 ```
 
-Prediction status codes are `200 ready`, `202 building`, `422 unsupported_or_insufficient_data`, and `502 upstream_error`.
+Prediction status codes are `200 ready`, `202 building`, `422 unsupported_or_insufficient_data`, and `502 upstream_error`/`upstream_temporarily_blocked`.
 
 ## Verification
 
@@ -79,4 +81,4 @@ npm run lint
 npm run build
 ```
 
-The test suite covers the Total shots parser, time weights, effective sample, Poisson/negative-binomial CDFs, seven half-shot lines and fair odds, explicit cutoff leakage, descriptive/predictive separation, and independent average-panel changes.
+The test suite covers the Total shots parser, time weights, effective sample, Poisson/negative-binomial CDFs, seven half-shot lines and fair odds, explicit cutoff leakage, the two-season boundary, descriptive/predictive separation, lazy prediction startup, independent average-panel changes, terminal proxy fallback, and queue cancellation after `403`.

@@ -10,7 +10,7 @@ export interface ShotPredictionState {
   retry: () => void;
 }
 
-export function useShotPrediction(eventId: number): ShotPredictionState {
+export function useShotPrediction(eventId: number, enabled = true): ShotPredictionState {
   const generationRef = useRef(0);
   const [retryNonce, setRetryNonce] = useState(0);
   const [status, setStatus] = useState<ShotPredictionState['status']>('idle');
@@ -23,6 +23,8 @@ export function useShotPrediction(eventId: number): ShotPredictionState {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return undefined;
+
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     let timeoutId: number | undefined;
@@ -68,7 +70,7 @@ export function useShotPrediction(eventId: number): ShotPredictionState {
       cancelled = true;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     };
-  }, [eventId, retryNonce]);
+  }, [enabled, eventId, retryNonce]);
 
   return { status, prediction, progress, error, retry };
 }

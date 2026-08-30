@@ -5,6 +5,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
+  MODEL_VERSION,
+  ShotModelError,
   extractTotalShots,
   temporalWeight,
   effectiveSampleSize,
@@ -200,7 +202,9 @@ test('servizio storico separa previsione, dettagli point-in-time e medie descrit
     lowerEvents.set(lowerSeason.id, events);
   }
 
+  const requestedEndpoints = [];
   const fetchSofaScore = async (endpoint) => {
+    requestedEndpoints.push(endpoint);
     if (endpoint === 'event/999') return { event: target };
     if (endpoint === 'event/997') return { event: promotedTarget };
     if (endpoint === 'unique-tournament/23/seasons') return { seasons };
@@ -222,13 +226,14 @@ test('servizio storico separa previsione, dettagli point-in-time e medie descrit
   };
 
   try {
-    const service = createShotPredictionService({ fetchSofaScore, cacheDir });
+    const service = createShotPredictionService({ fetchSofaScore, cacheDir, upstreamMinIntervalMs: 0 });
     const building = await service.getPrediction(target.id);
     assert.equal(building.status, 'building');
-    await service.jobs.get(`999:shots-v1.0.0`).promise;
+    await service.jobs.get(`999:${MODEL_VERSION}`).promise;
     const ready = await service.getPrediction(target.id);
     assert.equal(ready.status, 'ready');
     assert.ok(ready.prediction.expected.total < 60, 'il risultato target estremo non deve contaminare la media');
+    assert.deepEqual(ready.prediction.diagnostics.seasonsUsed.map((season) => season.id), [30, 20]);
 
     const details = await service.getDetails(target.id, 'expected-total', 'home', 1, 25);
     assert.ok(details.matches.items.every((match) => match.eventId !== target.id && match.eventId !== later.id));
@@ -236,16 +241,86 @@ test('servizio storico separa previsione, dettagli point-in-time e medie descrit
 
     const catalog = await service.getAverageCatalog(1);
     assert.equal(catalog.competitions[0].id, 23);
+    assert.deepEqual(catalog.competitions[0].seasons.map((season) => season.id), [30, 20]);
     const averages = await service.getShotAverages(1, 23, seasons[0].id, 'all');
     assert.ok(averages.shotsFor > 20, 'le medie descrittive devono poter includere target e partita successiva');
 
     const promotedBuilding = await service.getPrediction(promotedTarget.id);
     assert.equal(promotedBuilding.status, 'building');
-    await service.jobs.get(`997:shots-v1.0.0`).promise;
+    await service.jobs.get(`997:${MODEL_VERSION}`).promise;
     const promotedReady = await service.getPrediction(promotedTarget.id);
     assert.equal(promotedReady.prediction.diagnostics.promotion.applied, true);
     assert.equal(promotedReady.prediction.diagnostics.promotion.teams[0].teamId, 99);
-    assert.ok(promotedReady.prediction.diagnostics.promotion.teams[0].cohortSize >= 3);
+    assert.equal(promotedReady.prediction.diagnostics.promotion.teams[0].cohortSize, 0);
+    assert.match(promotedReady.prediction.diagnostics.promotion.note, /stagione precedente/i);
+    assert.equal(requestedEndpoints.some((endpoint) => endpoint.includes('/season/10/')), false);
+    assert.equal(requestedEndpoints.some((endpoint) => endpoint.includes('/season/40/')), false);
+  } finally {
+    await fs.promises.rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('un 403 interrompe le richieste statistiche già accodate', async () => {
+  const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-circuit-test-'));
+  const seasons = [
+    { id: 30, name: '2025/26', year: '2025/26' },
+    { id: 20, name: '2024/25', year: '2024/25' },
+    { id: 10, name: '2023/24', year: '2023/24' },
+  ];
+  const target = {
+    id: 999,
+    startTimestamp: 1_800_000_000,
+    tournament: { uniqueTournament: { id: 23, name: 'Serie A' } },
+    season: seasons[0],
+    homeTeam: { id: 1, name: 'Team 1' },
+    awayTeam: { id: 2, name: 'Team 2' },
+  };
+  const events = Array.from({ length: 80 }, (_, index) => ({
+    id: 10_000 + index,
+    startTimestamp: 1_700_000_000 + index * 86_400,
+    tournament: target.tournament,
+    season: index < 40 ? seasons[1] : seasons[0],
+    homeTeam: { id: (index % 6) + 1, name: `Team ${(index % 6) + 1}` },
+    awayTeam: { id: ((index + 2) % 6) + 1, name: `Team ${((index + 2) % 6) + 1}` },
+    status: { type: 'finished', code: 100, description: 'Ended' },
+  }));
+  let statisticsCalls = 0;
+
+  const fetchSofaScore = async (endpoint) => {
+    if (endpoint === 'event/999') return { event: target };
+    if (endpoint === 'unique-tournament/23/seasons') return { seasons };
+    const page = endpoint.match(/^unique-tournament\/23\/season\/(\d+)\/events\/last\/(\d+)$/);
+    if (page) {
+      const seasonId = Number(page[1]);
+      return {
+        events: Number(page[2]) === 0 ? events.filter((event) => event.season.id === seasonId) : [],
+        hasNextPage: false,
+      };
+    }
+    if (/^event\/\d+\/statistics$/.test(endpoint)) {
+      statisticsCalls += 1;
+      const error = new ShotModelError('Forbidden');
+      error.upstreamStatus = 403;
+      throw error;
+    }
+    throw new Error(`Endpoint inatteso: ${endpoint}`);
+  };
+
+  try {
+    const service = createShotPredictionService({
+      fetchSofaScore,
+      cacheDir,
+      upstreamMinIntervalMs: 0,
+      upstreamCooldownMs: 60_000,
+    });
+    const building = await service.getPrediction(target.id);
+    assert.equal(building.status, 'building');
+    await service.jobs.get(`999:${MODEL_VERSION}`).promise;
+    assert.ok(statisticsCalls <= 3, `attese al massimo 3 richieste attive, ricevute ${statisticsCalls}`);
+    await assert.rejects(
+      () => service.getPrediction(target.id),
+      (error) => error.code === 'upstream_temporarily_blocked',
+    );
   } finally {
     await fs.promises.rm(cacheDir, { recursive: true, force: true });
   }

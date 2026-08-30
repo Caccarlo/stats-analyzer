@@ -17,6 +17,8 @@ const SOFASCORE_IMAGE_ORIGIN = 'https://img.sofascore.com';
 const CACHE_TTL = 5 * 60 * 1000;
 const IMAGE_CACHE_TTL = 30 * 60 * 1000;
 const BROWSER_FETCH_TIMEOUT_MS = Number(process.env.SOFASCORE_BROWSER_FETCH_TIMEOUT_MS || 20000);
+const MODEL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_MODEL_MIN_INTERVAL_MS || 1000);
+const MODEL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_COOLDOWN_MS || 15 * 60 * 1000);
 const BROWSER_PAGE_URL = process.env.SOFASCORE_BROWSER_PAGE_URL || `${SOFASCORE_WEB_ORIGIN}/`;
 const BROWSER_CDP_URL = process.env.SOFASCORE_BROWSER_CDP_URL || '';
 const BROWSER_EXECUTABLE_PATH = process.env.SOFASCORE_BROWSER_EXECUTABLE_PATH || '';
@@ -32,6 +34,8 @@ const inFlightImageRequests = new Map();
 
 let browserRuntime = null;
 let browserRuntimePromise = null;
+let browserJsonPage = null;
+let browserJsonPagePromise = null;
 
 function getBrowserExecutableCandidates() {
   if (BROWSER_EXECUTABLE_PATH) {
@@ -132,6 +136,12 @@ function getBrowserLaunchArgs() {
 }
 
 async function disposeBrowserRuntime() {
+  const relayPage = browserJsonPage;
+  browserJsonPage = null;
+  browserJsonPagePromise = null;
+  if (relayPage && !relayPage.isClosed()) {
+    await relayPage.close().catch(() => {});
+  }
   if (!browserRuntime) return;
 
   const runtime = browserRuntime;
@@ -169,6 +179,8 @@ async function initBrowserRuntime() {
     browser = await chromium.connectOverCDP(BROWSER_CDP_URL);
     browser.on('disconnected', () => {
       browserRuntime = null;
+      browserJsonPage = null;
+      browserJsonPagePromise = null;
     });
     context = browser.contexts()[0];
     if (!context) {
@@ -199,6 +211,8 @@ async function initBrowserRuntime() {
 
   context.on('close', () => {
     browserRuntime = null;
+    browserJsonPage = null;
+    browserJsonPagePromise = null;
   });
 
   browserRuntime = { mode, browser, context };
@@ -240,12 +254,32 @@ async function createFetchPage(runtime) {
   return page;
 }
 
+async function getBrowserJsonPage(runtime) {
+  if (browserJsonPage && !browserJsonPage.isClosed()) return browserJsonPage;
+  if (!browserJsonPagePromise) {
+    browserJsonPagePromise = createFetchPage(runtime)
+      .then((page) => {
+        browserJsonPage = page;
+        page.on('close', () => {
+          if (browserJsonPage === page) browserJsonPage = null;
+        });
+        page.on('crash', () => {
+          if (browserJsonPage === page) browserJsonPage = null;
+        });
+        return page;
+      })
+      .finally(() => {
+        browserJsonPagePromise = null;
+      });
+  }
+  return browserJsonPagePromise;
+}
+
 async function fetchViaBrowserJson(cacheKey) {
   const runtime = await getBrowserRuntime();
-  let page;
 
   try {
-    page = await createFetchPage(runtime);
+    const page = await getBrowserJsonPage(runtime);
 
     const result = await page.evaluate(
       async ({ requestPath, timeoutMs }) => {
@@ -297,10 +331,6 @@ async function fetchViaBrowserJson(cacheKey) {
       await disposeBrowserRuntime();
     }
     throw error;
-  } finally {
-    if (page && !page.isClosed()) {
-      await page.close().catch(() => {});
-    }
   }
 }
 
@@ -463,6 +493,8 @@ app.get('/api/sofascore-browser/status', async (_req, res) => {
 });
 
 const shotPredictionService = createShotPredictionService({
+  upstreamMinIntervalMs: MODEL_UPSTREAM_MIN_INTERVAL_MS,
+  upstreamCooldownMs: MODEL_UPSTREAM_COOLDOWN_MS,
   fetchSofaScore: async (endpoint) => {
     const result = await withInFlight(
       inFlightJsonRequests,

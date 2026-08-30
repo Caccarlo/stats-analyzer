@@ -148,6 +148,7 @@ Key responsibilities:
 - SofaScore JSON calls are client-direct first (`https://www.sofascore.com/api/v1/*`) and fall back to `/api/sofascore/*` when direct browser access is blocked by challenge/CORS/fetch errors, timeout, non-JSON responses, `403`, or `429`.
 - Direct client JSON fetches must use `credentials: 'omit'`; do not send cross-origin SofaScore credentials from the app origin.
 - A direct `403` may fall through once to the proxy, but a proxy `403` is terminal for that request and must not enter the generic retry loop.
+- The daily schedule is a deliberate exception to terminal direct `404` handling: `sport/football/scheduled-events/:date` retries once through the local warmed-browser proxy because SofaScore can return a false cross-origin `404` for that valid route. A proxy `404` remains terminal.
 - All client-direct JSON calls pass through one single-flight gate paced at 750 ms by default. A final `403`/`429` opens a 15-minute circuit and rejects queued work before it can reach SofaScore.
 - All server-side JSON calls, including the proxy, prediction model, averages, and metadata, pass through a second global gate with the same queue-clearing circuit. Images use a separate paced gate so a blocked response cannot drain an already queued logo/player-image workload.
 - Client data-access flags:

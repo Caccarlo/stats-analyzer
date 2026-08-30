@@ -33,7 +33,7 @@ vi.mock('@/api/sofascore', () => ({
 
 const prediction: ShotPrediction = {
   eventId: 999,
-  modelVersion: 'shots-v1.1.0',
+  modelVersion: 'shots-v1.2.0-lite',
   generatedAt: '2026-08-30T10:00:00.000Z',
   cutoffTimestamp: 1_800_000_000,
   cutoffIso: '2027-01-15T08:00:00.000Z',
@@ -88,7 +88,7 @@ const predictionState: ShotPredictionState = {
   retry: vi.fn(),
 };
 
-test('i selettori delle medie chiamano soltanto il pannello della squadra modificata', async () => {
+test('le medie partono solo su richiesta e i selettori restano indipendenti', async () => {
   const onHomeChange = vi.fn();
   const onAwayChange = vi.fn();
   render(
@@ -112,6 +112,8 @@ test('i selettori delle medie chiamano soltanto il pannello della squadra modifi
     </NavigationProvider>,
   );
 
+  expect(screen.queryByLabelText('Competizione')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Carica medie' }));
   await waitFor(() => expect(screen.getAllByLabelText('Competizione')).toHaveLength(2));
   fireEvent.change(screen.getAllByLabelText('Competizione')[0], { target: { value: '7' } });
 

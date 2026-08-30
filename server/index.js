@@ -20,8 +20,8 @@ const IMAGE_CACHE_TTL = 30 * 60 * 1000;
 const BROWSER_FETCH_TIMEOUT_MS = Number(process.env.SOFASCORE_BROWSER_FETCH_TIMEOUT_MS || 20000);
 const GLOBAL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_GLOBAL_MIN_INTERVAL_MS || 750);
 const GLOBAL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_GLOBAL_COOLDOWN_MS || 15 * 60 * 1000);
-const MODEL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_MODEL_MIN_INTERVAL_MS || 1000);
-const MODEL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_COOLDOWN_MS || 15 * 60 * 1000);
+const MODEL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_MODEL_MIN_INTERVAL_MS || 5000);
+const MODEL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_COOLDOWN_MS || 24 * 60 * 60 * 1000);
 const BROWSER_PAGE_URL = process.env.SOFASCORE_BROWSER_PAGE_URL || `${SOFASCORE_WEB_ORIGIN}/`;
 const BROWSER_CDP_URL = process.env.SOFASCORE_BROWSER_CDP_URL || '';
 const BROWSER_EXECUTABLE_PATH = process.env.SOFASCORE_BROWSER_EXECUTABLE_PATH || '';
@@ -566,6 +566,7 @@ app.get('/api/sofascore-browser/status', async (req, res) => {
     error: connectionError,
     upstreamCircuit: jsonUpstreamGate.status(),
     imageCircuit: imageUpstreamGate.status(),
+    modelCircuit: await shotPredictionService.getCircuitStatus(),
     probe,
   });
 });

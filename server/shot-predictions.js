@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const MODEL_VERSION = 'shots-v1.1.0';
+const MODEL_VERSION = 'shots-v1.2.0-lite';
 const SUPPORTED_COMPETITIONS = new Map([
   [23, { name: 'Serie A', secondDivisionId: 53 }],
   [17, { name: 'Premier League', secondDivisionId: 18 }],
@@ -16,9 +16,12 @@ const PROMOTION_EQUIVALENT_MATCHES = [5, 10, 20];
 const SIX_HOURS = 6 * 60 * 60 * 1000;
 const ONE_DAY = 24 * 60 * 60 * 1000;
 const MAX_EVENT_PAGES = 30;
+const MAX_TEAM_EVENT_PAGES = 8;
+const MAX_TEAM_VENUE_MATCHES = 40;
+const MIN_TEAM_VENUE_MATCHES = 8;
 const HISTORY_SEASON_COUNT = 2;
-const DEFAULT_UPSTREAM_MIN_INTERVAL_MS = 1_000;
-const DEFAULT_UPSTREAM_COOLDOWN_MS = 15 * 60 * 1000;
+const DEFAULT_UPSTREAM_MIN_INTERVAL_MS = 5_000;
+const DEFAULT_UPSTREAM_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 class ShotModelError extends Error {
   constructor(message, statusCode = 502, code = 'upstream_error') {
@@ -615,8 +618,16 @@ function selectModelParameters(observations) {
 }
 
 function seasonYearValue(season) {
-  const years = String(season?.year || season?.name || '').match(/\d{4}/g);
-  return years?.length ? Math.max(...years.map(Number)) : null;
+  const label = String(season?.year || season?.name || '');
+  const fourDigitRange = label.match(/\b((?:19|20)\d{2})\s*[/-]\s*(?:(?:19|20)?\d{2})\b/);
+  if (fourDigitRange) return Number(fourDigitRange[1]);
+  const twoDigitRange = label.match(/(?:^|\D)(\d{2})\s*[/-]\s*(\d{2})(?:\D|$)/);
+  if (twoDigitRange) {
+    const start = Number(twoDigitRange[1]);
+    return start <= 50 ? 2000 + start : 1900 + start;
+  }
+  const singleYear = label.match(/\b((?:19|20)\d{2})\b/);
+  return singleYear ? Number(singleYear[1]) : null;
 }
 
 function seasonSortValue(season) {
@@ -794,7 +805,9 @@ function buildCalculationDetails(prediction, selection) {
 
   return {
     selection,
-    formula: 'μ_casa = L_H × A_casa^βA × V_trasferta^βD × exp(f(D)); μ_ospite = L_A × A_trasferta^βA × V_casa^βD × exp(g(D))',
+    formula: diagnostics.strength.retained
+      ? 'μ_casa = L_H × A_casa^βA × V_trasferta^βD × exp(f(D)); μ_ospite = L_A × A_trasferta^βA × V_casa^βD × exp(g(D))'
+      : 'μ_casa = L_H × A_casa × V_trasferta; μ_ospite = L_A × A_trasferta × V_casa',
     values: {
       expectedHome: expected.home,
       expectedAway: expected.away,
@@ -840,18 +853,49 @@ function createShotPredictionService({
   cacheDir = path.join(__dirname, '.shot-model-cache'),
   upstreamMinIntervalMs = DEFAULT_UPSTREAM_MIN_INTERVAL_MS,
   upstreamCooldownMs = DEFAULT_UPSTREAM_COOLDOWN_MS,
+  now = () => Date.now(),
 }) {
   const cache = new DiskJsonCache(cacheDir);
-  const limit = createLimiter(3);
+  const limit = createLimiter(1);
   const inFlightFetches = new Map();
   const jobs = new Map();
   const averageJobs = new Map();
   let nextUpstreamStartAt = 0;
   let upstreamBlockedUntil = 0;
   let upstreamBlockedError = null;
+  let circuitLoaded = false;
+  let circuitLoadPromise = null;
+
+  const makeBlockedError = (upstreamStatus) => {
+    const blocked = new ShotModelError(
+      `SofaScore ha temporaneamente bloccato le richieste (${upstreamStatus}). Il modello è stato sospeso per evitare ulteriori tentativi.`,
+      502,
+      'upstream_temporarily_blocked',
+    );
+    blocked.upstreamStatus = upstreamStatus;
+    return blocked;
+  };
+
+  const ensureCircuitLoaded = async () => {
+    if (circuitLoaded) return;
+    if (!circuitLoadPromise) {
+      circuitLoadPromise = cache.get('runtime-state', 'model-upstream-circuit', Number.POSITIVE_INFINITY)
+        .then((saved) => {
+          if (safeNumber(saved?.blockedUntil) > now()) {
+            upstreamBlockedUntil = Number(saved.blockedUntil);
+            upstreamBlockedError = makeBlockedError(saved.upstreamStatus || 403);
+          }
+          circuitLoaded = true;
+        })
+        .finally(() => {
+          circuitLoadPromise = null;
+        });
+    }
+    await circuitLoadPromise;
+  };
 
   const getCircuitError = () => {
-    if (Date.now() >= upstreamBlockedUntil) {
+    if (now() >= upstreamBlockedUntil) {
       upstreamBlockedUntil = 0;
       upstreamBlockedError = null;
       return null;
@@ -860,31 +904,31 @@ function createShotPredictionService({
   };
 
   const waitForUpstreamSlot = async () => {
-    const now = Date.now();
-    const scheduledAt = Math.max(now, nextUpstreamStartAt);
+    const currentTime = now();
+    const scheduledAt = Math.max(currentTime, nextUpstreamStartAt);
     nextUpstreamStartAt = scheduledAt + Math.max(0, upstreamMinIntervalMs);
-    const delay = scheduledAt - now;
+    const delay = scheduledAt - currentTime;
     if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
   };
 
-  const blockUpstream = (error) => {
+  const blockUpstream = async (error) => {
     const upstreamStatus = error?.upstreamStatus || error?.statusCode;
     if (upstreamStatus !== 403 && upstreamStatus !== 429) return error;
-    const blocked = new ShotModelError(
-      `SofaScore ha temporaneamente bloccato le richieste (${upstreamStatus}). Il modello è stato sospeso per evitare ulteriori tentativi.`,
-      502,
-      'upstream_temporarily_blocked',
-    );
-    blocked.upstreamStatus = upstreamStatus;
-    upstreamBlockedUntil = Date.now() + Math.max(0, upstreamCooldownMs);
+    const blocked = makeBlockedError(upstreamStatus);
+    upstreamBlockedUntil = now() + Math.max(0, upstreamCooldownMs);
     upstreamBlockedError = blocked;
     limit.clearQueue(blocked);
+    await cache.set('runtime-state', 'model-upstream-circuit', {
+      blockedUntil: upstreamBlockedUntil,
+      upstreamStatus,
+    });
     return blocked;
   };
 
   const fetchCached = async (endpoint, { namespace = 'raw', maxAgeMs = ONE_DAY } = {}) => {
     const cached = await cache.get(namespace, endpoint, maxAgeMs);
     if (cached) return cached;
+    await ensureCircuitLoaded();
     const circuitError = getCircuitError();
     if (circuitError) throw circuitError;
     if (inFlightFetches.has(endpoint)) return inFlightFetches.get(endpoint);
@@ -898,7 +942,7 @@ function createShotPredictionService({
         await cache.set(namespace, endpoint, data);
         return data;
       } catch (error) {
-        throw blockUpstream(error);
+        throw await blockUpstream(error);
       }
     }).finally(() => inFlightFetches.delete(endpoint));
     inFlightFetches.set(endpoint, promise);
@@ -939,40 +983,97 @@ function createShotPredictionService({
     const seasons = Array.isArray(payload.seasons) ? [...payload.seasons] : [];
     if (targetSeason && !seasons.some((season) => season.id === targetSeason.id)) seasons.push(targetSeason);
     seasons.sort((first, second) => seasonSortValue(second) - seasonSortValue(first));
-    const targetIndex = Math.max(0, seasons.findIndex((season) => season.id === targetSeason?.id));
-    return seasons.slice(targetIndex, targetIndex + HISTORY_SEASON_COUNT);
+    const resolvedTarget = seasons.find((season) => season.id === targetSeason?.id) || seasons[0];
+    if (!resolvedTarget) return [];
+    const targetYear = seasonYearValue(resolvedTarget);
+    const previous = targetYear === null
+      ? seasons[seasons.indexOf(resolvedTarget) + 1]
+      : seasons.find((season) => season.id !== resolvedTarget.id && seasonYearValue(season) === targetYear - 1)
+        || seasons.find((season) => season.id !== resolvedTarget.id && seasonYearValue(season) < targetYear);
+    return [resolvedTarget, previous].filter(Boolean).slice(0, HISTORY_SEASON_COUNT);
   };
 
-  const loadLeagueDataset = async (event, progress) => {
+  const loadTeamVenueEvents = async ({ team, venue, tournamentId, seasons, cutoffTimestamp, targetEventId, progress }) => {
+    const allowedSeasonIds = new Set(seasons.map((season) => season.id));
+    const oldestAllowedYear = Math.min(...seasons.map(seasonYearValue).filter(Number.isFinite));
+    const selected = new Map();
+
+    for (let page = 0; page < MAX_TEAM_EVENT_PAGES; page += 1) {
+      const payload = await fetchCached(`team/${team.id}/events/last/${page}`, {
+        namespace: 'metadata',
+        maxAgeMs: SIX_HOURS,
+      });
+      const pageEvents = Array.isArray(payload.events) ? payload.events : [];
+      pageEvents.forEach((candidate) => {
+        const candidateTournamentId = candidate.tournament?.uniqueTournament?.id;
+        const isVenueMatch = venue === 'home'
+          ? candidate.homeTeam?.id === team.id
+          : candidate.awayTeam?.id === team.id;
+        if (
+          candidateTournamentId === tournamentId
+          && allowedSeasonIds.has(candidate.season?.id)
+          && candidate.id !== targetEventId
+          && candidate.startTimestamp < cutoffTimestamp
+          && isFinishedEvent(candidate)
+          && isVenueMatch
+        ) {
+          selected.set(candidate.id, candidate);
+        }
+      });
+      progress.completed += 1;
+      progress.total = Math.max(progress.total, progress.completed + (payload.hasNextPage ? 1 : 0));
+      if (!payload.hasNextPage || pageEvents.length === 0 || selected.size >= MAX_TEAM_VENUE_MATCHES) break;
+      if (Number.isFinite(oldestAllowedYear) && pageEvents.every((candidate) => {
+        const candidateYear = seasonYearValue(candidate.season);
+        return candidateYear !== null && candidateYear < oldestAllowedYear;
+      })) break;
+    }
+
+    return [...selected.values()]
+      .sort((first, second) => second.startTimestamp - first.startTimestamp || second.id - first.id)
+      .slice(0, MAX_TEAM_VENUE_MATCHES);
+  };
+
+  const loadMatchupDataset = async (event, progress) => {
     const tournamentId = event.tournament.uniqueTournament.id;
     const seasons = await resolveSeasons(tournamentId, event.season);
-    progress.stage = 'events';
-    progress.message = 'Raccolta delle partite precedenti';
+    progress.stage = 'team-events';
+    progress.message = 'Raccolta mirata delle due squadre';
     progress.completed = 0;
-    progress.total = Math.max(1, seasons.length);
-    const allEvents = [];
-    for (const season of seasons) {
-      const events = await fetchAllSeasonEvents(tournamentId, season.id, progress);
-      events.forEach((seasonEvent) => allEvents.push(seasonEvent));
-    }
-    const cutoffEvents = [...new Map(allEvents.map((candidate) => [candidate.id, candidate])).values()]
-      .filter((candidate) => candidate.id !== event.id)
-      .filter((candidate) => candidate.startTimestamp < event.startTimestamp)
-      .filter(isFinishedEvent)
+    progress.total = 2;
+    const homeEvents = await loadTeamVenueEvents({
+      team: event.homeTeam,
+      venue: 'home',
+      tournamentId,
+      seasons,
+      cutoffTimestamp: event.startTimestamp,
+      targetEventId: event.id,
+      progress,
+    });
+    const awayEvents = await loadTeamVenueEvents({
+      team: event.awayTeam,
+      venue: 'away',
+      tournamentId,
+      seasons,
+      cutoffTimestamp: event.startTimestamp,
+      targetEventId: event.id,
+      progress,
+    });
+    const cutoffEvents = [...new Map([...homeEvents, ...awayEvents].map((candidate) => [candidate.id, candidate])).values()]
       .sort((first, second) => first.startTimestamp - second.startTimestamp || first.id - second.id);
 
     progress.stage = 'statistics';
-    progress.message = 'Lettura dei tiri delle partite utilizzabili';
+    progress.message = 'Lettura dei tiri delle due squadre';
     progress.completed = 0;
     progress.total = cutoffEvents.length;
     let excludedMissing = 0;
     const observations = [];
-    await Promise.all(cutoffEvents.map(async (candidate) => {
+    for (const candidate of cutoffEvents) {
       try {
         const shots = await fetchTotalShots(candidate.id);
         if (!shots) {
           excludedMissing += 1;
-          return;
+          continue;
         }
         observations.push({
           eventId: candidate.id,
@@ -990,12 +1091,14 @@ function createShotPredictionService({
       } finally {
         progress.completed += 1;
       }
-    }));
+    }
 
     return {
       seasons,
       observations: annotatePointInTimeRatings(observations),
       excludedMissing,
+      homeMatches: homeEvents.length,
+      awayMatches: awayEvents.length,
     };
   };
 
@@ -1177,6 +1280,13 @@ function createShotPredictionService({
     if (!event?.id || !event?.homeTeam?.id || !event?.awayTeam?.id || !event?.startTimestamp) {
       throw new ShotModelError('La partita non contiene i metadati necessari.', 422, 'unsupported_or_insufficient_data');
     }
+    if (event.startTimestamp * 1000 <= now()) {
+      throw new ShotModelError(
+        'La V1 leggera calcola soltanto partite che non sono ancora iniziate.',
+        422,
+        'future_matches_only',
+      );
+    }
     const tournamentId = event.tournament?.uniqueTournament?.id;
     const competition = SUPPORTED_COMPETITIONS.get(tournamentId);
     if (!competition) {
@@ -1184,10 +1294,20 @@ function createShotPredictionService({
     }
     progress.completed = 1;
 
-    const { observations, excludedMissing, seasons } = await loadLeagueDataset(event, progress);
-    if (observations.length < 70) {
+    const {
+      observations,
+      excludedMissing,
+      seasons,
+      homeMatches,
+      awayMatches,
+    } = await loadMatchupDataset(event, progress);
+    if (
+      observations.length < MIN_TEAM_VENUE_MATCHES * 2
+      || homeMatches < MIN_TEAM_VENUE_MATCHES
+      || awayMatches < MIN_TEAM_VENUE_MATCHES
+    ) {
       throw new ShotModelError(
-        `Storico insufficiente: ${observations.length} partite complete prima del cutoff.`,
+        `Storico mirato insufficiente: ${homeMatches} gare interne della squadra di casa e ${awayMatches} gare esterne dell'ospite.`,
         422,
         'unsupported_or_insufficient_data',
       );
@@ -1200,12 +1320,24 @@ function createShotPredictionService({
       observations,
     });
 
-    progress.stage = 'backtest';
-    progress.message = 'Selezione cronologica dei parametri';
-    progress.completed = 0;
-    progress.total = HALF_LIFE_CANDIDATES.length * SHRINKAGE_CANDIDATES.length + 4;
-    const parameters = selectModelParameters(observations);
-    progress.completed = progress.total;
+    progress.stage = 'parameters';
+    progress.message = 'Applicazione dei parametri prudenti della V1 leggera';
+    progress.completed = 1;
+    progress.total = 1;
+    const parameters = {
+      halfLifeDays: 180,
+      shrinkageMatches: 10,
+      effect: 'none',
+      distributionType: 'poisson',
+      backtest: {
+        sampleSize: 0,
+        nll: null,
+        mae: null,
+        calibrationError: null,
+        note: 'Backtest di campionato rinviato finché l’archivio locale dei top 5 non è completo.',
+      },
+      alternatives: [],
+    };
 
     progress.stage = 'forecast';
     progress.message = 'Calcolo della distribuzione pre-partita';
@@ -1216,31 +1348,23 @@ function createShotPredictionService({
       parameters.shrinkageMatches,
       parameters.effect,
     );
-    let promotion;
-    try {
-      promotion = await applyPromotionCorrections({
-        event,
-        competition,
-        topObservations: observations,
-        topSeasons: seasons,
-        model,
-        progress,
-      });
-    } catch (error) {
-      promotion = {
-        applied: false,
-        uncertaintyShots: 0,
-        teams: [],
-        note: `Storico promozioni non disponibile: ${error.message}`,
-        lookupFailed: true,
-      };
-    }
+    const promotion = {
+      applied: false,
+      uncertaintyShots: 0,
+      teams: [],
+      note: 'Correzione neopromosse rinviata finché l’archivio locale dei top 5 non è completo.',
+    };
     const forecast = model.predict(event.homeTeam.id, event.awayTeam.id);
     const minimumEffectiveSample = Math.min(
       model.getRating(event.homeTeam.id).homeAttack.nEff,
       model.getRating(event.awayTeam.id).awayAttack.nEff,
     );
-    const warnings = [];
+    const warnings = [
+      'V1 leggera: usa soltanto gare interne della squadra di casa e gare esterne dell’ospite nelle ultime due stagioni.',
+      'Le baseline casa/trasferta descrivono il campione mirato delle due squadre, non l’intero campionato.',
+      'Effetto continuo di forza, correzione neopromosse e backtest globale sono sospesi fino al completamento dell’archivio locale.',
+      'Distribuzione Poisson prudenziale non ancora calibrata sull’intero campionato.',
+    ];
     if (minimumEffectiveSample < 3) {
       if (!promotion.applied) {
         promotion.uncertaintyShots = Math.sqrt(
@@ -1250,10 +1374,8 @@ function createShotPredictionService({
       }
       warnings.push('Una squadra ha uno storico recente molto ridotto; la stima è fortemente ridotta verso la media e l’incertezza va interpretata con cautela.');
     }
-    if (promotion.lookupFailed) warnings.push(promotion.note);
-    if (parameters.backtest.sampleSize === 0) warnings.push('Backtest completo non disponibile per questo cutoff.');
+    if (parameters.backtest.sampleSize === 0) warnings.push('Backtest completo non disponibile per questa versione leggera.');
     if (excludedMissing > 0) warnings.push(`${excludedMissing} partite escluse perché prive di statistiche tiri complete.`);
-    if (promotion.applied && promotion.teams.some((team) => !team.cohortSufficient)) warnings.push(promotion.note);
     const distribution = parameters.distributionType === 'negative-binomial'
       ? { type: 'negative-binomial', dispersion: model.dispersion }
       : { type: 'poisson' };
@@ -1286,28 +1408,16 @@ function createShotPredictionService({
     if (!force) {
       const cached = await cache.get('predictions', cacheKey, Number.POSITIVE_INFINITY);
       if (cached) {
-        const isPast = cached.prediction.cutoffTimestamp * 1000 <= Date.now();
+        const isPast = cached.prediction.cutoffTimestamp * 1000 <= now();
         const generatedAt = Date.parse(cached.prediction.generatedAt);
-        if (isPast) return cached;
-        if (Number.isFinite(generatedAt) && Date.now() - generatedAt <= SIX_HOURS) {
-          try {
-            const tournamentId = cached.prediction.competition.id;
-            const seasonId = cached.prediction.season?.id;
-            if (seasonId) {
-              const endpoint = `unique-tournament/${tournamentId}/season/${seasonId}/events/last/0`;
-              const latestPayload = await fetchCached(endpoint, { namespace: 'metadata', maxAgeMs: 0 });
-              const latestRelevant = (Array.isArray(latestPayload.events) ? latestPayload.events : [])
-                .filter(isFinishedEvent)
-                .filter((event) => event.startTimestamp < cached.prediction.cutoffTimestamp)
-                .reduce((latest, event) => Math.max(latest, event.startTimestamp), 0);
-              if (latestRelevant <= (cached.prediction.diagnostics.latestObservationTimestamp || 0)) return cached;
-            } else {
-              return cached;
-            }
-          } catch {
-            return cached;
-          }
+        if (isPast) {
+          throw new ShotModelError(
+            'La V1 leggera calcola soltanto partite che non sono ancora iniziate.',
+            422,
+            'future_matches_only',
+          );
         }
+        if (Number.isFinite(generatedAt) && now() - generatedAt <= SIX_HOURS) return cached;
         staleFutureCache = true;
       }
     }
@@ -1371,7 +1481,8 @@ function createShotPredictionService({
   };
 
   const getAverageCatalog = async (teamId) => {
-    const key = `team/${teamId}/team-statistics/seasons`;
+    const endpoint = `team/${teamId}/team-statistics/seasons`;
+    const key = `season-parser-v2:${endpoint}`;
     const cached = await cache.get('average-catalog', key, ONE_DAY);
     if (cached) return cached;
     const jobKey = `catalog:${key}`;
@@ -1379,7 +1490,7 @@ function createShotPredictionService({
     const job = (async () => {
       let payload;
       try {
-        payload = await fetchCached(key, { namespace: 'metadata', maxAgeMs: ONE_DAY });
+        payload = await fetchCached(endpoint, { namespace: 'metadata', maxAgeMs: ONE_DAY });
       } catch (error) {
         if (error.upstreamStatus !== 404) throw error;
         const empty = { teamId: Number(teamId), competitions: [] };
@@ -1403,7 +1514,7 @@ function createShotPredictionService({
             .map((season) => ({ id: season.id, name: season.name, year: season.year }))
             .filter((season) => {
               const yearValue = seasonYearValue(season);
-              return latestSeasonValue === 0 || yearValue === null || yearValue >= oldestAllowedSeasonValue;
+              return latestSeasonValue === 0 || (yearValue !== null && yearValue >= oldestAllowedSeasonValue);
             })
             .sort((first, second) => seasonSortValue(second) - seasonSortValue(first)),
         }))
@@ -1444,17 +1555,17 @@ function createShotPredictionService({
           || (normalizedVenue === 'away' && event.awayTeam?.id === Number(teamId)));
       let excludedMissing = 0;
       const samples = [];
-      await Promise.all(teamEvents.map(async (event) => {
+      for (const event of teamEvents) {
         const shots = await fetchTotalShots(event.id);
         if (!shots) {
           excludedMissing += 1;
-          return;
+          continue;
         }
         const isHome = event.homeTeam.id === Number(teamId);
         const shotsFor = isHome ? shots.home : shots.away;
         const shotsAgainst = isHome ? shots.away : shots.home;
         samples.push({ shotsFor, shotsAgainst });
-      }));
+      }
       const matches = samples.length;
       const result = {
         status: 'ready',
@@ -1475,11 +1586,25 @@ function createShotPredictionService({
     return job;
   };
 
+  const getCircuitStatus = async () => {
+    await ensureCircuitLoaded();
+    const error = getCircuitError();
+    return {
+      blocked: Boolean(error),
+      blockedUntil: error ? upstreamBlockedUntil : null,
+      remainingMs: error ? Math.max(0, upstreamBlockedUntil - now()) : 0,
+      upstreamStatus: error?.upstreamStatus || null,
+      minIntervalMs: upstreamMinIntervalMs,
+      maxInFlight: 1,
+    };
+  };
+
   return {
     getPrediction,
     getDetails,
     getAverageCatalog,
     getShotAverages,
+    getCircuitStatus,
     jobs,
   };
 }
@@ -1558,6 +1683,7 @@ module.exports = {
   annotatePointInTimeRatings,
   fitLeagueModel,
   selectModelParameters,
+  seasonYearValue,
   createShotPredictionService,
   registerShotPredictionRoutes,
 };

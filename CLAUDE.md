@@ -130,7 +130,7 @@ Browser (5173) -> React App -> sofascore.ts
 - In local development, if `SOFASCORE_BROWSER_EXECUTABLE_PATH` is unset, the server auto-detects common Chrome/Chromium/Edge executable paths before falling back to direct Node fetches.
 - The server keeps a warmed page on `https://www.sofascore.com/` and runs in-page `fetch()` calls so SofaScore sees a real browser session instead of raw Node requests.
 - Image proxying is optimized separately: `/api/img/*` uses its own paced/circuit-protected gate, tries a plain direct fetch to `img.sofascore.com` first, and only falls back to an isolated browser page when that direct path fails or returns non-image content.
-- `/api/sofascore-browser/status` reports relay and circuit state. `?probe=1` performs one isolated categories navigation, intended as the safe preflight check before loading the app on a new network.
+- `/api/sofascore-browser/status` reports relay plus global/image/model circuit state, including the model's persisted block deadline. `?probe=1` performs one isolated categories navigation, intended as the safe preflight check before loading the app on a new network.
 - `SOFASCORE_DIRECT_FALLBACK` can keep the legacy direct Node-fetch path available as a non-browser fallback, but the intended production path is the browser relay.
 - The VPS CDP deploy path is now a fallback relay path, not the primary JSON strategy; use it only after verifying that the target IP/environment can fetch SofaScore JSON. Example env and service units live in `docs/deploy/`.
 - Client: no React Router; navigation is reducer-driven through `NavigationContext`.
@@ -140,8 +140,8 @@ Browser (5173) -> React App -> sofascore.ts
 - `MatchupView` is match-specific only: full-screen matchup navigation requires a canonical real-event target (`eventId` plus home/away/team context), not just two team ids.
 - `MatchupPage` owns the match-level section switch. `PanelState.matchupSection` is `formations | predictions`; the initial section is `formations`, while both teams' average filter selections persist independently in the same panel state.
 - Selecting `Previsioni` starts `GET /api/predictions/shots/:eventId`; merely opening the matchup or remaining in `Formazioni` does not start model traffic. A `202 building` response is polled by `useShotPrediction`; the server job is deduplicated and continues if the component unmounts after it has started.
-- The prediction view replaces the formation field and players completely. It exposes expected home/away/total shots, an 80% interval, seven consecutive `.5` total-shot lines, Under/Over probabilities and fair no-margin odds, one drill-down at a time, and two independent descriptive-average panels.
-- Predictive and descriptive timelines must remain separate. Prediction datasets and “Partite usate” exclude the target event and every later event. Descriptive averages and `MatchupView` histories may use all currently finished data, including the target and later completed games.
+- The prediction view replaces the formation field and players completely. It exposes expected home/away/total shots, an 80% interval, seven consecutive `.5` total-shot lines, Under/Over probabilities and fair no-margin odds, and one drill-down at a time. The two independent descriptive-average panels start only after the user explicitly clicks `Carica medie` and the prediction is ready.
+- Model version `shots-v1.2.0-lite` accepts only not-yet-started matches. Predictive rows exclude the target event and every later event; descriptive averages and `MatchupView` histories remain independent and may use all currently finished data.
 - `MatchupView` explicitly fetches the opened event and merges it into both teams' history, deduplicated by event id. It is pinned to the visible page, highlighted as `Aperta`, and shows final total shots when the event is finished.
 - `TeamView` persists a compact `nextMatchSummary` inside `PanelState` after loading `nextEvent`; split panels use that summary to prove they point to the same real match before auto-opening or merging into `MatchupView`.
 - Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
@@ -194,19 +194,13 @@ observation.startTimestamp < target.startTimestamp
 observation.eventId != target.eventId
 ```
 
-The same cutoff governs baselines, opponent point-in-time strength, temporal ratings, promotion transfers, parameter selection, dispersion, and chronological backtests. It must never use final target-season standings, bookmaker prices, lineups, or absences.
+The same cutoff governs every baseline and temporal rating in the lightweight forecast. The deferred full model must apply it before opponent-strength calibration, promotion transfers, parameter selection, dispersion, and chronological backtests. Neither version may use final target-season standings, bookmaker prices, lineups, or absences.
 
-Model version `shots-v1.1.0` limits the dataset to the target season up to kickoff plus its immediately preceding season. Descriptive average catalogs independently expose only the team's latest available season and the immediately preceding one across its competitions.
+Model version `shots-v1.2.0-lite` is future-only. It reads at most 40 home league matches for the target home team and at most 40 away league matches for the target away team, limited to the target season plus its immediately preceding season. It never pages every match in the league during prediction collection. Abbreviated season labels such as `26/27` map to start year 2026, while `70/71` maps to 1970. Descriptive average catalogs independently expose only the team's latest available season and the immediately preceding one across its competitions.
 
-Selection grids and rules:
+The lightweight parameters are deliberately fixed: 180-day half-life, shrinkage toward `1` equivalent to 10 matches, no extra continuous-strength term, no promotion transfer, and a Poisson total. `L_H` and `L_A` are targeted two-team sample baselines rather than full-league baselines. Full chronological parameter selection, negative-binomial calibration, strength effects, promotion priors, and historical forecasts are deferred until the persistent local top-five-league archive is complete. The UI must present these limits rather than implying that the probability distribution is fully calibrated.
 
-- half-life: `60, 90, 120, 180, 270, 365` days;
-- rating shrinkage prior: `5, 10, 20` equivalent matches;
-- continuous strength effect: none, linear, or linear+quadratic; retain an extra term only when out-of-sample NLL improves by at least 1%, MAE does not worsen, and calibration error is acceptable;
-- total distribution: Poisson or negative binomial by out-of-sample likelihood, preferring Poisson when practically equivalent;
-- promoted-team equivalent matches: `5, 10, 20`; the immediately preceding second-division season is allowed, while older transition cohorts are not downloaded. When the two-season window cannot estimate a transition, the transferred prior is neutralized toward `1` and uncertainty is reported.
-
-The total distribution is fitted and scored directly. It is not obtained by summing two counts assumed independent. A line `x.5` uses `P(Under)=P(T<=x)`, `P(Over)=1-P(Under)`, and fair odds `1/p`.
+The lightweight Poisson is applied directly to the expected observed total. It is not obtained by summing two counts assumed independent. A line `x.5` uses `P(Under)=P(T<=x)`, `P(Over)=1-P(Under)`, and fair odds `1/p`.
 
 Local APIs:
 
@@ -215,9 +209,9 @@ Local APIs:
 - `GET /api/teams/:teamId/shot-averages/catalog`;
 - `GET /api/teams/:teamId/shot-averages?competitionId=...&seasonId=...&venue=all|home|away`.
 
-Past forecasts are immutable for the same model version. Future forecasts are refreshed after a newly completed relevant event or after six hours. Finished-match raw statistics are immutable and reusable across model versions.
+Past matches return `422 future_matches_only`. Future forecasts remain cached for six hours. Finished-match raw statistics are immutable and reusable across model versions in `server/.shot-model-cache/`.
 
-Model requests start at least `SOFASCORE_MODEL_MIN_INTERVAL_MS` apart (default `1000`) with at most three in flight. The first `403` or `429` clears pending work and opens a cooldown controlled by `SOFASCORE_MODEL_COOLDOWN_MS` (default 15 minutes), preventing a failed job from continuing to drain its queue.
+Model requests start at least `SOFASCORE_MODEL_MIN_INTERVAL_MS` apart (default `5000`) with one in flight. The first `403` or `429` clears pending work and opens a disk-persisted cooldown controlled by `SOFASCORE_MODEL_COOLDOWN_MS` (default 24 hours), including across server restarts. Average statistics are also sequential and are never loaded in parallel with the initial prediction.
 
 **Field:**
 - Single SVG landscape field (`viewBox="0 0 1050 680"`, `aspect-ratio: 105/68`).

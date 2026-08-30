@@ -46,8 +46,8 @@ const VALUE_LABELS: Record<string, string> = {
   expectedHome: 'Tiri attesi casa',
   expectedAway: 'Tiri attesi ospite',
   expectedTotal: 'Tiri totali attesi',
-  baselineHome: 'Baseline casa (L_H)',
-  baselineAway: 'Baseline trasferta (L_A)',
+  baselineHome: 'Baseline campione casa (L_H)',
+  baselineAway: 'Baseline campione trasferta (L_A)',
   homeAttack: 'Rating attacco casa',
   awayAttack: 'Rating attacco trasferta',
   homeVulnerability: 'Vulnerabilità difensiva casa',
@@ -313,19 +313,32 @@ function LoadingPrediction({ state }: { state: ShotPredictionState }) {
 
 function ErrorPrediction({ state }: { state: ShotPredictionState }) {
   const insufficient = state.error?.code === 'unsupported_or_insufficient_data' || state.error?.status === 422;
+  const blocked = state.error?.code === 'upstream_temporarily_blocked';
+  const futureOnly = state.error?.code === 'future_matches_only';
   return (
     <section className="rounded-xl border border-negative/30 bg-negative/5 p-5">
       <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-negative">
-        {insufficient ? 'Storico insufficiente o competizione non supportata' : 'Previsione non disponibile'}
+        {futureOnly
+          ? 'Disponibile soltanto prima della partita'
+          : insufficient
+            ? 'Storico insufficiente o competizione non supportata'
+            : 'Previsione non disponibile'}
       </p>
       <p className="mt-2 max-w-2xl text-sm leading-6 text-text-secondary">{state.error?.message}</p>
-      <button
-        type="button"
-        onClick={state.retry}
-        className="mt-4 rounded-md border border-negative/40 px-3 py-2 text-xs font-medium text-text-primary transition hover:bg-negative/10 focus:outline-none focus:ring-2 focus:ring-negative/30"
-      >
-        Riprova il calcolo
-      </button>
+      {!blocked && !futureOnly && (
+        <button
+          type="button"
+          onClick={state.retry}
+          className="mt-4 rounded-md border border-negative/40 px-3 py-2 text-xs font-medium text-text-primary transition hover:bg-negative/10 focus:outline-none focus:ring-2 focus:ring-negative/30"
+        >
+          Riprova il calcolo
+        </button>
+      )}
+      {blocked && (
+        <p className="mt-3 text-xs leading-5 text-text-muted">
+          La raccolta resta sospesa: non riavviare il server per forzare un nuovo tentativo.
+        </p>
+      )}
     </section>
   );
 }
@@ -446,7 +459,7 @@ function PredictionDetailsPanel({
               </ol>
             ) : (
               <p className="mt-2 rounded-lg border border-border bg-bg/60 p-3 text-xs leading-5 text-text-secondary">
-                Il valore atteso deriva dai rating corretti per avversaria, pesati nel tempo e ridotti verso la media del campionato.
+                Il valore atteso deriva dai rating pesati nel tempo e ridotti verso la media del campione mirato delle due squadre.
               </p>
             )}
             <div className="mt-4 rounded-lg border border-border bg-bg/60 p-3 text-xs leading-5 text-text-secondary">
@@ -519,6 +532,7 @@ export default function ShotPredictionsView(props: ShotPredictionsViewProps) {
   const { predictionState } = props;
   const prediction = predictionState.prediction;
   const [selection, setSelection] = useState<{ key: string; source: 'home' | 'away' } | null>(null);
+  const [averagesEnabled, setAveragesEnabled] = useState(false);
 
   const toggleSelection = (key: string, source: 'home' | 'away') => {
     setSelection((current) => current?.key === key ? null : { key, source });
@@ -700,26 +714,45 @@ export default function ShotPredictionsView(props: ShotPredictionsViewProps) {
               Questi filtri sono descrittivi, usano i dati oggi disponibili e non modificano la previsione.
             </p>
           </div>
-          <div className="grid gap-4 xl:grid-cols-2">
-            <AveragePanel
-              teamId={props.homeTeamId}
-              teamName={props.homeTeamName}
-              side="home"
-              matchCompetitionId={props.leagueId}
-              matchSeasonId={props.seasonId}
-              selection={props.homeAverageSelection}
-              onSelectionChange={props.onHomeAverageSelectionChange}
-            />
-            <AveragePanel
-              teamId={props.awayTeamId}
-              teamName={props.awayTeamName}
-              side="away"
-              matchCompetitionId={props.leagueId}
-              matchSeasonId={props.seasonId}
-              selection={props.awayAverageSelection}
-              onSelectionChange={props.onAwayAverageSelectionChange}
-            />
-          </div>
+          {!averagesEnabled ? (
+            <div className="rounded-xl border border-border bg-surface/70 px-4 py-5 sm:flex sm:items-center sm:justify-between sm:gap-5">
+              <div>
+                <p className="text-sm font-medium text-text-primary">Caricamento separato dalla previsione</p>
+                <p className="mt-1 max-w-2xl text-xs leading-5 text-text-muted">
+                  Le medie avviano richieste aggiuntive. Restano ferme finché il calcolo non è concluso e finché non scegli di caricarle.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={predictionState.status !== 'ready'}
+                onClick={() => setAveragesEnabled(true)}
+                className="mt-4 min-h-10 shrink-0 rounded-md border border-neon/35 px-4 py-2 text-xs font-medium text-neon transition hover:bg-neon/10 focus:outline-none focus:ring-2 focus:ring-neon/25 disabled:cursor-not-allowed disabled:border-border disabled:text-text-muted disabled:hover:bg-transparent sm:mt-0"
+              >
+                {predictionState.status === 'ready' ? 'Carica medie' : 'Attendi la previsione'}
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <AveragePanel
+                teamId={props.homeTeamId}
+                teamName={props.homeTeamName}
+                side="home"
+                matchCompetitionId={props.leagueId}
+                matchSeasonId={props.seasonId}
+                selection={props.homeAverageSelection}
+                onSelectionChange={props.onHomeAverageSelectionChange}
+              />
+              <AveragePanel
+                teamId={props.awayTeamId}
+                teamName={props.awayTeamName}
+                side="away"
+                matchCompetitionId={props.leagueId}
+                matchSeasonId={props.seasonId}
+                selection={props.awayAverageSelection}
+                onSelectionChange={props.onAwayAverageSelectionChange}
+              />
+            </div>
+          )}
         </section>
 
         <p className="mt-6 border-t border-border pt-4 text-[10px] leading-4 text-text-muted">

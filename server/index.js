@@ -8,6 +8,7 @@ const {
   createShotPredictionService,
   registerShotPredictionRoutes,
 } = require('./shot-predictions');
+const { createUpstreamGate } = require('./upstream-gate');
 
 const app = express();
 app.use(cors());
@@ -17,6 +18,8 @@ const SOFASCORE_IMAGE_ORIGIN = 'https://img.sofascore.com';
 const CACHE_TTL = 5 * 60 * 1000;
 const IMAGE_CACHE_TTL = 30 * 60 * 1000;
 const BROWSER_FETCH_TIMEOUT_MS = Number(process.env.SOFASCORE_BROWSER_FETCH_TIMEOUT_MS || 20000);
+const GLOBAL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_GLOBAL_MIN_INTERVAL_MS || 750);
+const GLOBAL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_GLOBAL_COOLDOWN_MS || 15 * 60 * 1000);
 const MODEL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_MODEL_MIN_INTERVAL_MS || 1000);
 const MODEL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_COOLDOWN_MS || 15 * 60 * 1000);
 const BROWSER_PAGE_URL = process.env.SOFASCORE_BROWSER_PAGE_URL || `${SOFASCORE_WEB_ORIGIN}/`;
@@ -31,6 +34,16 @@ const serverCache = new Map();
 const imageCache = new Map();
 const inFlightJsonRequests = new Map();
 const inFlightImageRequests = new Map();
+const jsonUpstreamGate = createUpstreamGate({
+  maximumConcurrent: 1,
+  minimumIntervalMs: GLOBAL_UPSTREAM_MIN_INTERVAL_MS,
+  cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
+});
+const imageUpstreamGate = createUpstreamGate({
+  maximumConcurrent: 3,
+  minimumIntervalMs: 250,
+  cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
+});
 
 let browserRuntime = null;
 let browserRuntimePromise = null;
@@ -339,7 +352,7 @@ async function fetchViaBrowserImage(imagePath) {
   let page;
 
   try {
-    page = await createFetchPage(runtime);
+    page = await runtime.context.newPage();
     const response = await page.goto(`${SOFASCORE_IMAGE_ORIGIN}/api/v1/${imagePath}`, {
       waitUntil: 'load',
       timeout: BROWSER_FETCH_TIMEOUT_MS,
@@ -353,7 +366,9 @@ async function fetchViaBrowserImage(imagePath) {
     const contentType = response.headers()['content-type'] || 'image/png';
 
     if (statusCode !== 200) {
-      throw new Error(`Browser image fetch failed for ${imagePath}: ${statusCode}`);
+      const error = new Error(`Browser image fetch failed for ${imagePath}: ${statusCode}`);
+      error.upstreamStatus = statusCode;
+      throw error;
     }
 
     return {
@@ -404,7 +419,7 @@ async function fetchDirectImage(imagePath) {
   };
 }
 
-async function fetchJsonFromSofaScore(cacheKey) {
+async function fetchJsonWithoutGate(cacheKey) {
   if (isBrowserConfigured()) {
     return fetchViaBrowserJson(cacheKey);
   }
@@ -414,6 +429,46 @@ async function fetchJsonFromSofaScore(cacheKey) {
   }
 
   throw new Error('No SofaScore JSON fetch strategy configured');
+}
+
+async function fetchJsonFromSofaScore(cacheKey) {
+  return jsonUpstreamGate.schedule(() => fetchJsonWithoutGate(cacheKey));
+}
+
+async function probeSofaScoreOnce() {
+  return jsonUpstreamGate.schedule(async () => {
+    if (!isBrowserConfigured()) {
+      if (DIRECT_FALLBACK_ENABLED) {
+        return fetchDirectJson('sport/football/categories');
+      }
+      throw new Error('No SofaScore JSON fetch strategy configured');
+    }
+
+    const runtime = await getBrowserRuntime();
+    let page;
+    try {
+      page = await runtime.context.newPage();
+      const response = await page.goto(`${SOFASCORE_WEB_ORIGIN}/api/v1/sport/football/categories`, {
+        waitUntil: 'domcontentloaded',
+        timeout: BROWSER_FETCH_TIMEOUT_MS,
+      });
+      if (!response) {
+        throw new Error('SofaScore health probe returned no response');
+      }
+
+      const contentType = response.headers()['content-type'] || '';
+
+      return {
+        statusCode: response.status(),
+        contentType,
+        source: 'browser-probe',
+      };
+    } finally {
+      if (page && !page.isClosed()) {
+        await page.close().catch(() => {});
+      }
+    }
+  });
 }
 
 async function fetchImageFromSofaScore(imagePath) {
@@ -433,6 +488,7 @@ async function fetchImageFromSofaScore(imagePath) {
       );
     } else {
       directError = new Error(`Direct image fetch returned ${directResult.statusCode} for ${imagePath}`);
+      if (directResult.statusCode === 404) return directResult;
     }
   } catch (error) {
     directError = error;
@@ -446,7 +502,7 @@ async function fetchImageFromSofaScore(imagePath) {
         return directResult;
       }
 
-      throw directError || browserError;
+      throw browserError.upstreamStatus ? browserError : (directError || browserError);
     }
   }
 
@@ -465,31 +521,53 @@ async function fetchImageFromSofaScore(imagePath) {
   throw new Error('No SofaScore image fetch strategy configured');
 }
 
-app.get('/api/sofascore-browser/status', async (_req, res) => {
-  if (!isBrowserConfigured()) {
-    return res.json({
-      configured: false,
-      connected: false,
-      mode: null,
-      pageUrl: null,
-    });
+app.get('/api/sofascore-browser/status', async (req, res) => {
+  let connected = false;
+  let mode = null;
+  let connectionError = null;
+  try {
+    if (isBrowserConfigured()) {
+      const runtime = await getBrowserRuntime();
+      connected = true;
+      mode = runtime.mode;
+    }
+  } catch (error) {
+    connectionError = error.message;
   }
 
-  try {
-    const runtime = await getBrowserRuntime();
-    return res.json({
-      configured: true,
-      connected: true,
-      mode: runtime.mode,
-      pageUrl: BROWSER_PAGE_URL,
-    });
-  } catch (error) {
-    return res.status(503).json({
-      configured: true,
-      connected: false,
-      error: error.message,
-    });
+  let probe = null;
+  if (req.query.probe === '1') {
+    try {
+      const result = await withInFlight(
+        inFlightJsonRequests,
+        'health-probe:categories',
+        probeSofaScoreOnce,
+      );
+      probe = {
+        reachable: result.statusCode === 200 && result.contentType.includes('application/json'),
+        statusCode: result.statusCode,
+        source: result.source,
+      };
+    } catch (error) {
+      probe = {
+        reachable: false,
+        statusCode: error.upstreamStatus || error.statusCode || null,
+        code: error.code || 'probe_failed',
+        message: error.message,
+      };
+    }
   }
+
+  return res.json({
+    configured: isBrowserConfigured(),
+    connected,
+    mode,
+    pageUrl: isBrowserConfigured() ? BROWSER_PAGE_URL : null,
+    error: connectionError,
+    upstreamCircuit: jsonUpstreamGate.status(),
+    imageCircuit: imageUpstreamGate.status(),
+    probe,
+  });
 });
 
 const shotPredictionService = createShotPredictionService({
@@ -536,7 +614,14 @@ app.get('/api/sofascore/*', async (req, res) => {
     res.status(result.statusCode).json(result.data);
   } catch (error) {
     console.error(`SofaScore JSON proxy error for ${cacheKey}:`, error.message);
-    res.status(502).json({ error: 'Errore nel recupero dati da SofaScore' });
+    const statusCode = error.statusCode === 503 ? 503 : 502;
+    res.status(statusCode).json({
+      error: 'Errore nel recupero dati da SofaScore',
+      code: error.code || 'upstream_error',
+      message: error.message,
+      upstreamStatus: error.upstreamStatus || null,
+      blockedUntil: error.blockedUntil || null,
+    });
   }
 });
 
@@ -551,7 +636,11 @@ app.get('/api/img/*', async (req, res) => {
   }
 
   try {
-    const result = await withInFlight(inFlightImageRequests, imagePath, () => fetchImageFromSofaScore(imagePath));
+    const result = await withInFlight(
+      inFlightImageRequests,
+      imagePath,
+      () => imageUpstreamGate.schedule(() => fetchImageFromSofaScore(imagePath)),
+    );
 
     if (result.statusCode !== 200) {
       console.error(`SofaScore image proxy returned ${result.statusCode} for ${imagePath}`);
@@ -569,7 +658,7 @@ app.get('/api/img/*', async (req, res) => {
     res.send(result.buffer);
   } catch (error) {
     console.error(`SofaScore image proxy error for ${imagePath}:`, error.message);
-    res.status(502).send('Image proxy error');
+    res.status(error.statusCode === 503 ? 503 : 502).send('Image proxy error');
   }
 });
 

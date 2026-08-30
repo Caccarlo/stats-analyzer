@@ -38,6 +38,7 @@ stats-analyzer/
 |-- server/
 |   |-- index.js                     # Express browser relay proxy plus shot-model route registration
 |   |-- shot-predictions.js          # Point-in-time total-shots model, jobs, disk cache, prediction/detail/average APIs
+|   |-- upstream-gate.js             # Global SofaScore pacing and queue-clearing 403/429 circuit
 |   `-- test/                        # node:test math, parser, cutoff, and service-boundary tests
 `-- client/
     |-- .env.example                 # Vite flags for direct SofaScore JSON and proxy fallback
@@ -48,6 +49,7 @@ stats-analyzer/
         |-- index.css                # Tailwind imports + theme variables
         |-- types/index.ts           # Shared TypeScript interfaces
         |-- api/sofascore.ts         # All API functions, client-direct JSON fetch, proxy fallback, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
+        |-- api/requestGate.ts       # Client-direct pacing and queue-clearing 403/429 circuit
         |-- context/
         |   `-- NavigationContext.tsx
         |-- hooks/
@@ -118,16 +120,17 @@ Browser (5173) -> React App -> sofascore.ts
 - Client JSON access is direct-first because real user browsers/IPs are less likely to hit SofaScore's datacenter/VPS anti-bot path than a centralized server relay.
 - Direct client JSON fetches use `credentials: 'omit'`; `credentials: 'include'` should not be used cross-origin against SofaScore from the app.
 - `apiFetch` falls back from direct to `/api/sofascore/*` on challenge-like failures, CORS/fetch errors, timeout, non-JSON responses, `403`, `429`, and server errors. Terminal `404` handling remains endpoint-specific through `notFoundValue`.
-- Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, and `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`.
-- Server: browser-backed proxy with in-memory TTL cache, in-flight dedupe, and a persistent Chrome/Chromium relay.
-- Shot-model routes use the same relay, add a maximum-three-request paced queue plus a `403`/`429` circuit breaker, and persist raw statistics, metadata, averages, job details, and versioned forecasts under the Git-ignored `server/.shot-model-cache/`.
+- Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`, `VITE_SOFASCORE_MIN_INTERVAL_MS`, and `VITE_SOFASCORE_COOLDOWN_MS`.
+- Every client-direct JSON request passes through the shared `requestGate`: one active request at a time, 750 ms start spacing, and a queue-clearing 15-minute circuit after a final `403`/`429`.
+- Server: browser-backed proxy with in-memory TTL cache, in-flight dedupe, a persistent Chrome/Chromium relay, and a global upstream gate controlled by `SOFASCORE_GLOBAL_MIN_INTERVAL_MS` / `SOFASCORE_GLOBAL_COOLDOWN_MS`.
+- Shot-model routes use the same relay and global gate, retain their own collection pacing, and persist raw statistics, metadata, averages, job details, and versioned forecasts under the Git-ignored `server/.shot-model-cache/`.
 - The relay is expected to run in one of two modes:
   - `SOFASCORE_BROWSER_CDP_URL`: connect to an already running real Chrome/Chromium session on the VPS via CDP.
   - `SOFASCORE_BROWSER_EXECUTABLE_PATH`: launch a local Chrome/Chromium binary with a persistent user-data directory (`SOFASCORE_BROWSER_USER_DATA_DIR`).
 - In local development, if `SOFASCORE_BROWSER_EXECUTABLE_PATH` is unset, the server auto-detects common Chrome/Chromium/Edge executable paths before falling back to direct Node fetches.
 - The server keeps a warmed page on `https://www.sofascore.com/` and runs in-page `fetch()` calls so SofaScore sees a real browser session instead of raw Node requests.
-- Image proxying is optimized separately: `/api/img/*` now tries a plain direct fetch to `img.sofascore.com` first and only falls back to the browser relay when that direct path fails or returns non-image content.
-- `/api/sofascore-browser/status` reports whether the browser relay is configured and connected.
+- Image proxying is optimized separately: `/api/img/*` uses its own paced/circuit-protected gate, tries a plain direct fetch to `img.sofascore.com` first, and only falls back to an isolated browser page when that direct path fails or returns non-image content.
+- `/api/sofascore-browser/status` reports relay and circuit state. `?probe=1` performs one isolated categories navigation, intended as the safe preflight check before loading the app on a new network.
 - `SOFASCORE_DIRECT_FALLBACK` can keep the legacy direct Node-fetch path available as a non-browser fallback, but the intended production path is the browser relay.
 - The VPS CDP deploy path is now a fallback relay path, not the primary JSON strategy; use it only after verifying that the target IP/environment can fetch SofaScore JSON. Example env and service units live in `docs/deploy/`.
 - Client: no React Router; navigation is reducer-driven through `NavigationContext`.
@@ -286,7 +289,7 @@ JSON calls are client-direct first and fall back to `/api/sofascore/*`. Images g
 - The default home screen on panel 0 is no longer a static intro: it shows the selected day's football schedule grouped as `country -> tournament -> matches`.
 - `useCalendarData` fetches `sport/football/scheduled-events/{date}`, keeps a local `Map<date, events[]>` cache, suppresses the spinner when revisiting a date already loaded in the current session, and applies a final client-side filter so the home calendar shows only matches whose local `startTimestamp` falls on the selected date.
 - `todayISO()` is derived from the browser's local calendar date (not UTC), so the selected "today" stays aligned with the user's timezone.
-- When the selected date is today, `useCalendarData` auto-refreshes the schedule every 60 seconds with `skipCache=true` so live scores can advance without manual reload.
+- When the selected date is today, `useCalendarData` auto-refreshes the schedule every 60 seconds with `skipCache=true` only after the initial request succeeded. A refresh error is surfaced and removes the interval, preventing an unattended retry loop.
 - Home grouping is built from `event.tournament.uniqueTournament` and its `category`; matches inside a tournament are ordered by `startTimestamp`.
 - Country ordering is priority-based: the top categories are Italy, England, Spain, Germany, France, Europe, and World. If one of those has a configured primary competition on that day, it is promoted ahead of all other categories.
 - Inside each prioritized country, configured primary competitions (for example Serie A, Premier League, LaLiga, Bundesliga, Ligue 1, UEFA club cups, World Cup / Club World Cup) are shown first; the remaining competitions follow in alphabetical order.
@@ -378,6 +381,7 @@ Other current behavior:
 - `apiFetch` tries direct browser JSON access before proxy fallback by default. This can be disabled with `VITE_SOFASCORE_DIRECT=false` if SofaScore changes CORS behavior or if a deployment must force server relay mode.
 - `apiFetch` no longer retries terminal `4xx` responses except `429`, caches terminal `404` fallback payloads for endpoints that opt in, and also caches terminal `4xx` errors for the standard TTL.
 - A direct SofaScore `403` may use the proxy fallback once; if the proxy also returns `403`, that response is terminal and is not retried through the same exhausted strategy chain.
+- Direct JSON starts are globally paced and queued. A final upstream `403`/`429` opens the client circuit, clears pending direct work, and subsequent calls fail locally until cooldown; server relay traffic has an independent equivalent circuit covering ordinary proxy and model calls.
 - `useTournamentViewData` keeps a shared in-memory tournament snapshot cache keyed by `{tournamentId, seasonId}` plus a latest-season alias, so reopening the same tournament view can hydrate synchronously without rebuilding phases or standings.
 - `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKeyOrWildcard, tournamentIdsKey, tournamentYearPairsKey, seasonDateRangeKey, maxEvents, minPlayedEvents}`.
 - When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.

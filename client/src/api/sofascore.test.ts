@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { getCategories } from './sofascore';
+import { getCategories, getScheduledEvents } from './sofascore';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -12,8 +12,11 @@ test('dopo il fallback non ritenta un 403 terminale del proxy', async () => {
   ));
   vi.stubGlobal('fetch', fetchMock);
 
-  await expect(getCategories()).rejects.toThrow('proxy API error 403');
+  await expect(getCategories()).rejects.toThrow('Richieste SofaScore sospese');
   expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(String(fetchMock.mock.calls[0][0])).toContain('www.sofascore.com/api/v1');
   expect(String(fetchMock.mock.calls[1][0])).toContain('/api/sofascore/sport/football/categories');
+
+  await expect(getScheduledEvents('2026-08-30', true)).rejects.toThrow('Richieste SofaScore sospese');
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });

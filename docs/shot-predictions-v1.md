@@ -43,7 +43,7 @@ Descriptive averages expose only the team's latest available season and the imme
 4. The client polls with bounded backoff. Leaving the page does not cancel server work.
 5. Model details and paginated source rows are loaded only after the user selects a result or market side.
 
-The global model fetch queue permits at most three simultaneous SofaScore requests and starts them at least one second apart by default. The relay reuses one warmed SofaScore page instead of navigating to the homepage for every statistic. A first upstream `403` or `429` clears all pending work and opens a 15-minute cooldown circuit, both configurable through `SOFASCORE_MODEL_MIN_INTERVAL_MS` and `SOFASCORE_MODEL_COOLDOWN_MS`.
+The model fetch queue permits at most three simultaneous collection tasks and starts them at least one second apart by default. Every resulting SofaScore call also crosses the server-wide upstream gate, shared with the ordinary proxy and controlled through `SOFASCORE_GLOBAL_MIN_INTERVAL_MS` / `SOFASCORE_GLOBAL_COOLDOWN_MS`. The relay reuses one warmed SofaScore page instead of navigating to the homepage for every statistic. A first upstream `403` or `429` clears pending work in both layers and opens the 15-minute cooldown circuit; model-specific collection pacing remains configurable through `SOFASCORE_MODEL_MIN_INTERVAL_MS` and `SOFASCORE_MODEL_COOLDOWN_MS`.
 
 ## Persistent cache
 

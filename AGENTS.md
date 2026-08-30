@@ -169,7 +169,7 @@ Key responsibilities:
 - Today's calendar starts its 60-second refresh only after an initial successful response and stops the interval after any refresh error. Never keep retrying a failed schedule in the background.
 - `SOFASCORE_DIRECT_FALLBACK` controls whether the old direct Node-fetch fallback remains allowed when no browser relay is configured.
 - `SOFASCORE_GLOBAL_MIN_INTERVAL_MS` and `SOFASCORE_GLOBAL_COOLDOWN_MS` control the server-wide upstream gate (750 ms and 15 minutes by default).
-- The server exposes `/api/sofascore-browser/status` for local relay plus global/image/model circuit diagnostics. The model circuit includes its persisted block deadline. Adding `?probe=1` performs one deliberately isolated categories request; use it before loading the app on a new network.
+- The server exposes `/api/sofascore-browser/status` for local relay plus global/image/model circuit diagnostics. The model circuit includes its persisted block deadline. Adding `?probe=1` performs one deliberately isolated categories request through the exact same warmed-page/in-page-fetch path as ordinary JSON traffic; never implement the probe as direct navigation to an API URL, because that can produce a false `403`. Use it before loading the app on a new network.
 - Production deploy should treat CDP mode (`SOFASCORE_BROWSER_CDP_URL`) as a proxy fallback, preferably on an IP/environment that is verified to pass SofaScore JSON. Example env and `systemd` units live in `docs/deploy/`.
 
 ## Working Rules For Codex

@@ -64,7 +64,7 @@ This is intentionally an operational baseline, not the final statistical model. 
 5. Details load only after a result or market selection.
 6. Descriptive averages remain unmounted until the prediction is ready and the user clicks `Carica medie`; their statistics are sequential too.
 
-The cooldown must not be bypassed by restarting the server. `/api/sofascore-browser/status` exposes the persisted model-circuit deadline; before changing network, use its isolated `?probe=1` check rather than loading the entire app.
+The cooldown must not be bypassed by restarting the server. `/api/sofascore-browser/status` exposes the persisted model-circuit deadline; before changing network, use its isolated `?probe=1` check rather than loading the entire app. The probe follows the same warmed SofaScore page plus in-page `fetch()` path as normal JSON traffic, because direct API navigation can produce a false `403`.
 
 ## Persistent local cache
 

@@ -39,6 +39,7 @@ type CacheEntry =
 interface ApiFetchOptions<T> {
   useCache?: boolean;
   notFoundValue?: T;
+  fallbackOnDirectNotFound?: boolean;
 }
 
 type SofaScoreFetchStrategy = 'direct' | 'proxy';
@@ -155,6 +156,7 @@ async function fetchWithOptionalTimeout(url: string, strategy: SofaScoreFetchStr
 async function fetchJsonWithStrategy<T>(
   path: string,
   strategy: SofaScoreFetchStrategy,
+  fallbackOnDirectNotFound = false,
 ): Promise<T> {
   const url = getStrategyUrl(strategy, path);
 
@@ -201,7 +203,10 @@ async function fetchJsonWithStrategy<T>(
   }
 
   if (!res.ok) {
-    const canFallback = strategy === 'direct' && canFallbackFromDirect(res.status, text);
+    const canFallback = strategy === 'direct' && (
+      canFallbackFromDirect(res.status, text)
+      || (res.status === 404 && fallbackOnDirectNotFound)
+    );
     const shouldOpenCircuit = res.status === 403
       || res.status === 429
       || /sofascore_circuit_open|upstream_temporarily_blocked/i.test(text);
@@ -295,7 +300,7 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
         const hasNextStrategy = strategyIndex < strategies.length - 1;
 
         try {
-          const data = await fetchJsonWithStrategy<T>(path, strategy);
+          const data = await fetchJsonWithStrategy<T>(path, strategy, options.fallbackOnDirectNotFound);
           if (useCache) setDataCache(path, data);
           return data;
         } catch (e: unknown) {
@@ -912,7 +917,7 @@ export async function getMatchTotalShots(eventId: number): Promise<{ home: numbe
 export async function getScheduledEvents(date: string, skipCache = false): Promise<MatchEvent[]> {
   const data = await apiFetch<{ events?: MatchEvent[] }>(
     `sport/football/scheduled-events/${date}`,
-    { useCache: !skipCache }
+    { useCache: !skipCache, fallbackOnDirectNotFound: true }
   );
   return data.events ?? [];
 }

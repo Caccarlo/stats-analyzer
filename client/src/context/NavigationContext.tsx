@@ -1,5 +1,14 @@
 import { createContext, useContext, useReducer, type ReactNode } from 'react';
-import type { MatchupNavigationTarget, PanelState, Player, PlayerFilterState, ViewType } from '@/types';
+import type {
+  MatchupNavigationTarget,
+  MatchupSection,
+  PanelState,
+  Player,
+  PlayerFilterState,
+  ShotAverageSelection,
+  ShotAverageSide,
+  ViewType,
+} from '@/types';
 
 // === Stato ===
 
@@ -20,6 +29,8 @@ type NavAction =
   | { type: 'CLOSE_SPLIT'; panel: number }
   | { type: 'UPDATE_PANEL_FILTERS'; panel: number; filterState: PlayerFilterState }
   | { type: 'OPEN_MATCHUP'; matchup: MatchupNavigationTarget }
+  | { type: 'SET_MATCHUP_SECTION'; section: MatchupSection }
+  | { type: 'UPDATE_MATCHUP_AVERAGE_SELECTION'; side: ShotAverageSide; selection: ShotAverageSelection }
   | { type: 'RESET' };
 
 function reducer(state: NavState, action: NavAction): NavState {
@@ -151,6 +162,17 @@ function reducer(state: NavState, action: NavAction): NavState {
         homeTeamName: action.matchup.homeTeamName,
         awayTeamId: action.matchup.awayTeamId,
         awayTeamName: action.matchup.awayTeamName,
+        matchupSection: 'formations',
+        homeShotAverageSelection: {
+          competitionId: action.matchup.leagueId,
+          seasonId: action.matchup.seasonId,
+          venue: 'home',
+        },
+        awayShotAverageSelection: {
+          competitionId: action.matchup.leagueId,
+          seasonId: action.matchup.seasonId,
+          venue: 'away',
+        },
         leagueId: action.matchup.leagueId,
         leagueName: action.matchup.leagueName,
         seasonId: action.matchup.seasonId,
@@ -160,6 +182,21 @@ function reducer(state: NavState, action: NavAction): NavState {
         countryCategoryId: action.matchup.countryCategoryId,
       };
       return { panels: [matchupPanel] };
+    }
+
+    case 'SET_MATCHUP_SECTION': {
+      const current = panels[0];
+      if (!current || current.view !== 'matchup') return state;
+      panels[0] = { ...current, matchupSection: action.section };
+      return { panels };
+    }
+
+    case 'UPDATE_MATCHUP_AVERAGE_SELECTION': {
+      const current = panels[0];
+      if (!current || current.view !== 'matchup') return state;
+      const key = action.side === 'home' ? 'homeShotAverageSelection' : 'awayShotAverageSelection';
+      panels[0] = { ...current, [key]: action.selection };
+      return { panels };
     }
 
     case 'RESET':
@@ -184,6 +221,8 @@ interface NavContextValue {
   swapSplitAndOpenPlayer: (player: Player, overrideTeamId?: number, overrideTeamName?: string, context?: Partial<PanelState>) => void;
   openSplitHome: () => void;
   openMatchup: (matchup: MatchupNavigationTarget) => void;
+  setMatchupSection: (section: MatchupSection) => void;
+  updateMatchupAverageSelection: (side: ShotAverageSide, selection: ShotAverageSelection) => void;
   closeSplit: (panel?: number) => void;
   updatePanelFilters: (panel: number, filterState: PlayerFilterState) => void;
   selectCountry: (panel: number, countryId: string, countryName?: string, categoryId?: number) => void;
@@ -255,6 +294,14 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'OPEN_MATCHUP', matchup });
   };
 
+  const setMatchupSection = (section: MatchupSection) => {
+    dispatch({ type: 'SET_MATCHUP_SECTION', section });
+  };
+
+  const updateMatchupAverageSelection = (side: ShotAverageSide, selection: ShotAverageSelection) => {
+    dispatch({ type: 'UPDATE_MATCHUP_AVERAGE_SELECTION', side, selection });
+  };
+
   const closeSplit = (panel: number = 1) => {
     dispatch({ type: 'CLOSE_SPLIT', panel });
   };
@@ -303,6 +350,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         swapSplitAndOpenPlayer,
         openSplitHome,
         openMatchup,
+        setMatchupSection,
+        updateMatchupAverageSelection,
         closeSplit,
         updatePanelFilters,
         selectCountry,

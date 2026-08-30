@@ -64,6 +64,14 @@ sudo chown -R stats:stats /opt/stats-analyzer/chrome-profile
 
 1. Copy `stats-analyzer-app.service.example` to `/etc/systemd/system/stats-analyzer-app.service`
 2. Adjust `User`, `Group`, `WorkingDirectory`, and `npm` path if needed.
+3. Ensure the app service user can create and write the persistent shot-model cache:
+
+```bash
+sudo mkdir -p /opt/stats-analyzer/server/.shot-model-cache
+sudo chown -R stats:stats /opt/stats-analyzer/server/.shot-model-cache
+```
+
+The directory contains cached SofaScore statistics and versioned forecasts. Keep it across ordinary app restarts and deployments; delete only the `predictions/` subdirectory when intentionally invalidating forecast outputs outside the normal model-version mechanism.
 
 ## Enable and start
 

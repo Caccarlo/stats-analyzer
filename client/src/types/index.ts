@@ -306,6 +306,184 @@ export interface TeamNextMatchSummary extends MatchupNavigationTarget {
   startTimestamp: number;
 }
 
+// === Previsioni tiri ===
+
+export type MatchupSection = 'formations' | 'predictions';
+export type ShotAverageVenue = 'all' | 'home' | 'away';
+export type ShotAverageSide = 'home' | 'away';
+
+export interface ShotAverageSelection {
+  competitionId?: number;
+  seasonId?: number;
+  venue: ShotAverageVenue;
+}
+
+export interface ShotAverageCatalogSeason {
+  id: number;
+  name: string;
+  year?: string;
+}
+
+export interface ShotAverageCatalogCompetition {
+  id: number;
+  name: string;
+  categoryName?: string | null;
+  seasons: ShotAverageCatalogSeason[];
+}
+
+export interface ShotAverageCatalog {
+  teamId: number;
+  competitions: ShotAverageCatalogCompetition[];
+}
+
+export interface TeamShotAverages {
+  status: 'ready';
+  teamId: number;
+  competitionId: number;
+  seasonId: number;
+  venue: ShotAverageVenue;
+  matches: number;
+  excludedMissing: number;
+  shotsFor: number | null;
+  shotsAgainst: number | null;
+  totalShots: number | null;
+}
+
+export interface ShotMarketLine {
+  line: number;
+  underProbability: number;
+  underFairOdds: number;
+  overProbability: number;
+  overFairOdds: number;
+  isMain: boolean;
+}
+
+export interface ShotRatingDiagnostic {
+  raw: number;
+  value: number;
+  nEff: number;
+}
+
+export interface ShotPrediction {
+  eventId: number;
+  modelVersion: string;
+  generatedAt: string;
+  cutoffTimestamp: number;
+  cutoffIso: string;
+  competition: { id: number; name: string };
+  season: { id: number; name: string; year?: string } | null;
+  homeTeam: { id: number; name: string };
+  awayTeam: { id: number; name: string };
+  expected: {
+    home: number;
+    away: number;
+    total: number;
+    interval80: [number, number];
+  };
+  distribution: { type: 'poisson' } | { type: 'negative-binomial'; dispersion: number };
+  mainLine: number | null;
+  markets: ShotMarketLine[];
+  diagnostics: {
+    baseline: { home: number; away: number };
+    ratings: {
+      homeAttack: ShotRatingDiagnostic;
+      homeVulnerability: ShotRatingDiagnostic;
+      awayAttack: ShotRatingDiagnostic;
+      awayVulnerability: ShotRatingDiagnostic;
+    };
+    betaAttack: number;
+    betaDefense: number;
+    halfLifeDays: number;
+    shrinkageMatches: number;
+    effectiveSample: { home: number; away: number; league: number };
+    strength: {
+      difference: number;
+      selectedTerm: 'none' | 'linear' | 'quadratic';
+      homeLogAdjustment: number;
+      awayLogAdjustment: number;
+      retained: boolean;
+    };
+    backtest: {
+      sampleSize: number;
+      nll: number | null;
+      mae: number | null;
+      calibrationError: number | null;
+      poissonNll?: number;
+      negativeBinomialNll?: number;
+      noStrengthTermNll?: number;
+      selectedStrengthTermNll?: number;
+      note?: string;
+    };
+    matchesUsed: number;
+    latestObservationTimestamp: number;
+    missingStatisticsExcluded: number;
+    seasonsUsed: Array<{ id: number; name: string; year?: string }>;
+    promotion: {
+      applied: boolean;
+      uncertaintyShots: number;
+      note: string;
+      teams: Array<{
+        teamId: number;
+        teamName: string;
+        applied: boolean;
+        sourceCompetitionId: number;
+        sourceSeason: { id: number; name: string; year?: string };
+        cohortSize: number;
+        cohortSufficient: boolean;
+        equivalentMatches: number;
+        lowerRatings: Record<string, number>;
+        transitionFactors: Record<string, number>;
+        transferredRatings: Record<string, number>;
+      }>;
+    };
+    warnings: string[];
+  };
+}
+
+export type ShotPredictionResponse =
+  | { status: 'ready'; prediction: ShotPrediction }
+  | { status: 'building'; progress: { stage: string; message: string; completed: number; total: number } };
+
+export interface ShotPredictionCalculation {
+  selection: string;
+  formula: string;
+  values: Record<string, unknown>;
+  probabilitySteps: string[];
+  modelVersion: string;
+  cutoffTimestamp: number;
+  cutoffIso: string;
+  backtest: ShotPrediction['diagnostics']['backtest'];
+  warnings: string[];
+}
+
+export interface ShotPredictionUsedMatch {
+  eventId: number;
+  startTimestamp: number;
+  date: string;
+  competition: string;
+  match: string;
+  venue: ShotAverageVenue;
+  shotsFor: number;
+  shotsAgainst: number;
+  totalShots: number;
+  daysFromCutoff: number;
+  temporalWeight: number;
+  opponentPointInTimeStrength: number;
+  ratingContribution: number;
+}
+
+export interface ShotPredictionDetails {
+  status: 'ready';
+  calculation: ShotPredictionCalculation;
+  matches: {
+    source: ShotAverageSide;
+    page: number;
+    pageSize: number;
+    total: number;
+    items: ShotPredictionUsedMatch[];
+  };
+}
+
 // === Navigazione ===
 
 export type ViewType = 'home' | 'leagues' | 'teams' | 'team' | 'player' | 'matchup';
@@ -354,6 +532,9 @@ export interface PanelState {
   homeTeamName?: string;
   awayTeamId?: number;
   awayTeamName?: string;
+  matchupSection?: MatchupSection;
+  homeShotAverageSelection?: ShotAverageSelection;
+  awayShotAverageSelection?: ShotAverageSelection;
   // persisted by TeamView so split panels can prove they reference the same real match
   nextMatchSummary?: TeamNextMatchSummary;
 }

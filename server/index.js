@@ -3,6 +3,11 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
+const {
+  ShotModelError,
+  createShotPredictionService,
+  registerShotPredictionRoutes,
+} = require('./shot-predictions');
 
 const app = express();
 app.use(cors());
@@ -456,6 +461,24 @@ app.get('/api/sofascore-browser/status', async (_req, res) => {
     });
   }
 });
+
+const shotPredictionService = createShotPredictionService({
+  fetchSofaScore: async (endpoint) => {
+    const result = await withInFlight(
+      inFlightJsonRequests,
+      `shot-model:${endpoint}`,
+      () => fetchJsonFromSofaScore(endpoint),
+    );
+    if (result.statusCode !== 200) {
+      const error = new ShotModelError(`SofaScore ha risposto ${result.statusCode} per ${endpoint}.`);
+      error.upstreamStatus = result.statusCode;
+      throw error;
+    }
+    return result.data;
+  },
+});
+
+registerShotPredictionRoutes(app, shotPredictionService);
 
 app.get('/api/sofascore/*', async (req, res) => {
   const path = req.params[0];

@@ -175,13 +175,26 @@ function isBrowserConfigured() {
 }
 
 function getBrowserLaunchArgs() {
-  return [
+  const args = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--disable-dev-shm-usage',
     '--disable-background-networking',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-session-crashed-bubble',
+    '--hide-crash-restore-bubble',
+    '--no-default-browser-check',
+    '--no-first-run',
     '--window-size=1440,900',
   ];
+
+  if (process.platform === 'win32') {
+    args.push('--start-minimized');
+  }
+
+  return args;
 }
 
 async function disposeBrowserRuntime() {
@@ -271,11 +284,15 @@ async function initBrowserRuntime() {
 async function getBrowserRuntime() {
   if (browserRuntime) {
     try {
-      const page = await browserRuntime.context.newPage();
-      await page.close();
+      if (browserRuntime.mode === 'cdp' && browserRuntime.browser?.isConnected() === false) {
+        throw new Error('CDP browser disconnected');
+      }
+      // Reading the page list verifies that the context is still usable without
+      // opening a visible Chrome tab for every proxied request.
+      browserRuntime.context.pages();
       return browserRuntime;
     } catch {
-      browserRuntime = null;
+      await disposeBrowserRuntime();
     }
   }
 
@@ -289,7 +306,21 @@ async function getBrowserRuntime() {
 }
 
 async function createFetchPage(runtime) {
-  const page = await runtime.context.newPage();
+  let page;
+
+  if (runtime.mode === 'launch') {
+    const restoredPages = runtime.context.pages().filter((candidate) => !candidate.isClosed());
+    page = restoredPages[0] || await runtime.context.newPage();
+    await Promise.all(
+      restoredPages
+        .filter((candidate) => candidate !== page)
+        .map((candidate) => candidate.close().catch(() => {})),
+    );
+  } else {
+    // A CDP connection can point to the user's browser: never reuse or close
+    // their existing tabs, and create one isolated relay page instead.
+    page = await runtime.context.newPage();
+  }
 
   page.on('request', (request) => {
     const captured = request.headers()['x-requested-with'];
@@ -570,11 +601,13 @@ app.get('/api/sofascore-browser/status', async (req, res) => {
   let connected = false;
   let mode = null;
   let connectionError = null;
+  let launchContextPageCount = null;
   try {
     if (isBrowserConfigured()) {
       const runtime = await getBrowserRuntime();
       connected = true;
       mode = runtime.mode;
+      launchContextPageCount = runtime.mode === 'launch' ? runtime.context.pages().length : null;
     }
   } catch (error) {
     connectionError = error.message;
@@ -611,6 +644,11 @@ app.get('/api/sofascore-browser/status', async (req, res) => {
     pageStatus: browserPageStatus,
     requestTokenCaptured: sofaScoreRequestTokenCaptured,
     recentApiResponses: recentBrowserApiResponses,
+    relayPage: {
+      open: Boolean(browserJsonPage && !browserJsonPage.isClosed()),
+      url: browserJsonPage && !browserJsonPage.isClosed() ? browserJsonPage.url() : null,
+    },
+    launchContextPageCount,
     error: connectionError,
     upstreamCircuit: jsonUpstreamGate.status(),
     imageCircuit: essentialImageUpstreamGate.status(),

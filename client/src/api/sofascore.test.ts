@@ -38,8 +38,11 @@ test('dopo il fallback non ritenta un 403 terminale del proxy', async () => {
   ));
   vi.stubGlobal('fetch', fetchMock);
 
-  await expect(getCategories()).rejects.toThrow('Richieste SofaScore sospese');
+  await expect(getCategories()).rejects.toThrow('nessun blocco temporale applicato');
   expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(String(fetchMock.mock.calls[0][0])).toContain('api.sofascore.com/api/v1');
   expect(String(fetchMock.mock.calls[1][0])).toContain('/api/sofascore/sport/football/categories');
+
+  await expect(getCategories()).rejects.toThrow('nessun blocco temporale applicato');
+  expect(fetchMock).toHaveBeenCalledTimes(4);
 });

@@ -22,6 +22,7 @@ const MIN_TEAM_VENUE_MATCHES = 8;
 const HISTORY_SEASON_COUNT = 2;
 const DEFAULT_UPSTREAM_MIN_INTERVAL_MS = 5_000;
 const DEFAULT_UPSTREAM_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_UPSTREAM_FORBIDDEN_COOLDOWN_MS = 0;
 
 class ShotModelError extends Error {
   constructor(message, statusCode = 502, code = 'upstream_error') {
@@ -876,6 +877,7 @@ function createShotPredictionService({
   cacheDir = path.join(__dirname, '.shot-model-cache'),
   upstreamMinIntervalMs = DEFAULT_UPSTREAM_MIN_INTERVAL_MS,
   upstreamCooldownMs = DEFAULT_UPSTREAM_COOLDOWN_MS,
+  upstreamForbiddenCooldownMs = DEFAULT_UPSTREAM_FORBIDDEN_COOLDOWN_MS,
   now = () => Date.now(),
 }) {
   const cache = new DiskJsonCache(cacheDir);
@@ -905,9 +907,11 @@ function createShotPredictionService({
     if (!circuitLoadPromise) {
       circuitLoadPromise = cache.get('runtime-state', 'model-upstream-circuit', Number.POSITIVE_INFINITY)
         .then((saved) => {
-          if (safeNumber(saved?.blockedUntil) > now()) {
+          const savedStatus = Number(saved?.upstreamStatus || 403);
+          const ignoreForbiddenCooldown = savedStatus === 403 && upstreamForbiddenCooldownMs <= 0;
+          if (!ignoreForbiddenCooldown && safeNumber(saved?.blockedUntil) > now()) {
             upstreamBlockedUntil = Number(saved.blockedUntil);
-            upstreamBlockedError = makeBlockedError(saved.upstreamStatus || 403);
+            upstreamBlockedError = makeBlockedError(savedStatus);
           }
           circuitLoaded = true;
         })
@@ -938,8 +942,25 @@ function createShotPredictionService({
   const blockUpstream = async (error) => {
     const upstreamStatus = error?.upstreamStatus || error?.statusCode;
     if (upstreamStatus !== 403 && upstreamStatus !== 429) return error;
+    const statusCooldownMs = upstreamStatus === 403
+      ? upstreamForbiddenCooldownMs
+      : upstreamCooldownMs;
+    if (statusCooldownMs <= 0) {
+      const forbidden = new ShotModelError(
+        `SofaScore ha risposto ${upstreamStatus}; nessun blocco temporale applicato.`,
+        502,
+        upstreamStatus === 403 ? 'upstream_forbidden' : 'upstream_error',
+      );
+      forbidden.upstreamStatus = upstreamStatus;
+      limit.clearQueue(forbidden);
+      await cache.set('runtime-state', 'model-upstream-circuit', {
+        blockedUntil: 0,
+        upstreamStatus,
+      });
+      return forbidden;
+    }
     const blocked = makeBlockedError(upstreamStatus);
-    upstreamBlockedUntil = now() + Math.max(0, upstreamCooldownMs);
+    upstreamBlockedUntil = now() + Math.max(0, statusCooldownMs);
     upstreamBlockedError = blocked;
     limit.clearQueue(blocked);
     await cache.set('runtime-state', 'model-upstream-circuit', {
@@ -1661,6 +1682,7 @@ function createShotPredictionService({
       upstreamStatus: error?.upstreamStatus || null,
       minIntervalMs: upstreamMinIntervalMs,
       maxInFlight: 1,
+      forbiddenCooldownMs: upstreamForbiddenCooldownMs,
     };
   };
 

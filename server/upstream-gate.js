@@ -1,6 +1,8 @@
 class UpstreamCircuitOpenError extends Error {
-  constructor(status, blockedUntil) {
-    super(`SofaScore upstream sospeso dopo una risposta ${status}.`);
+  constructor(status, blockedUntil, hasCooldown = true) {
+    super(hasCooldown
+      ? `SofaScore upstream sospeso dopo una risposta ${status}.`
+      : `SofaScore upstream ha risposto ${status}; nessun blocco temporale applicato.`);
     this.name = 'UpstreamCircuitOpenError';
     this.code = 'sofascore_circuit_open';
     this.statusCode = 503;
@@ -13,6 +15,7 @@ function createUpstreamGate({
   maximumConcurrent = 3,
   minimumIntervalMs = 750,
   cooldownMs = 15 * 60 * 1000,
+  forbiddenCooldownMs = 0,
   now = () => Date.now(),
   sleep = (delay) => new Promise((resolve) => setTimeout(resolve, delay)),
 } = {}) {
@@ -29,7 +32,7 @@ function createUpstreamGate({
       blockedStatus = null;
       return null;
     }
-    return new UpstreamCircuitOpenError(blockedStatus, blockedUntil);
+    return new UpstreamCircuitOpenError(blockedStatus, blockedUntil, true);
   };
 
   const clearQueue = (error) => {
@@ -38,9 +41,10 @@ function createUpstreamGate({
   };
 
   const openCircuit = (status) => {
+    const statusCooldownMs = status === 403 ? forbiddenCooldownMs : cooldownMs;
     blockedStatus = status;
-    blockedUntil = now() + Math.max(0, cooldownMs);
-    const error = new UpstreamCircuitOpenError(status, blockedUntil);
+    blockedUntil = now() + Math.max(0, statusCooldownMs);
+    const error = new UpstreamCircuitOpenError(status, blockedUntil, statusCooldownMs > 0);
     clearQueue(error);
     return error;
   };

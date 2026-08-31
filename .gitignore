@@ -5,6 +5,7 @@ dist/
 .env
 .DS_Store
 .playwright-mcp/
+.codex-logs/
 server-err.log
 server-out.log
 stats-analyzer-current.tar.gz
@@ -12,3 +13,4 @@ temp-chrome-profile*/
 temp-edge-profile/
 server/.sofascore-browser-profile*
 server/.shot-model-cache/
+server/.shot-data/

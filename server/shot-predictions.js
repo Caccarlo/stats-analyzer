@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const MODEL_VERSION = 'shots-v1.2.0-lite';
+const MODEL_VERSION = 'shots-v1.3.0-football-data';
 const SUPPORTED_COMPETITIONS = new Map([
   [23, { name: 'Serie A', secondDivisionId: 53 }],
   [17, { name: 'Premier League', secondDivisionId: 18 }],
@@ -322,8 +322,13 @@ class DiskJsonCache {
   }
 }
 
+function compareObservations(first, second) {
+  return first.startTimestamp - second.startTimestamp
+    || String(first.eventId).localeCompare(String(second.eventId));
+}
+
 function annotatePointInTimeRatings(observations) {
-  const sorted = [...observations].sort((first, second) => first.startTimestamp - second.startTimestamp || first.eventId - second.eventId);
+  const sorted = [...observations].sort(compareObservations);
   const teamState = new Map();
   let leagueHomeShots = 0;
   let leagueAwayShots = 0;
@@ -501,7 +506,7 @@ function fitLeagueModel(observations, cutoffTimestamp, halfLifeDays, shrinkageMa
 }
 
 function makeBacktestCuts(observations) {
-  const sorted = [...observations].sort((first, second) => first.startTimestamp - second.startTimestamp || first.eventId - second.eventId);
+  const sorted = [...observations].sort(compareObservations);
   if (sorted.length < 70) return [];
   const start = Math.max(50, Math.floor(sorted.length * 0.65));
   const candidates = sorted.slice(start);
@@ -673,9 +678,24 @@ function standardDeviation(values) {
   return Math.sqrt(values.reduce((total, value) => total + (value - mean) ** 2, 0) / (values.length - 1));
 }
 
-function serializePrediction({ event, competition, parameters, model, forecast, distribution, markets, dataset, excludedMissing, seasons, warnings, promotion }) {
-  const homeRating = model.getRating(event.homeTeam.id);
-  const awayRating = model.getRating(event.awayTeam.id);
+function serializePrediction({
+  event,
+  competition,
+  parameters,
+  model,
+  modelTeamIds,
+  forecast,
+  distribution,
+  markets,
+  dataset,
+  excludedMissing,
+  seasons,
+  warnings,
+  promotion,
+  dataSource,
+}) {
+  const homeRating = model.getRating(modelTeamIds.home);
+  const awayRating = model.getRating(modelTeamIds.away);
   const cutoffTimestamp = event.startTimestamp;
   const uncertaintyExpansion = Math.ceil(promotion.uncertaintyShots || 0);
   const interval = [
@@ -734,6 +754,7 @@ function serializePrediction({ event, competition, parameters, model, forecast, 
         latestObservationTimestamp: dataset.reduce((latest, observation) => Math.max(latest, observation.startTimestamp), 0),
         missingStatisticsExcluded: excludedMissing,
         seasonsUsed: seasons.map((season) => ({ id: season.id, name: season.name, year: season.year })),
+        dataSource,
         promotion,
         warnings,
       },
@@ -741,7 +762,7 @@ function serializePrediction({ event, competition, parameters, model, forecast, 
   };
 }
 
-function buildUsedMatchRows(dataset, event, halfLifeDays, model) {
+function buildUsedMatchRows(dataset, event, modelTeamIds, halfLifeDays, model) {
   const cutoffDays = event.startTimestamp / 86400;
   const makeRows = (teamId) => {
     const rows = dataset
@@ -784,8 +805,8 @@ function buildUsedMatchRows(dataset, event, halfLifeDays, model) {
   };
 
   return {
-    home: makeRows(event.homeTeam.id),
-    away: makeRows(event.awayTeam.id),
+    home: makeRows(modelTeamIds.home),
+    away: makeRows(modelTeamIds.away),
   };
 }
 
@@ -850,6 +871,8 @@ function buildCalculationDetails(prediction, selection) {
 
 function createShotPredictionService({
   fetchSofaScore,
+  fetchTargetEvent = fetchSofaScore,
+  shotDataArchive = null,
   cacheDir = path.join(__dirname, '.shot-model-cache'),
   upstreamMinIntervalMs = DEFAULT_UPSTREAM_MIN_INTERVAL_MS,
   upstreamCooldownMs = DEFAULT_UPSTREAM_COOLDOWN_MS,
@@ -860,6 +883,7 @@ function createShotPredictionService({
   const inFlightFetches = new Map();
   const jobs = new Map();
   const averageJobs = new Map();
+  const targetSnapshots = new Map();
   let nextUpstreamStartAt = 0;
   let upstreamBlockedUntil = 0;
   let upstreamBlockedError = null;
@@ -1275,12 +1299,18 @@ function createShotPredictionService({
     progress.message = 'Verifica della partita';
     progress.completed = 0;
     progress.total = 1;
-    const targetPayload = await fetchCached(`event/${eventId}`, { namespace: 'metadata', maxAgeMs: SIX_HOURS });
+    const targetEndpoint = `event/${eventId}`;
+    const persistedTarget = await cache.get('metadata', targetEndpoint, Number.POSITIVE_INFINITY);
+    const targetPayload = targetSnapshots.get(eventId)
+      || persistedTarget
+      || (shotDataArchive
+        ? await fetchTargetEvent(targetEndpoint)
+        : await fetchCached(targetEndpoint, { namespace: 'metadata', maxAgeMs: SIX_HOURS }));
     const event = targetPayload.event || targetPayload;
     if (!event?.id || !event?.homeTeam?.id || !event?.awayTeam?.id || !event?.startTimestamp) {
       throw new ShotModelError('La partita non contiene i metadati necessari.', 422, 'unsupported_or_insufficient_data');
     }
-    if (event.startTimestamp * 1000 <= now()) {
+    if (!shotDataArchive && event.startTimestamp * 1000 <= now()) {
       throw new ShotModelError(
         'La V1 leggera calcola soltanto partite che non sono ancora iniziate.',
         422,
@@ -1294,20 +1324,29 @@ function createShotPredictionService({
     }
     progress.completed = 1;
 
+    const rawDataset = shotDataArchive
+      ? await shotDataArchive.getPredictionDataset(event)
+      : await loadMatchupDataset(event, progress);
     const {
       observations,
       excludedMissing,
       seasons,
       homeMatches,
       awayMatches,
-    } = await loadMatchupDataset(event, progress);
+      homeModelTeamId = event.homeTeam.id,
+      awayModelTeamId = event.awayTeam.id,
+      dataSource = 'SofaScore',
+    } = rawDataset;
+    const pointInTimeObservations = shotDataArchive
+      ? annotatePointInTimeRatings(observations)
+      : observations;
     if (
-      observations.length < MIN_TEAM_VENUE_MATCHES * 2
+      pointInTimeObservations.length < (shotDataArchive ? 70 : MIN_TEAM_VENUE_MATCHES * 2)
       || homeMatches < MIN_TEAM_VENUE_MATCHES
       || awayMatches < MIN_TEAM_VENUE_MATCHES
     ) {
       throw new ShotModelError(
-        `Storico mirato insufficiente: ${homeMatches} gare interne della squadra di casa e ${awayMatches} gare esterne dell'ospite.`,
+        `Storico insufficiente: ${homeMatches} gare interne della squadra di casa e ${awayMatches} gare esterne dell'ospite.`,
         422,
         'unsupported_or_insufficient_data',
       );
@@ -1317,14 +1356,16 @@ function createShotPredictionService({
       cutoffTimestamp: event.startTimestamp,
       excludedMissing,
       seasons: seasons.map((season) => ({ id: season.id, name: season.name, year: season.year })),
-      observations,
+      observations: pointInTimeObservations,
     });
 
     progress.stage = 'parameters';
-    progress.message = 'Applicazione dei parametri prudenti della V1 leggera';
+    progress.message = shotDataArchive
+      ? 'Backtest cronologico e selezione dei parametri'
+      : 'Applicazione dei parametri prudenti della V1 leggera';
     progress.completed = 1;
     progress.total = 1;
-    const parameters = {
+    const parameters = shotDataArchive ? selectModelParameters(pointInTimeObservations) : {
       halfLifeDays: 180,
       shrinkageMatches: 10,
       effect: 'none',
@@ -1342,7 +1383,7 @@ function createShotPredictionService({
     progress.stage = 'forecast';
     progress.message = 'Calcolo della distribuzione pre-partita';
     const model = fitLeagueModel(
-      observations,
+      pointInTimeObservations,
       event.startTimestamp,
       parameters.halfLifeDays,
       parameters.shrinkageMatches,
@@ -1352,19 +1393,28 @@ function createShotPredictionService({
       applied: false,
       uncertaintyShots: 0,
       teams: [],
-      note: 'Correzione neopromosse rinviata finché l’archivio locale dei top 5 non è completo.',
+      note: shotDataArchive
+        ? 'L’archivio top-flight non contiene ancora le seconde divisioni: nessun moltiplicatore manuale applicato.'
+        : 'Correzione neopromosse rinviata finché l’archivio locale dei top 5 non è completo.',
     };
-    const forecast = model.predict(event.homeTeam.id, event.awayTeam.id);
+    const modelTeamIds = { home: homeModelTeamId, away: awayModelTeamId };
+    const forecast = model.predict(modelTeamIds.home, modelTeamIds.away);
     const minimumEffectiveSample = Math.min(
-      model.getRating(event.homeTeam.id).homeAttack.nEff,
-      model.getRating(event.awayTeam.id).awayAttack.nEff,
+      model.getRating(modelTeamIds.home).homeAttack.nEff,
+      model.getRating(modelTeamIds.away).awayAttack.nEff,
     );
-    const warnings = [
+    const warnings = shotDataArchive ? [
+      'Dati tiri da archivio locale Football-Data: nessuna statistica partita-per-partita viene richiesta a SofaScore.',
+      'La correzione neopromosse resta neutra finché non vengono importate anche le seconde divisioni.',
+    ] : [
       'V1 leggera: usa soltanto gare interne della squadra di casa e gare esterne dell’ospite nelle ultime due stagioni.',
       'Le baseline casa/trasferta descrivono il campione mirato delle due squadre, non l’intero campionato.',
       'Effetto continuo di forza, correzione neopromosse e backtest globale sono sospesi fino al completamento dell’archivio locale.',
       'Distribuzione Poisson prudenziale non ancora calibrata sull’intero campionato.',
     ];
+    if (shotDataArchive && tournamentId === 23) {
+      warnings.push('Football-Data segnala per la Serie A una possibile discontinuità storica nella definizione dei tiri; la V1 limita il campione alle ultime due stagioni.');
+    }
     if (minimumEffectiveSample < 3) {
       if (!promotion.applied) {
         promotion.uncertaintyShots = Math.sqrt(
@@ -1374,7 +1424,7 @@ function createShotPredictionService({
       }
       warnings.push('Una squadra ha uno storico recente molto ridotto; la stima è fortemente ridotta verso la media e l’incertezza va interpretata con cautela.');
     }
-    if (parameters.backtest.sampleSize === 0) warnings.push('Backtest completo non disponibile per questa versione leggera.');
+    if (parameters.backtest.sampleSize === 0) warnings.push('Campione ancora insufficiente per completare il backtest cronologico.');
     if (excludedMissing > 0) warnings.push(`${excludedMissing} partite escluse perché prive di statistiche tiri complete.`);
     const distribution = parameters.distributionType === 'negative-binomial'
       ? { type: 'negative-binomial', dispersion: model.dispersion }
@@ -1385,19 +1435,21 @@ function createShotPredictionService({
       competition,
       parameters,
       model,
+      modelTeamIds,
       forecast,
       distribution,
       markets,
-      dataset: observations,
+      dataset: pointInTimeObservations,
       excludedMissing,
       seasons,
       warnings,
       promotion,
+      dataSource,
     });
     const cacheKey = `${eventId}:${MODEL_VERSION}`;
     await cache.set('predictions', cacheKey, response);
     await cache.set('prediction-details', cacheKey, {
-      rows: buildUsedMatchRows(observations, event, parameters.halfLifeDays, model),
+      rows: buildUsedMatchRows(pointInTimeObservations, event, modelTeamIds, parameters.halfLifeDays, model),
     });
     return response;
   };
@@ -1410,13 +1462,14 @@ function createShotPredictionService({
       if (cached) {
         const isPast = cached.prediction.cutoffTimestamp * 1000 <= now();
         const generatedAt = Date.parse(cached.prediction.generatedAt);
-        if (isPast) {
+        if (isPast && !shotDataArchive) {
           throw new ShotModelError(
             'La V1 leggera calcola soltanto partite che non sono ancora iniziate.',
             422,
             'future_matches_only',
           );
         }
+        if (isPast && shotDataArchive) return cached;
         if (Number.isFinite(generatedAt) && now() - generatedAt <= SIX_HOURS) return cached;
         staleFutureCache = true;
       }
@@ -1450,7 +1503,15 @@ function createShotPredictionService({
       })
       .catch((error) => {
         job.state = 'failed';
-        job.error = error instanceof ShotModelError ? error : new ShotModelError(error.message || 'Errore nel modello');
+        if (error instanceof ShotModelError) {
+          job.error = error;
+        } else {
+          job.error = new ShotModelError(
+            error.message || 'Errore nel modello',
+            error.statusCode || 502,
+            error.code || 'upstream_error',
+          );
+        }
       });
     return { status: 'building', progress: { ...job.progress } };
   };
@@ -1480,7 +1541,8 @@ function createShotPredictionService({
     };
   };
 
-  const getAverageCatalog = async (teamId) => {
+  const getAverageCatalog = async (teamId, teamName = '') => {
+    if (shotDataArchive) return shotDataArchive.getAverageCatalog(teamId, teamName);
     const endpoint = `team/${teamId}/team-statistics/seasons`;
     const key = `season-parser-v2:${endpoint}`;
     const cached = await cache.get('average-catalog', key, ONE_DAY);
@@ -1532,7 +1594,10 @@ function createShotPredictionService({
     return job;
   };
 
-  const getShotAverages = async (teamId, competitionId, seasonId, venue) => {
+  const getShotAverages = async (teamId, competitionId, seasonId, venue, teamName = '') => {
+    if (shotDataArchive) {
+      return shotDataArchive.getShotAverages(teamId, teamName, competitionId, seasonId, venue);
+    }
     const normalizedVenue = ['all', 'home', 'away'].includes(venue) ? venue : 'all';
     const key = `${teamId}:${competitionId}:${seasonId}:${normalizedVenue}`;
     const cached = await cache.get('averages', key, SIX_HOURS);
@@ -1599,17 +1664,70 @@ function createShotPredictionService({
     };
   };
 
+  const primeTarget = async (eventId, candidate) => {
+    const event = candidate?.event || candidate;
+    if (
+      Number(event?.id) !== Number(eventId)
+      || !Number.isFinite(Number(event?.startTimestamp))
+      || !Number.isFinite(Number(event?.tournament?.uniqueTournament?.id))
+      || !Number.isFinite(Number(event?.homeTeam?.id))
+      || !Number.isFinite(Number(event?.awayTeam?.id))
+      || !event?.homeTeam?.name
+      || !event?.awayTeam?.name
+    ) {
+      throw new ShotModelError('Snapshot della partita incompleto.', 422, 'invalid_target_snapshot');
+    }
+    const snapshot = {
+      event: {
+        id: Number(event.id),
+        startTimestamp: Number(event.startTimestamp),
+        tournament: {
+          uniqueTournament: {
+            id: Number(event.tournament.uniqueTournament.id),
+            name: String(event.tournament.uniqueTournament.name || ''),
+          },
+        },
+        season: event.season ? {
+          id: Number(event.season.id),
+          name: String(event.season.name || event.season.year || ''),
+          year: String(event.season.year || event.season.name || ''),
+        } : null,
+        homeTeam: { id: Number(event.homeTeam.id), name: String(event.homeTeam.name) },
+        awayTeam: { id: Number(event.awayTeam.id), name: String(event.awayTeam.name) },
+        status: event.status || null,
+      },
+    };
+    targetSnapshots.set(Number(eventId), snapshot);
+    await cache.set('metadata', `event/${eventId}`, snapshot);
+    return snapshot;
+  };
+
   return {
     getPrediction,
     getDetails,
     getAverageCatalog,
     getShotAverages,
     getCircuitStatus,
+    primeTarget,
     jobs,
   };
 }
 
 function registerShotPredictionRoutes(app, service) {
+  app.post('/api/predictions/shots/:eventId', async (req, res) => {
+    try {
+      await service.primeTarget(Number(req.params.eventId), req.body?.target);
+      const result = await service.getPrediction(Number(req.params.eventId), req.query.retry === '1');
+      return res.status(result.status === 'building' ? 202 : 200).json(result);
+    } catch (error) {
+      return res.status(error.statusCode || 502).json({
+        status: 'error',
+        code: error.code || 'upstream_error',
+        message: error.message || 'Errore durante il calcolo della previsione.',
+      });
+    }
+  });
+
   app.get('/api/predictions/shots/:eventId', async (req, res) => {
     try {
       const result = await service.getPrediction(Number(req.params.eventId), req.query.retry === '1');
@@ -1645,7 +1763,10 @@ function registerShotPredictionRoutes(app, service) {
 
   app.get('/api/teams/:teamId/shot-averages/catalog', async (req, res) => {
     try {
-      return res.json(await service.getAverageCatalog(Number(req.params.teamId)));
+      return res.json(await service.getAverageCatalog(
+        Number(req.params.teamId),
+        String(req.query.teamName || ''),
+      ));
     } catch (error) {
       return res.status(error.statusCode || 502).json({ status: 'error', message: error.message });
     }
@@ -1663,6 +1784,7 @@ function registerShotPredictionRoutes(app, service) {
         competitionId,
         seasonId,
         String(req.query.venue || 'all'),
+        String(req.query.teamName || ''),
       ));
     } catch (error) {
       return res.status(error.statusCode || 502).json({ status: 'error', message: error.message });

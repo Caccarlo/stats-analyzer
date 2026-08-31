@@ -8,12 +8,19 @@ const {
   createShotPredictionService,
   registerShotPredictionRoutes,
 } = require('./shot-predictions');
+const {
+  createShotDataArchive,
+  registerShotDataArchiveRoutes,
+} = require('./shot-data-archive');
 const { createUpstreamGate } = require('./upstream-gate');
 
 const app = express();
 app.use(cors());
+app.use(express.json({ limit: '32kb' }));
 
 const SOFASCORE_WEB_ORIGIN = 'https://www.sofascore.com';
+const SOFASCORE_API_ORIGIN = process.env.SOFASCORE_API_ORIGIN || 'https://api.sofascore.com';
+const SOFASCORE_X_REQUESTED_WITH_FALLBACK = process.env.SOFASCORE_X_REQUESTED_WITH || '';
 const SOFASCORE_IMAGE_ORIGIN = 'https://img.sofascore.com';
 const CACHE_TTL = 5 * 60 * 1000;
 const IMAGE_CACHE_TTL = 30 * 60 * 1000;
@@ -22,12 +29,12 @@ const GLOBAL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_GLOBAL_MIN_
 const GLOBAL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_GLOBAL_COOLDOWN_MS || 15 * 60 * 1000);
 const MODEL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_MODEL_MIN_INTERVAL_MS || 5000);
 const MODEL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_COOLDOWN_MS || 24 * 60 * 60 * 1000);
-const BROWSER_PAGE_URL = process.env.SOFASCORE_BROWSER_PAGE_URL || `${SOFASCORE_WEB_ORIGIN}/`;
+const BROWSER_PAGE_URL = process.env.SOFASCORE_BROWSER_PAGE_URL || `${SOFASCORE_WEB_ORIGIN}/football`;
 const BROWSER_CDP_URL = process.env.SOFASCORE_BROWSER_CDP_URL || '';
 const BROWSER_EXECUTABLE_PATH = process.env.SOFASCORE_BROWSER_EXECUTABLE_PATH || '';
 const BROWSER_USER_DATA_DIR = process.env.SOFASCORE_BROWSER_USER_DATA_DIR
   || path.join(__dirname, '.sofascore-browser-profile');
-const BROWSER_HEADLESS = process.env.SOFASCORE_BROWSER_HEADLESS !== 'false';
+const BROWSER_HEADLESS = process.env.SOFASCORE_BROWSER_HEADLESS === 'true';
 const DIRECT_FALLBACK_ENABLED = process.env.SOFASCORE_DIRECT_FALLBACK !== 'false';
 
 const serverCache = new Map();
@@ -49,6 +56,10 @@ let browserRuntime = null;
 let browserRuntimePromise = null;
 let browserJsonPage = null;
 let browserJsonPagePromise = null;
+let sofaScoreRequestedWith = SOFASCORE_X_REQUESTED_WITH_FALLBACK;
+let sofaScoreRequestTokenCaptured = false;
+let browserPageStatus = null;
+const recentBrowserApiResponses = [];
 
 function getBrowserExecutableCandidates() {
   if (BROWSER_EXECUTABLE_PATH) {
@@ -255,14 +266,35 @@ async function getBrowserRuntime() {
 async function createFetchPage(runtime) {
   const page = await runtime.context.newPage();
 
+  page.on('request', (request) => {
+    const captured = request.headers()['x-requested-with'];
+    if (captured && captured !== sofaScoreRequestedWith) {
+      sofaScoreRequestedWith = captured;
+      sofaScoreRequestTokenCaptured = true;
+      console.log('SofaScore relay captured a fresh request token');
+    }
+  });
+  page.on('response', (response) => {
+    const responseUrl = response.url();
+    if (!responseUrl.includes('/api/v1/')) return;
+    recentBrowserApiResponses.push({
+      path: responseUrl.split('/api/v1/')[1]?.split('?')[0] || '',
+      status: response.status(),
+    });
+    if (recentBrowserApiResponses.length > 8) recentBrowserApiResponses.shift();
+  });
+
   page.on('crash', () => {
     console.error('SofaScore relay page crashed');
   });
 
-  await page.goto(BROWSER_PAGE_URL, {
+  const navigationResponse = await page.goto(BROWSER_PAGE_URL, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   });
+  browserPageStatus = navigationResponse?.status() ?? null;
+
+  await page.waitForTimeout(1000).catch(() => {});
 
   return page;
 }
@@ -295,14 +327,17 @@ async function fetchViaBrowserJson(cacheKey) {
     const page = await getBrowserJsonPage(runtime);
 
     const result = await page.evaluate(
-      async ({ requestPath, timeoutMs }) => {
+      async ({ apiOrigin, requestPath, timeoutMs, requestedWith }) => {
         const controller = new AbortController();
         const timeoutId = window.setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
 
         try {
-          const response = await fetch(`/api/v1/${requestPath}`, {
-            headers: { Accept: 'application/json' },
-            credentials: 'include',
+          const response = await fetch(`${apiOrigin}/api/v1/${requestPath}`, {
+            headers: {
+              Accept: 'application/json',
+              ...(requestedWith ? { 'x-requested-with': requestedWith } : {}),
+            },
+            credentials: 'omit',
             signal: controller.signal,
           });
           const text = await response.text();
@@ -322,7 +357,12 @@ async function fetchViaBrowserJson(cacheKey) {
           window.clearTimeout(timeoutId);
         }
       },
-      { requestPath: cacheKey, timeoutMs: BROWSER_FETCH_TIMEOUT_MS },
+      {
+        apiOrigin: SOFASCORE_API_ORIGIN,
+        requestPath: cacheKey,
+        timeoutMs: BROWSER_FETCH_TIMEOUT_MS,
+        requestedWith: sofaScoreRequestedWith,
+      },
     );
 
     if (!result.ok) {
@@ -390,8 +430,13 @@ async function fetchViaBrowserImage(imagePath) {
 }
 
 async function fetchDirectJson(cacheKey) {
-  const url = `${SOFASCORE_WEB_ORIGIN}/api/v1/${cacheKey}`;
-  const response = await fetch(url, { headers: SOFASCORE_HEADERS });
+  const url = `${SOFASCORE_API_ORIGIN}/api/v1/${cacheKey}`;
+  const response = await fetch(url, {
+    headers: {
+      ...SOFASCORE_HEADERS,
+      ...(sofaScoreRequestedWith ? { 'x-requested-with': sofaScoreRequestedWith } : {}),
+    },
+  });
   const contentType = response.headers.get('content-type') || '';
 
   if (!contentType.includes('application/json')) {
@@ -538,6 +583,9 @@ app.get('/api/sofascore-browser/status', async (req, res) => {
     connected,
     mode,
     pageUrl: isBrowserConfigured() ? BROWSER_PAGE_URL : null,
+    pageStatus: browserPageStatus,
+    requestTokenCaptured: sofaScoreRequestTokenCaptured,
+    recentApiResponses: recentBrowserApiResponses,
     error: connectionError,
     upstreamCircuit: jsonUpstreamGate.status(),
     imageCircuit: imageUpstreamGate.status(),
@@ -546,25 +594,39 @@ app.get('/api/sofascore-browser/status', async (req, res) => {
   });
 });
 
+const shotDataArchive = createShotDataArchive({
+  databasePath: process.env.SHOT_DATA_DB_PATH || path.join(__dirname, '.shot-data', 'shots.sqlite'),
+  downloadIntervalMs: Number(process.env.SHOT_DATA_DOWNLOAD_INTERVAL_MS || 5000),
+  updateIntervalMs: Number(process.env.SHOT_DATA_UPDATE_INTERVAL_MS || 24 * 60 * 60 * 1000),
+});
+shotDataArchive.start().catch((error) => {
+  console.error(`Archivio tiri non aggiornato: ${error.message}`);
+});
+
+const fetchPredictionTarget = async (endpoint) => {
+  const result = await withInFlight(
+    inFlightJsonRequests,
+    `shot-target:${endpoint}`,
+    () => fetchJsonFromSofaScore(endpoint),
+  );
+  if (result.statusCode !== 200) {
+    const error = new ShotModelError(`SofaScore ha risposto ${result.statusCode} per ${endpoint}.`);
+    error.upstreamStatus = result.statusCode;
+    throw error;
+  }
+  return result.data;
+};
+
 const shotPredictionService = createShotPredictionService({
   upstreamMinIntervalMs: MODEL_UPSTREAM_MIN_INTERVAL_MS,
   upstreamCooldownMs: MODEL_UPSTREAM_COOLDOWN_MS,
-  fetchSofaScore: async (endpoint) => {
-    const result = await withInFlight(
-      inFlightJsonRequests,
-      `shot-model:${endpoint}`,
-      () => fetchJsonFromSofaScore(endpoint),
-    );
-    if (result.statusCode !== 200) {
-      const error = new ShotModelError(`SofaScore ha risposto ${result.statusCode} per ${endpoint}.`);
-      error.upstreamStatus = result.statusCode;
-      throw error;
-    }
-    return result.data;
-  },
+  fetchSofaScore: fetchPredictionTarget,
+  fetchTargetEvent: fetchPredictionTarget,
+  shotDataArchive,
 });
 
 registerShotPredictionRoutes(app, shotPredictionService);
+registerShotDataArchiveRoutes(app, shotDataArchive);
 
 app.get('/api/sofascore/*', async (req, res) => {
   const path = req.params[0];

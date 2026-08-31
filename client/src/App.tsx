@@ -120,6 +120,7 @@ function AppContent() {
           <MatchupPage
             key={`matchup-${panel.matchupEventId}`}
             eventId={panel.matchupEventId}
+            startTimestamp={panel.matchupStartTimestamp}
             homeTeamId={panel.homeTeamId}
             homeTeamName={panel.homeTeamName ?? ''}
             awayTeamId={panel.awayTeamId}

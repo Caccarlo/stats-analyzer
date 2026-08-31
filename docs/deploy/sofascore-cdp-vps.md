@@ -67,14 +67,15 @@ sudo chown -R stats:stats /opt/stats-analyzer/chrome-profile
 
 1. Copy `stats-analyzer-app.service.example` to `/etc/systemd/system/stats-analyzer-app.service`
 2. Adjust `User`, `Group`, `WorkingDirectory`, and `npm` path if needed.
-3. Ensure the app service user can create and write the persistent shot-model cache:
+3. Ensure the app service user can create and write the persistent shot-model cache and SQLite archive:
 
 ```bash
 sudo mkdir -p /opt/stats-analyzer/server/.shot-model-cache
-sudo chown -R stats:stats /opt/stats-analyzer/server/.shot-model-cache
+sudo mkdir -p /opt/stats-analyzer/server/.shot-data
+sudo chown -R stats:stats /opt/stats-analyzer/server/.shot-model-cache /opt/stats-analyzer/server/.shot-data
 ```
 
-The directory contains cached SofaScore statistics and versioned forecasts. Keep it across ordinary app restarts and deployments; delete only the `predictions/` subdirectory when intentionally invalidating forecast outputs outside the normal model-version mechanism.
+`.shot-model-cache` contains versioned forecasts, details, and match snapshots. `.shot-data/shots.sqlite` contains the two-season Football-Data archive. Keep both across ordinary app restarts and deployments; model-version changes invalidate forecasts without requiring raw SQLite data to be deleted.
 
 All server-side SofaScore JSON traffic passes through the global gate. The defaults start calls at least 750 ms apart and suspend queued work for 15 minutes after a `403` or `429`:
 
@@ -83,14 +84,14 @@ SOFASCORE_GLOBAL_MIN_INTERVAL_MS=750
 SOFASCORE_GLOBAL_COOLDOWN_MS=900000
 ```
 
-Shot-model collection is paced once more before it reaches that global gate. Override either layer only after the upstream environment has been verified:
+Legacy no-archive model collection is paced once more before it reaches that global gate. Ordinary archive-backed forecasts do not fetch SofaScore match statistics. Override either layer only after the upstream environment has been verified:
 
 ```bash
 SOFASCORE_MODEL_MIN_INTERVAL_MS=5000
 SOFASCORE_MODEL_COOLDOWN_MS=86400000
 ```
 
-The lightweight prediction collector is single-flight. Its longer interval and 24-hour terminal cooldown are intentionally more conservative than the ordinary application gate; do not lower them until the upstream network has passed the isolated status probe.
+The fallback collector is single-flight. Its longer interval and 24-hour terminal cooldown are intentionally more conservative than the ordinary application gate; do not lower them until the upstream network has passed the isolated status probe.
 
 ## Enable and start
 
@@ -117,7 +118,7 @@ curl http://127.0.0.1:3001/api/sofascore-browser/status
 curl "http://127.0.0.1:3001/api/sofascore-browser/status?probe=1"
 ```
 
-The first command is local-only and does not contact SofaScore. The second command performs one isolated upstream categories navigation. Use this single probe before opening the frontend on a new IP or hotspot. Do not follow it with broader endpoint tests unless `probe.reachable` is `true`.
+The first command is local-only and does not contact SofaScore. The second command performs one isolated upstream categories navigation and warms the football page. A categories `200` alone is not sufficient: SofaScore can allow that lightweight endpoint while rejecting the page and tournament/event routes. Before opening the frontend, require both `probe.reachable: true` and `pageStatus: 200`. If `pageStatus` is `403`, switch network/session instead of probing more endpoints.
 
 Expected relay status shape:
 
@@ -126,7 +127,9 @@ Expected relay status shape:
   "configured": true,
   "connected": true,
   "mode": "cdp",
-  "pageUrl": "https://www.sofascore.com/",
+  "pageUrl": "https://www.sofascore.com/football",
+  "pageStatus": 200,
+  "requestTokenCaptured": false,
   "upstreamCircuit": {
     "open": false,
     "upstreamStatus": null,

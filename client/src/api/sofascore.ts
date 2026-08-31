@@ -29,6 +29,7 @@ import type {
   TeamShotAverages,
 } from '@/types';
 import { createRequestGate, RequestCircuitOpenError } from './requestGate';
+import { sofaScorePersistentCache } from './persistentCache';
 
 // === Cache ===
 
@@ -73,6 +74,7 @@ class ApiFetchError extends Error {
 const cache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<unknown>>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minuti
+const DAY_MS = 24 * 60 * 60 * 1000;
 const SOFASCORE_DIRECT_ORIGIN = (
   import.meta.env.VITE_SOFASCORE_DIRECT_ORIGIN
   ?? 'https://api.sofascore.com/api/v1'
@@ -243,8 +245,21 @@ function getCached(key: string): CacheEntry | null {
   return null;
 }
 
+function getPersistentTtl(path: string): number | null {
+  if (path === 'sport/football/categories') return 30 * DAY_MS;
+  if (/^category\/\d+\/unique-tournaments$/.test(path)) return 7 * DAY_MS;
+  if (/^unique-tournament\/\d+\/seasons$/.test(path)) return DAY_MS;
+  if (/^player\/\d+$/.test(path)) return DAY_MS;
+  if (/^player\/\d+\/statistics\/seasons$/.test(path)) return DAY_MS;
+  return null;
+}
+
 function setDataCache(key: string, data: unknown) {
   cache.set(key, { kind: 'data', data, timestamp: Date.now() });
+  const persistentTtl = getPersistentTtl(key);
+  if (persistentTtl) {
+    sofaScorePersistentCache.set(`metadata:${key}`, data, persistentTtl);
+  }
 }
 
 function setAbsenceCache(key: string, data: unknown) {
@@ -281,6 +296,15 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
         throw new ApiFetchError(cached.error.message, cached.error.status, true);
       }
       return cached.data as T;
+    }
+
+    const persistentTtl = getPersistentTtl(path);
+    if (persistentTtl) {
+      const persisted = sofaScorePersistentCache.get<T>(`metadata:${path}`);
+      if (persisted !== null) {
+        cache.set(path, { kind: 'data', data: persisted, timestamp: Date.now() });
+        return persisted;
+      }
     }
   }
 
@@ -970,13 +994,24 @@ function findSeasonForCalendar(seasons: Season[], date: string): Season | undefi
   }) ?? seasons.find((season) => season.year.includes(String(startYear))) ?? seasons[0];
 }
 
-async function getCalendarTournamentSnapshot(tournamentId: number, date: string): Promise<MatchEvent[]> {
+async function getCalendarTournamentSnapshot(
+  tournamentId: number,
+  date: string,
+  skipCache: boolean,
+): Promise<MatchEvent[]> {
   const seasons = await getTournamentSeasons(tournamentId);
   const season = findSeasonForCalendar(seasons, date);
   if (!season) return [];
   const snapshotKey = `${tournamentId}:${season.id}`;
-  const cached = calendarSnapshotCache.get(snapshotKey);
-  if (cached && Date.now() - cached.timestamp < CALENDAR_SNAPSHOT_TTL) return cached.events;
+  if (!skipCache) {
+    const cached = calendarSnapshotCache.get(snapshotKey);
+    if (cached && Date.now() - cached.timestamp < CALENDAR_SNAPSHOT_TTL) return cached.events;
+    const persisted = sofaScorePersistentCache.get<MatchEvent[]>(`calendar:${snapshotKey}`);
+    if (persisted !== null) {
+      calendarSnapshotCache.set(snapshotKey, { timestamp: Date.now(), events: persisted });
+      return persisted;
+    }
+  }
   const existing = calendarSnapshotInFlight.get(snapshotKey);
   if (existing) return existing;
 
@@ -992,6 +1027,7 @@ async function getCalendarTournamentSnapshot(tournamentId: number, date: string)
     const deduped = new Map(events.map((event) => [event.id, event]));
     const value = [...deduped.values()];
     calendarSnapshotCache.set(snapshotKey, { timestamp: Date.now(), events: value });
+    sofaScorePersistentCache.set(`calendar:${snapshotKey}`, value, CALENDAR_SNAPSHOT_TTL);
     return value;
   })().finally(() => calendarSnapshotInFlight.delete(snapshotKey));
 
@@ -999,8 +1035,11 @@ async function getCalendarTournamentSnapshot(tournamentId: number, date: string)
   return request;
 }
 
-export async function getScheduledEvents(date: string, skipCache = false): Promise<MatchEvent[]> {
-  void skipCache; // snapshots are deliberately capped at one refresh every five minutes
+export async function getScheduledEvents(
+  date: string,
+  skipCache = false,
+  onProgress?: (events: MatchEvent[]) => void,
+): Promise<MatchEvent[]> {
   const events: MatchEvent[] = [];
   let firstError: unknown = null;
   let completed = 0;
@@ -1008,8 +1047,9 @@ export async function getScheduledEvents(date: string, skipCache = false): Promi
   // Sequential loading works with the global single-flight gate and never creates a burst.
   for (const tournamentId of CALENDAR_TOURNAMENT_IDS) {
     try {
-      events.push(...await getCalendarTournamentSnapshot(tournamentId, date));
+      events.push(...await getCalendarTournamentSnapshot(tournamentId, date, skipCache));
       completed += 1;
+      onProgress?.([...new Map(events.map((event) => [event.id, event])).values()]);
     } catch (error) {
       firstError ??= error;
       if (getClientCircuitError()) break;

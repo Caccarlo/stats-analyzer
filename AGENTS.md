@@ -99,6 +99,7 @@ Key responsibilities:
 - `client/src/App.tsx`: root composition, top bar, sidebar, split view, lifted home calendar state, measured team panel width
 - `client/src/context/NavigationContext.tsx`: reducer-driven navigation state, split open/close/swap logic, per-panel filter persistence, real-match-only `MatchupView` opening
 - `client/src/api/sofascore.ts`: all client API calls, client-direct SofaScore JSON fetch with proxy fallback, client TTL cache, in-flight dedupe, terminal 4xx handling, tournament paging helpers, shared matchup target resolvers
+- `client/src/api/persistentCache.ts`: failure-safe, versioned `localStorage` cache for stable SofaScore metadata and short-lived calendar snapshots across page reloads
 - `client/src/api/requestGate.ts`: global direct-browser SofaScore pacing and queue-clearing cooldown circuit used by every client JSON request
 - `client/src/components/navigation/TeamView.tsx`: team page, next-match context persistence, split-view opponent orchestration, real-match matchup resolution
 - `client/src/components/navigation/MatchupView.tsx`: full-screen single-match comparison view with canonical event-driven lineups and season-aware team stats loading for the opened match
@@ -112,6 +113,7 @@ Key responsibilities:
 - `client/src/pages/PlayerPage.tsx`: coordinates filters, timeline, selection, derived stats, empty/loading states, card layout
 - `client/src/components/common/PriorityImage.tsx`: client-side image queue for home logos/flags with visible-first loading, separate above-the-fold reveal-session tracking, expansion-triggered priority boosts, invisible placeholders, and timeout-based failure fallback
 - `server/index.js`: Express proxy for JSON and images with server-side TTL cache, in-flight dedupe, direct-first image fetches, and persistent Chrome relay fallback for SofaScore
+- `server/persistent-asset-cache.js`: disk-backed image cache with asset-specific lifetimes for flags, tournament/team logos, player images, and short negative caching
 - `server/upstream-gate.js`: shared concurrency, pacing, and `403`/`429` cooldown protection for all server-side SofaScore JSON and image traffic
 - `server/shot-data-archive.js`: atomic Football-Data CSV importer, two-season SQLite archive, daily refresh, team-name reconciliation, prediction datasets, descriptive averages, and archive status
 - `server/shot-predictions.js`: point-in-time total-shots model, chronological parameter/distribution selection, persistent forecast cache, background-job dedupe, prediction/detail APIs, and archive-backed descriptive averages
@@ -148,13 +150,13 @@ Key responsibilities:
   - substitution timing
   - lineups
 - Rich foul narrative is loaded on demand from match comments.
-- Both client and server use in-memory TTL caching. Reuse existing cache-aware helpers instead of bypassing them.
+- Both client and server use in-memory TTL caching. Stable navigation metadata and five-minute calendar snapshots also use a versioned browser-persistent cache, while proxied images use the Git-ignored `server/.asset-cache/` disk cache. Reuse existing cache-aware helpers instead of bypassing them.
 - SofaScore JSON calls are client-direct first (`https://api.sofascore.com/api/v1/*`) and fall back to `/api/sofascore/*` when direct browser access is blocked by challenge/CORS/fetch errors, timeout, non-JSON responses, `403`, or `429`.
 - Direct client JSON fetches must use `credentials: 'omit'`; do not send cross-origin SofaScore credentials from the app origin.
 - A direct `403` may fall through once to the proxy, but a proxy `403` is terminal for that request and must not enter the generic retry loop.
-- SofaScore removed the global `sport/football/scheduled-events/:date` board. The home calendar reconstructs a bounded top-five snapshot from page zero of `events/last` and `events/next` for tournaments `[23,17,8,35,34]`, after resolving the season containing the selected date. Tournament loading is sequential, shares the global gate, and is cached for five minutes; never reintroduce the removed board or a burst over every scheduled tournament.
+- SofaScore removed the global `sport/football/scheduled-events/:date` board. The home calendar reconstructs a bounded top-five snapshot from page zero of `events/last` and `events/next` for tournaments `[23,17,8,35,34]`, after resolving the season containing the selected date. Tournament loading is sequential, publishes partial results when the selected date is found, shares the global gate, and persists each snapshot for five minutes across reloads; never reintroduce the removed board or a burst over every scheduled tournament.
 - All client-direct JSON calls pass through one single-flight gate paced at 750 ms by default. A final `403`/`429` opens a 15-minute circuit and rejects queued work before it can reach SofaScore.
-- All server-side JSON calls, including the proxy, prediction model, averages, and metadata, pass through a second global gate with the same queue-clearing circuit. Images use a separate paced gate so a blocked response cannot drain an already queued logo/player-image workload.
+- All server-side JSON calls, including the proxy, prediction model, averages, and metadata, pass through a second global gate with the same queue-clearing circuit. Essential team/tournament/player images and background category flags use independent paced gates, so a long flag list can never delay match logos.
 - Client data-access flags:
   - `VITE_SOFASCORE_DIRECT=false` disables direct browser JSON fetches.
   - `VITE_SOFASCORE_PROXY_FALLBACK=false` disables proxy fallback when direct is enabled.
@@ -163,17 +165,18 @@ Key responsibilities:
   - `VITE_SOFASCORE_DIRECT_TIMEOUT_MS` controls the direct browser timeout.
   - `VITE_SOFASCORE_MIN_INTERVAL_MS` controls client-direct request spacing (750 ms by default).
   - `VITE_SOFASCORE_COOLDOWN_MS` controls the client circuit cooldown (15 minutes by default).
-- Images still go through `/api/img/*`; the proxy now tries a fast direct fetch from `img.sofascore.com` first and only falls back to the browser relay when needed.
+- Images still go through `/api/img/*`; the proxy first checks memory and `server/.asset-cache/`, then tries a fast direct fetch from `img.sofascore.com`, and only falls back to the browser relay when needed. Cache lifetime is longest for flags and tournament logos, shorter for team/player images, and one day for missing images.
 - The server no longer relies only on raw Node `fetch()` to SofaScore. In production it is expected to use a persistent real Chrome/Chromium session, either by:
   - connecting to an existing browser via `SOFASCORE_BROWSER_CDP_URL`
   - launching a local Chrome/Chromium binary via `SOFASCORE_BROWSER_EXECUTABLE_PATH`
 - In local development, if `SOFASCORE_BROWSER_EXECUTABLE_PATH` is not set, the server auto-detects a common Chrome/Chromium/Edge executable path before falling back to direct Node fetches.
 - The browser relay keeps a warmed football page on `https://www.sofascore.com/football` and executes in-page `fetch()` calls for JSON, so blocked direct Node requests can inherit a real browser session instead of a plain server-side fingerprint. It captures a rotating `x-requested-with` header when the page emits one; a fixed token is optional configuration, not a reliable bypass. Fallback images use isolated pages and never navigate the homepage first.
 - Local auto-launched Chrome is headful by default because a headless page may be rejected before it can establish a SofaScore session. Production examples explicitly set `SOFASCORE_BROWSER_HEADLESS=true`; CDP to an already validated browser remains preferable on challenged networks.
-- Home schedule logos and flags should use `PriorityImage`, which keeps load priority separate from reveal gating: visible items load first, offscreen items trickle only after the visible queue drains, and newly expanded sections are promoted to high priority immediately.
+- Home schedule logos and flags should use `PriorityImage`, which keeps load priority separate from reveal gating: visible items load first, offscreen schedule assets trickle only after the visible queue drains, and newly expanded sections are promoted to high priority immediately. Country-navigation flags use `deferOffscreen` and must not be requested until they approach the viewport.
 - `HomeCalendar` opens a fresh reveal session on every date change and closes the green loader once the images that were actually inside the initial viewport have either loaded or failed; images below the fold must never hold that gate open.
 - `DaySchedule` should keep schedule content mounted but visually hidden during the reveal session so `IntersectionObserver` and image requests can start immediately, without showing a separate centered overlay spinner or letting the hidden list capture interaction.
-- Today's calendar starts its 60-second refresh only after an initial successful response and stops the interval after any refresh error. Never keep retrying a failed schedule in the background.
+- Today's calendar starts its five-minute refresh only after an initial successful response and stops the interval after any refresh error. Never keep retrying a failed schedule in the background.
+- `ASSET_CACHE_DIR` overrides the persistent image-cache directory; its default is `server/.asset-cache/`.
 - `SOFASCORE_DIRECT_FALLBACK` controls whether the old direct Node-fetch fallback remains allowed when no browser relay is configured.
 - `SOFASCORE_GLOBAL_MIN_INTERVAL_MS` and `SOFASCORE_GLOBAL_COOLDOWN_MS` control the server-wide upstream gate (750 ms and 15 minutes by default).
 - The server exposes `/api/sofascore-browser/status` for local relay plus global/image/model circuit diagnostics. The model circuit includes its persisted block deadline. Adding `?probe=1` performs one deliberately isolated categories request through the exact same warmed-page/in-page-fetch path as ordinary JSON traffic; never implement the probe as direct navigation to an API URL, because that can produce a false `403`. Use it before loading the app on a new network.

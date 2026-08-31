@@ -21,9 +21,12 @@ test('il calendario ricostruisce i top five senza usare la rotta giornaliera rim
     });
   });
   vi.stubGlobal('fetch', fetchMock);
+  const onProgress = vi.fn();
 
-  await expect(getScheduledEvents('2026-08-30', true)).resolves.toEqual(events);
+  await expect(getScheduledEvents('2026-08-30', true, onProgress)).resolves.toEqual(events);
   expect(fetchMock).toHaveBeenCalledTimes(15);
+  expect(onProgress).toHaveBeenCalledTimes(5);
+  expect(onProgress).toHaveBeenLastCalledWith(events);
   expect(fetchMock.mock.calls.every(([input]) => !String(input).includes('/sport/football/scheduled-events/'))).toBe(true);
   expect(String(fetchMock.mock.calls[0][0])).toContain('api.sofascore.com/api/v1/unique-tournament/23/seasons');
 });

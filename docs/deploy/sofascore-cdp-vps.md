@@ -67,15 +67,16 @@ sudo chown -R stats:stats /opt/stats-analyzer/chrome-profile
 
 1. Copy `stats-analyzer-app.service.example` to `/etc/systemd/system/stats-analyzer-app.service`
 2. Adjust `User`, `Group`, `WorkingDirectory`, and `npm` path if needed.
-3. Ensure the app service user can create and write the persistent shot-model cache and SQLite archive:
+3. Ensure the app service user can create and write the persistent model, image, and SQLite caches:
 
 ```bash
 sudo mkdir -p /opt/stats-analyzer/server/.shot-model-cache
 sudo mkdir -p /opt/stats-analyzer/server/.shot-data
-sudo chown -R stats:stats /opt/stats-analyzer/server/.shot-model-cache /opt/stats-analyzer/server/.shot-data
+sudo mkdir -p /opt/stats-analyzer/server/.asset-cache
+sudo chown -R stats:stats /opt/stats-analyzer/server/.shot-model-cache /opt/stats-analyzer/server/.shot-data /opt/stats-analyzer/server/.asset-cache
 ```
 
-`.shot-model-cache` contains versioned forecasts, details, and match snapshots. `.shot-data/shots.sqlite` contains the two-season Football-Data archive. Keep both across ordinary app restarts and deployments; model-version changes invalidate forecasts without requiring raw SQLite data to be deleted.
+`.shot-model-cache` contains versioned forecasts, details, and match snapshots. `.shot-data/shots.sqlite` contains the two-season Football-Data archive. `.asset-cache` contains flags and SofaScore logos with asset-specific expiry times. Keep all three across ordinary app restarts and deployments; model-version changes invalidate forecasts without requiring raw SQLite or image data to be deleted.
 
 All server-side SofaScore JSON traffic passes through the global gate. The defaults start calls at least 750 ms apart and suspend queued work for 15 minutes after a `403` or `429`:
 

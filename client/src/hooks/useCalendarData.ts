@@ -26,6 +26,7 @@ export interface CountryGroup {
 // === Costanti top-7 ===
 
 const TOP_CATEGORY_IDS = [31, 1, 32, 30, 7, 1465, 1468]; // IT, EN, ES, DE, FR, EU, WO
+const CALENDAR_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 // Tornei primari per categoria, in ordine di importanza
 const PRIMARY_TOURNAMENT_IDS: Record<number, number[]> = {
@@ -198,15 +199,25 @@ export function useCalendarData(selectedDate: string) {
       }
     });
 
-    getScheduledEvents(selectedDate).then((events) => {
+    const storeEvents = (events: MatchEvent[], isPartial: boolean) => {
       if (!cancelled) {
         setEventsMap((prev) => {
           const next = new Map(prev);
           next.set(selectedDate, events);
           return next;
         });
-        setLoading(false);
+        if (!isPartial || events.some((event) => isEventOnSelectedDate(event, selectedDate))) {
+          setLoading(false);
+        }
       }
+    };
+
+    getScheduledEvents(
+      selectedDate,
+      false,
+      (events) => storeEvents(events, true),
+    ).then((events) => {
+      storeEvents(events, false);
     }).catch((caught) => {
       if (!cancelled) {
         setError(caught instanceof Error ? caught.message : 'Errore nel caricamento delle partite');
@@ -217,7 +228,7 @@ export function useCalendarData(selectedDate: string) {
     return () => { cancelled = true; };
   }, [selectedDate]);
 
-  // Auto-refresh ogni 60s quando si visualizza la data di oggi
+  // Auto-refresh ogni cinque minuti quando si visualizza la data di oggi.
   useEffect(() => {
     const today = todayISO();
     const hasSuccessfulData = eventsMap.has(today);
@@ -233,7 +244,7 @@ export function useCalendarData(selectedDate: string) {
       }).catch((caught) => {
         setError(caught instanceof Error ? caught.message : 'Errore nel caricamento delle partite');
       });
-    }, 60_000);
+    }, CALENDAR_REFRESH_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [error, eventsMap, selectedDate]);

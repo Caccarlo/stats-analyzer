@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getShotPrediction, StatsAnalyzerApiError } from '@/api/sofascore';
-import type { ShotPrediction } from '@/types';
+import type { ShotPrediction, ShotPredictionTargetSnapshot } from '@/types';
 
 export interface ShotPredictionState {
   status: 'idle' | 'building' | 'ready' | 'error';
@@ -10,7 +10,11 @@ export interface ShotPredictionState {
   retry: () => void;
 }
 
-export function useShotPrediction(eventId: number, enabled = true): ShotPredictionState {
+export function useShotPrediction(
+  eventId: number,
+  enabled = true,
+  target?: ShotPredictionTargetSnapshot,
+): ShotPredictionState {
   const generationRef = useRef(0);
   const [retryNonce, setRetryNonce] = useState(0);
   const [status, setStatus] = useState<ShotPredictionState['status']>('idle');
@@ -39,7 +43,9 @@ export function useShotPrediction(eventId: number, enabled = true): ShotPredicti
           setProgress(null);
           setError(null);
         }
-        const response = await getShotPrediction(eventId, force);
+        const response = polls === 0 && target
+          ? await getShotPrediction(eventId, force, target)
+          : await getShotPrediction(eventId, force);
         if (cancelled || generationRef.current !== generation) return;
         if (response.status === 'ready') {
           setPrediction(response.prediction);
@@ -70,7 +76,7 @@ export function useShotPrediction(eventId: number, enabled = true): ShotPredicti
       cancelled = true;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     };
-  }, [enabled, eventId, retryNonce]);
+  }, [enabled, eventId, retryNonce, target]);
 
   return { status, prediction, progress, error, retry };
 }

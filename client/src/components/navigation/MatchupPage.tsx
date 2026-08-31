@@ -1,11 +1,13 @@
 import { useNavigation } from '@/context/NavigationContext';
 import { useShotPrediction } from '@/hooks/useShotPrediction';
-import type { MatchupSection } from '@/types';
+import { useMemo } from 'react';
+import type { MatchupSection, ShotPredictionTargetSnapshot } from '@/types';
 import MatchupView from './MatchupView';
 import ShotPredictionsView from './ShotPredictionsView';
 
 interface MatchupPageProps {
   eventId: number;
+  startTimestamp?: number;
   homeTeamId: number;
   homeTeamName: string;
   awayTeamId: number;
@@ -19,7 +21,38 @@ interface MatchupPageProps {
 
 export default function MatchupPage(props: MatchupPageProps) {
   const { state, updateMatchupAverageSelection } = useNavigation();
-  const predictionState = useShotPrediction(props.eventId, props.section === 'predictions');
+  const targetSnapshot = useMemo<ShotPredictionTargetSnapshot | undefined>(() => (
+    props.startTimestamp && props.leagueId
+      ? {
+          id: props.eventId,
+          startTimestamp: props.startTimestamp,
+          tournament: { uniqueTournament: { id: props.leagueId, name: props.leagueName ?? '' } },
+          season: props.seasonId ? {
+            id: props.seasonId,
+            name: props.seasonYear ?? '',
+            year: props.seasonYear,
+          } : null,
+          homeTeam: { id: props.homeTeamId, name: props.homeTeamName },
+          awayTeam: { id: props.awayTeamId, name: props.awayTeamName },
+        }
+      : undefined
+  ), [
+    props.awayTeamId,
+    props.awayTeamName,
+    props.eventId,
+    props.homeTeamId,
+    props.homeTeamName,
+    props.leagueId,
+    props.leagueName,
+    props.seasonId,
+    props.seasonYear,
+    props.startTimestamp,
+  ]);
+  const predictionState = useShotPrediction(
+    props.eventId,
+    props.section === 'predictions',
+    targetSnapshot,
+  );
   const panel = state.panels[0];
 
   if (props.section === 'formations') {

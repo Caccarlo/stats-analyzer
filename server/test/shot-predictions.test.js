@@ -223,7 +223,7 @@ test('la V1 leggera usa soltanto le due squadre, le due stagioni corrette e le s
     await service.jobs.get(`999:${MODEL_VERSION}`).promise;
     const ready = await service.getPrediction(target.id);
     assert.equal(ready.status, 'ready');
-    assert.equal(ready.prediction.modelVersion, 'shots-v1.2.0-lite');
+    assert.equal(ready.prediction.modelVersion, MODEL_VERSION);
     assert.equal(ready.prediction.diagnostics.matchesUsed, 20);
     assert.deepEqual(ready.prediction.diagnostics.seasonsUsed.map((season) => season.id), [95_836, 76_457]);
     assert.equal(ready.prediction.diagnostics.strength.retained, false);
@@ -251,6 +251,86 @@ test('la V1 leggera usa soltanto le due squadre, le due stagioni corrette e le s
     assert.equal(averages.matches, 5);
     assert.ok(averages.shotsFor > averages.shotsAgainst);
     assert.equal(requestedEndpoints.some((endpoint) => endpoint === 'unique-tournament/23/season/95836/events/last/0'), true);
+  } finally {
+    await fs.promises.rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('l’archivio locale riattiva storico, backtest e distribuzione senza chiamate SofaScore per le statistiche', async () => {
+  const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-archive-test-'));
+  const targetTimestamp = 1_800_000_000;
+  const target = {
+    id: 9_999,
+    startTimestamp: targetTimestamp,
+    tournament: { uniqueTournament: { id: 23, name: 'Serie A' } },
+    season: { id: 95_836, name: '2026/27', year: '2026/27' },
+    homeTeam: { id: 1, name: 'Cagliari' },
+    awayTeam: { id: 2, name: 'Inter' },
+    status: { type: 'finished', code: 100, description: 'Ended' },
+  };
+  const teams = ['cagliari', 'inter', 'milan', 'roma'];
+  const observations = Array.from({ length: 200 }, (_, index) => {
+    const homeTeamId = teams[index % teams.length];
+    const awayTeamId = teams[(index + 1) % teams.length];
+    return makeObservation(index, {
+      eventId: `football-data:I1:${index}`,
+      startTimestamp: targetTimestamp - (200 - index) * 86_400,
+      homeTeamId,
+      homeTeamName: homeTeamId[0].toUpperCase() + homeTeamId.slice(1),
+      awayTeamId,
+      awayTeamName: awayTeamId[0].toUpperCase() + awayTeamId.slice(1),
+      homeShots: 11 + (index % 7),
+      awayShots: 8 + (index % 6),
+    });
+  });
+  const requested = [];
+  const archive = {
+    getPredictionDataset: async () => ({
+      observations,
+      excludedMissing: 0,
+      seasons: [
+        { id: 2026, name: '2026/27', year: '2026/27' },
+        { id: 2025, name: '2025/26', year: '2025/26' },
+      ],
+      homeMatches: 50,
+      awayMatches: 50,
+      homeModelTeamId: 'cagliari',
+      awayModelTeamId: 'inter',
+      dataSource: 'football-data.co.uk',
+    }),
+    getAverageCatalog: async () => ({ teamId: 1, competitions: [] }),
+    getShotAverages: async () => ({ status: 'ready', matches: 0 }),
+  };
+
+  try {
+    const service = createShotPredictionService({
+      fetchSofaScore: async (endpoint) => {
+        requested.push(endpoint);
+        throw new Error(`Chiamata statistica inattesa: ${endpoint}`);
+      },
+      fetchTargetEvent: async (endpoint) => {
+        requested.push(endpoint);
+        return { event: target };
+      },
+      shotDataArchive: archive,
+      cacheDir,
+      upstreamMinIntervalMs: 0,
+      now: () => (targetTimestamp + 86_400) * 1000,
+    });
+    await service.primeTarget(target.id, target);
+    assert.equal((await service.getPrediction(target.id)).status, 'building');
+    await service.jobs.get(`${target.id}:${MODEL_VERSION}`).promise;
+    const ready = await service.getPrediction(target.id);
+    assert.equal(ready.status, 'ready');
+    assert.equal(ready.prediction.diagnostics.dataSource, 'football-data.co.uk');
+    assert.ok(ready.prediction.diagnostics.backtest.sampleSize > 0);
+    assert.ok(['poisson', 'negative-binomial'].includes(ready.prediction.distribution.type));
+    assert.deepEqual(requested, []);
+
+    const details = await service.getDetails(target.id, 'expected-total', 'home', 1, 25);
+    assert.equal(details.matches.total, 100);
+    assert.equal(typeof details.matches.items[0].eventId, 'string');
+    assert.ok(details.matches.items.every((match) => match.startTimestamp < target.startTimestamp));
   } finally {
     await fs.promises.rm(cacheDir, { recursive: true, force: true });
   }

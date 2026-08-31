@@ -289,6 +289,7 @@ export interface MatchAnalysis {
 
 export interface MatchupNavigationTarget {
   eventId: number;
+  startTimestamp?: number;
   homeTeamId: number;
   homeTeamName: string;
   awayTeamId: number;
@@ -334,6 +335,7 @@ export interface ShotAverageCatalogCompetition {
 export interface ShotAverageCatalog {
   teamId: number;
   competitions: ShotAverageCatalogCompetition[];
+  dataSource?: string;
 }
 
 export interface TeamShotAverages {
@@ -347,6 +349,7 @@ export interface TeamShotAverages {
   shotsFor: number | null;
   shotsAgainst: number | null;
   totalShots: number | null;
+  dataSource?: string;
 }
 
 export interface ShotMarketLine {
@@ -417,6 +420,7 @@ export interface ShotPrediction {
     matchesUsed: number;
     latestObservationTimestamp: number;
     missingStatisticsExcluded: number;
+    dataSource?: string;
     seasonsUsed: Array<{ id: number; name: string; year?: string }>;
     promotion: {
       applied: boolean;
@@ -444,6 +448,15 @@ export type ShotPredictionResponse =
   | { status: 'ready'; prediction: ShotPrediction }
   | { status: 'building'; progress: { stage: string; message: string; completed: number; total: number } };
 
+export interface ShotPredictionTargetSnapshot {
+  id: number;
+  startTimestamp: number;
+  tournament: { uniqueTournament: { id: number; name: string } };
+  season: { id: number; name: string; year?: string } | null;
+  homeTeam: { id: number; name: string };
+  awayTeam: { id: number; name: string };
+}
+
 export interface ShotPredictionCalculation {
   selection: string;
   formula: string;
@@ -457,7 +470,7 @@ export interface ShotPredictionCalculation {
 }
 
 export interface ShotPredictionUsedMatch {
-  eventId: number;
+  eventId: number | string;
   startTimestamp: number;
   date: string;
   competition: string;
@@ -528,6 +541,7 @@ export interface PanelState {
   filterState?: PlayerFilterState;
   // matchup fields (used when view === 'matchup')
   matchupEventId?: number;
+  matchupStartTimestamp?: number;
   homeTeamId?: number;
   homeTeamName?: string;
   awayTeamId?: number;

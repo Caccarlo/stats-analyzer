@@ -25,6 +25,7 @@ import type {
   ShotAverageVenue,
   ShotPredictionDetails,
   ShotPredictionResponse,
+  ShotPredictionTargetSnapshot,
   TeamShotAverages,
 } from '@/types';
 import { createRequestGate, RequestCircuitOpenError } from './requestGate';
@@ -74,14 +75,18 @@ const inFlightRequests = new Map<string, Promise<unknown>>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minuti
 const SOFASCORE_DIRECT_ORIGIN = (
   import.meta.env.VITE_SOFASCORE_DIRECT_ORIGIN
-  ?? 'https://www.sofascore.com/api/v1'
+  ?? 'https://api.sofascore.com/api/v1'
 ).replace(/\/$/, '');
+const SOFASCORE_X_REQUESTED_WITH = import.meta.env.VITE_SOFASCORE_X_REQUESTED_WITH ?? '';
 const SOFASCORE_DIRECT_ENABLED = import.meta.env.VITE_SOFASCORE_DIRECT !== 'false';
 const SOFASCORE_PROXY_FALLBACK_ENABLED = import.meta.env.VITE_SOFASCORE_PROXY_FALLBACK !== 'false';
 const SOFASCORE_DIRECT_TIMEOUT_MS = Number(import.meta.env.VITE_SOFASCORE_DIRECT_TIMEOUT_MS ?? 12000);
 const sofaScoreRequestGate = createRequestGate({
   maximumConcurrent: 1,
-  minimumIntervalMs: Number(import.meta.env.VITE_SOFASCORE_MIN_INTERVAL_MS ?? 750),
+  minimumIntervalMs: Number(
+    import.meta.env.VITE_SOFASCORE_MIN_INTERVAL_MS
+    ?? (import.meta.env.MODE === 'test' ? 0 : 750),
+  ),
   cooldownMs: Number(import.meta.env.VITE_SOFASCORE_COOLDOWN_MS ?? 15 * 60 * 1000),
 });
 
@@ -132,7 +137,10 @@ async function fetchWithOptionalTimeout(url: string, strategy: SofaScoreFetchStr
 
   if (SOFASCORE_DIRECT_TIMEOUT_MS <= 0) {
     return sofaScoreRequestGate.schedule(() => fetch(url, {
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        ...(SOFASCORE_X_REQUESTED_WITH ? { 'x-requested-with': SOFASCORE_X_REQUESTED_WITH } : {}),
+      },
       credentials: 'omit',
     }));
   }
@@ -143,7 +151,10 @@ async function fetchWithOptionalTimeout(url: string, strategy: SofaScoreFetchStr
 
     try {
       return await fetch(url, {
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          ...(SOFASCORE_X_REQUESTED_WITH ? { 'x-requested-with': SOFASCORE_X_REQUESTED_WITH } : {}),
+        },
         credentials: 'omit',
         signal: controller.signal,
       });
@@ -635,6 +646,7 @@ export function createMatchupNavigationTarget(event: MatchEvent): MatchupNavigat
 
   return {
     eventId: event.id,
+    startTimestamp: event.startTimestamp,
     homeTeamId: event.homeTeam.id,
     homeTeamName: event.homeTeam.name,
     awayTeamId: event.awayTeam.id,
@@ -673,6 +685,7 @@ export function resolveMatchupFromSummaries(
 
   return {
     eventId: primary.eventId,
+    startTimestamp: primary.startTimestamp,
     homeTeamId: primary.homeTeamId,
     homeTeamName: primary.homeTeamName,
     awayTeamId: primary.awayTeamId,
@@ -826,9 +839,10 @@ export class StatsAnalyzerApiError extends Error {
   }
 }
 
-async function localApiFetch<T>(url: string): Promise<T> {
+async function localApiFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
-    headers: { Accept: 'application/json' },
+    ...init,
+    headers: { Accept: 'application/json', ...init?.headers },
     credentials: 'same-origin',
   });
   const data = await response.json().catch(() => null) as (T & { message?: string; code?: string }) | null;
@@ -842,9 +856,18 @@ async function localApiFetch<T>(url: string): Promise<T> {
   return data;
 }
 
-export function getShotPrediction(eventId: number, retry = false): Promise<ShotPredictionResponse> {
+export function getShotPrediction(
+  eventId: number,
+  retry = false,
+  target?: ShotPredictionTargetSnapshot,
+): Promise<ShotPredictionResponse> {
   return localApiFetch<ShotPredictionResponse>(
     `/api/predictions/shots/${eventId}${retry ? '?retry=1' : ''}`,
+    target ? {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target }),
+    } : undefined,
   );
 }
 
@@ -863,8 +886,9 @@ export function getShotPredictionDetails(
   return localApiFetch<ShotPredictionDetails>(`/api/predictions/shots/${eventId}/details?${query}`);
 }
 
-export function getTeamShotAverageCatalog(teamId: number): Promise<ShotAverageCatalog> {
-  return localApiFetch<ShotAverageCatalog>(`/api/teams/${teamId}/shot-averages/catalog`);
+export function getTeamShotAverageCatalog(teamId: number, teamName: string): Promise<ShotAverageCatalog> {
+  const query = new URLSearchParams({ teamName });
+  return localApiFetch<ShotAverageCatalog>(`/api/teams/${teamId}/shot-averages/catalog?${query}`);
 }
 
 export function getTeamShotAverages(
@@ -872,11 +896,13 @@ export function getTeamShotAverages(
   competitionId: number,
   seasonId: number,
   venue: ShotAverageVenue,
+  teamName: string,
 ): Promise<TeamShotAverages> {
   const query = new URLSearchParams({
     competitionId: String(competitionId),
     seasonId: String(seasonId),
     venue,
+    teamName,
   });
   return localApiFetch<TeamShotAverages>(`/api/teams/${teamId}/shot-averages?${query}`);
 }
@@ -914,10 +940,82 @@ export async function getMatchTotalShots(eventId: number): Promise<{ home: numbe
 
 // === Calendario giornaliero ===
 
+const CALENDAR_TOURNAMENT_IDS = [23, 17, 8, 35, 34] as const;
+const CALENDAR_SNAPSHOT_TTL = 5 * 60 * 1000;
+const calendarSnapshotCache = new Map<string, { timestamp: number; events: MatchEvent[] }>();
+const calendarSnapshotInFlight = new Map<string, Promise<MatchEvent[]>>();
+
+function getFootballSeasonYears(date: string): { startYear: number; endYear: number } | null {
+  const [yearText, monthText] = date.split('-');
+  const year = Number(yearText);
+  const month = Number(monthText);
+  if (!Number.isInteger(year) || !Number.isInteger(month)) return null;
+  const startYear = month >= 7 ? year : year - 1;
+  return { startYear, endYear: startYear + 1 };
+}
+
+function findSeasonForCalendar(seasons: Season[], date: string): Season | undefined {
+  const years = getFootballSeasonYears(date);
+  if (!years) return seasons[0];
+  const { startYear, endYear } = years;
+  const patterns = [
+    `${startYear}/${endYear}`,
+    `${startYear}/${String(endYear).slice(-2)}`,
+    `${String(startYear).slice(-2)}/${String(endYear).slice(-2)}`,
+    `${startYear}-${endYear}`,
+  ];
+  return seasons.find((season) => {
+    const label = `${season.name} ${season.year}`;
+    return patterns.some((pattern) => label.includes(pattern));
+  }) ?? seasons.find((season) => season.year.includes(String(startYear))) ?? seasons[0];
+}
+
+async function getCalendarTournamentSnapshot(tournamentId: number, date: string): Promise<MatchEvent[]> {
+  const seasons = await getTournamentSeasons(tournamentId);
+  const season = findSeasonForCalendar(seasons, date);
+  if (!season) return [];
+  const snapshotKey = `${tournamentId}:${season.id}`;
+  const cached = calendarSnapshotCache.get(snapshotKey);
+  if (cached && Date.now() - cached.timestamp < CALENDAR_SNAPSHOT_TTL) return cached.events;
+  const existing = calendarSnapshotInFlight.get(snapshotKey);
+  if (existing) return existing;
+
+  const request = (async () => {
+    const events: MatchEvent[] = [];
+    for (const direction of ['last', 'next'] as const) {
+      const data = await apiFetch<{ events?: MatchEvent[] }>(
+        `unique-tournament/${tournamentId}/season/${season.id}/events/${direction}/0`,
+        { useCache: false, notFoundValue: { events: [] } },
+      );
+      events.push(...(data.events ?? []));
+    }
+    const deduped = new Map(events.map((event) => [event.id, event]));
+    const value = [...deduped.values()];
+    calendarSnapshotCache.set(snapshotKey, { timestamp: Date.now(), events: value });
+    return value;
+  })().finally(() => calendarSnapshotInFlight.delete(snapshotKey));
+
+  calendarSnapshotInFlight.set(snapshotKey, request);
+  return request;
+}
+
 export async function getScheduledEvents(date: string, skipCache = false): Promise<MatchEvent[]> {
-  const data = await apiFetch<{ events?: MatchEvent[] }>(
-    `sport/football/scheduled-events/${date}`,
-    { useCache: !skipCache, fallbackOnDirectNotFound: true }
-  );
-  return data.events ?? [];
+  void skipCache; // snapshots are deliberately capped at one refresh every five minutes
+  const events: MatchEvent[] = [];
+  let firstError: unknown = null;
+  let completed = 0;
+
+  // Sequential loading works with the global single-flight gate and never creates a burst.
+  for (const tournamentId of CALENDAR_TOURNAMENT_IDS) {
+    try {
+      events.push(...await getCalendarTournamentSnapshot(tournamentId, date));
+      completed += 1;
+    } catch (error) {
+      firstError ??= error;
+      if (getClientCircuitError()) break;
+    }
+  }
+
+  if (completed === 0 && firstError) throw firstError;
+  return [...new Map(events.map((event) => [event.id, event])).values()];
 }

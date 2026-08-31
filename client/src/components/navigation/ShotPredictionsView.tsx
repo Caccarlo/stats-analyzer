@@ -125,7 +125,7 @@ function AveragePanel({
 
   useEffect(() => {
     let cancelled = false;
-    getTeamShotAverageCatalog(teamId)
+    getTeamShotAverageCatalog(teamId, teamName)
       .then((response) => {
         if (cancelled) return;
         setCatalog(response);
@@ -135,7 +135,7 @@ function AveragePanel({
         if (!cancelled) setCatalogStatus('error');
       });
     return () => { cancelled = true; };
-  }, [teamId]);
+  }, [teamId, teamName]);
 
   const competitions = useMemo(() => {
     if (!catalog) return [];
@@ -181,7 +181,7 @@ function AveragePanel({
     if (!selection.competitionId || !selection.seasonId) return;
     let cancelled = false;
     const requestKey = `${teamId}:${selection.competitionId}:${selection.seasonId}:${selection.venue}`;
-    getTeamShotAverages(teamId, selection.competitionId, selection.seasonId, selection.venue)
+    getTeamShotAverages(teamId, selection.competitionId, selection.seasonId, selection.venue, teamName)
       .then((response) => {
         if (cancelled) return;
         setAverageResult({ key: requestKey, data: response, error: false });
@@ -190,7 +190,7 @@ function AveragePanel({
         if (!cancelled) setAverageResult({ key: requestKey, data: null, error: true });
       });
     return () => { cancelled = true; };
-  }, [selection.competitionId, selection.seasonId, selection.venue, teamId]);
+  }, [selection.competitionId, selection.seasonId, selection.venue, teamId, teamName]);
 
   const setCompetition = (competitionId: number) => {
     const competition = competitions.find((item) => item.id === competitionId);

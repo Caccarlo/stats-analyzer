@@ -158,6 +158,7 @@ function reducer(state: NavState, action: NavAction): NavState {
       const matchupPanel: PanelState = {
         view: 'matchup',
         matchupEventId: action.matchup.eventId,
+        matchupStartTimestamp: action.matchup.startTimestamp,
         homeTeamId: action.matchup.homeTeamId,
         homeTeamName: action.matchup.homeTeamName,
         awayTeamId: action.matchup.awayTeamId,

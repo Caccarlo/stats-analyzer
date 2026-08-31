@@ -14,3 +14,4 @@ temp-edge-profile/
 server/.sofascore-browser-profile*
 server/.shot-model-cache/
 server/.shot-data/
+server/.asset-cache/

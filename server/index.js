@@ -13,6 +13,10 @@ const {
   registerShotDataArchiveRoutes,
 } = require('./shot-data-archive');
 const { createUpstreamGate } = require('./upstream-gate');
+const {
+  createPersistentAssetCache,
+  getAssetCachePolicy,
+} = require('./persistent-asset-cache');
 
 const app = express();
 app.use(cors());
@@ -36,21 +40,42 @@ const BROWSER_USER_DATA_DIR = process.env.SOFASCORE_BROWSER_USER_DATA_DIR
   || path.join(__dirname, '.sofascore-browser-profile');
 const BROWSER_HEADLESS = process.env.SOFASCORE_BROWSER_HEADLESS === 'true';
 const DIRECT_FALLBACK_ENABLED = process.env.SOFASCORE_DIRECT_FALLBACK !== 'false';
+const ASSET_CACHE_DIR = process.env.ASSET_CACHE_DIR || path.join(__dirname, '.asset-cache');
 
 const serverCache = new Map();
 const imageCache = new Map();
 const inFlightJsonRequests = new Map();
 const inFlightImageRequests = new Map();
+const persistentAssetCache = createPersistentAssetCache({ directory: ASSET_CACHE_DIR });
 const jsonUpstreamGate = createUpstreamGate({
   maximumConcurrent: 1,
   minimumIntervalMs: GLOBAL_UPSTREAM_MIN_INTERVAL_MS,
   cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
 });
-const imageUpstreamGate = createUpstreamGate({
+const essentialImageUpstreamGate = createUpstreamGate({
   maximumConcurrent: 3,
   minimumIntervalMs: 250,
   cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
 });
+const backgroundImageUpstreamGate = createUpstreamGate({
+  maximumConcurrent: 2,
+  minimumIntervalMs: 500,
+  cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
+});
+
+function getImageUpstreamGate(imagePath) {
+  return imagePath.startsWith('category/')
+    ? backgroundImageUpstreamGate
+    : essentialImageUpstreamGate;
+}
+
+function setImageResponseHeaders(res, imagePath, statusCode) {
+  const policy = getAssetCachePolicy(imagePath, statusCode);
+  res.set(
+    'Cache-Control',
+    `public, max-age=${policy.browserMaxAgeSeconds}, stale-while-revalidate=86400`,
+  );
+}
 
 let browserRuntime = null;
 let browserRuntimePromise = null;
@@ -588,7 +613,11 @@ app.get('/api/sofascore-browser/status', async (req, res) => {
     recentApiResponses: recentBrowserApiResponses,
     error: connectionError,
     upstreamCircuit: jsonUpstreamGate.status(),
-    imageCircuit: imageUpstreamGate.status(),
+    imageCircuit: essentialImageUpstreamGate.status(),
+    imageCircuits: {
+      essential: essentialImageUpstreamGate.status(),
+      background: backgroundImageUpstreamGate.status(),
+    },
     modelCircuit: await shotPredictionService.getCircuitStatus(),
     probe,
   });
@@ -669,31 +698,42 @@ app.get('/api/img/*', async (req, res) => {
   const cached = getCached(imageCache, imagePath, IMAGE_CACHE_TTL);
   if (cached) {
     res.set('Content-Type', cached.contentType);
-    res.set('Cache-Control', 'public, max-age=86400');
-    return res.send(cached.buffer);
+    setImageResponseHeaders(res, imagePath, cached.statusCode);
+    return res.status(cached.statusCode).send(cached.buffer);
   }
 
   try {
+    const persisted = await persistentAssetCache.get(imagePath);
+    if (persisted) {
+      setCached(imageCache, imagePath, persisted, 200);
+      res.set('Content-Type', persisted.contentType);
+      setImageResponseHeaders(res, imagePath, persisted.statusCode);
+      return res.status(persisted.statusCode).send(persisted.buffer);
+    }
+
     const result = await withInFlight(
       inFlightImageRequests,
       imagePath,
-      () => imageUpstreamGate.schedule(() => fetchImageFromSofaScore(imagePath)),
+      () => getImageUpstreamGate(imagePath).schedule(() => fetchImageFromSofaScore(imagePath)),
     );
 
-    if (result.statusCode !== 200) {
+    if (result.statusCode !== 200 && result.statusCode !== 404) {
       console.error(`SofaScore image proxy returned ${result.statusCode} for ${imagePath}`);
       return res.status(result.statusCode).send('Image proxy error');
     }
 
-    setCached(imageCache, imagePath, {
+    const cacheValue = {
       buffer: result.buffer,
-      contentType: result.contentType,
+      contentType: result.contentType || 'application/octet-stream',
       statusCode: result.statusCode,
-    }, 200);
+    };
+    const policy = getAssetCachePolicy(imagePath, result.statusCode);
+    setCached(imageCache, imagePath, cacheValue, 200);
+    await persistentAssetCache.set(imagePath, cacheValue, policy.ttlMs);
 
-    res.set('Content-Type', result.contentType);
-    res.set('Cache-Control', 'public, max-age=86400');
-    res.send(result.buffer);
+    res.set('Content-Type', cacheValue.contentType);
+    setImageResponseHeaders(res, imagePath, result.statusCode);
+    res.status(result.statusCode).send(result.buffer);
   } catch (error) {
     console.error(`SofaScore image proxy error for ${imagePath}:`, error.message);
     res.status(error.statusCode === 503 ? 503 : 502).send('Image proxy error');

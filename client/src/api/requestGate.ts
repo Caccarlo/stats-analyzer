@@ -2,9 +2,11 @@ export class RequestCircuitOpenError extends Error {
   status: number;
   blockedUntil: number;
 
-  constructor(status: number, blockedUntil: number) {
+  constructor(status: number, blockedUntil: number, hasCooldown = true) {
     const until = new Date(blockedUntil).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-    super(`Richieste SofaScore sospese fino alle ${until} dopo una risposta ${status}.`);
+    super(hasCooldown
+      ? `Richieste SofaScore sospese fino alle ${until} dopo una risposta ${status}.`
+      : `SofaScore ha risposto ${status}; nessun blocco temporale applicato.`);
     this.name = 'RequestCircuitOpenError';
     this.status = status;
     this.blockedUntil = blockedUntil;
@@ -15,6 +17,7 @@ interface RequestGateOptions {
   maximumConcurrent?: number;
   minimumIntervalMs?: number;
   cooldownMs?: number;
+  forbiddenCooldownMs?: number;
   now?: () => number;
   sleep?: (delay: number) => Promise<void>;
 }
@@ -29,6 +32,7 @@ export function createRequestGate({
   maximumConcurrent = 3,
   minimumIntervalMs = 750,
   cooldownMs = 15 * 60 * 1000,
+  forbiddenCooldownMs = 0,
   now = () => Date.now(),
   sleep = (delay) => new Promise((resolve) => window.setTimeout(resolve, delay)),
 }: RequestGateOptions = {}) {
@@ -45,7 +49,7 @@ export function createRequestGate({
       blockedUntil = 0;
       return null;
     }
-    return new RequestCircuitOpenError(blockedStatus, blockedUntil);
+    return new RequestCircuitOpenError(blockedStatus, blockedUntil, true);
   };
 
   const runNext = () => {
@@ -87,9 +91,10 @@ export function createRequestGate({
   };
 
   const openCircuit = (status: number): RequestCircuitOpenError => {
+    const statusCooldownMs = status === 403 ? forbiddenCooldownMs : cooldownMs;
     blockedStatus = status;
-    blockedUntil = now() + Math.max(0, cooldownMs);
-    const error = new RequestCircuitOpenError(status, blockedUntil);
+    blockedUntil = now() + Math.max(0, statusCooldownMs);
+    const error = new RequestCircuitOpenError(status, blockedUntil, statusCooldownMs > 0);
     const pending = queue.splice(0);
     pending.forEach((entry) => entry.reject(error));
     return error;

@@ -39,7 +39,7 @@ stats-analyzer/
 |   |-- index.js                     # Express browser relay proxy plus shot-model route registration
 |   |-- shot-data-archive.js         # Atomic two-season Football-Data importer and SQLite query layer
 |   |-- shot-predictions.js          # Point-in-time total-shots model, jobs, disk cache, prediction/detail/average APIs
-|   |-- upstream-gate.js             # Global SofaScore pacing and queue-clearing 403/429 circuit
+|   |-- upstream-gate.js             # Global SofaScore pacing; queue clearing for 403/429 and timed cooldown only for 429 by default
 |   `-- test/                        # node:test math, parser, cutoff, and service-boundary tests
 `-- client/
     |-- .env.example                 # Vite flags for direct SofaScore JSON and proxy fallback
@@ -50,7 +50,7 @@ stats-analyzer/
         |-- index.css                # Tailwind imports + theme variables
         |-- types/index.ts           # Shared TypeScript interfaces
         |-- api/sofascore.ts         # All API functions, client-direct JSON fetch, proxy fallback, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
-        |-- api/requestGate.ts       # Client-direct pacing and queue-clearing 403/429 circuit
+        |-- api/requestGate.ts       # Client-direct pacing; immediate retry after 403 and timed cooldown for 429
         |-- context/
         |   `-- NavigationContext.tsx
         |-- hooks/
@@ -127,8 +127,8 @@ Server startup -> Football-Data CSV (10 files maximum on bootstrap)
 - Direct client JSON fetches use `credentials: 'omit'`; `credentials: 'include'` should not be used cross-origin against SofaScore from the app.
 - `VITE_SOFASCORE_X_REQUESTED_WITH` and `SOFASCORE_X_REQUESTED_WITH` are optional rotating-token overrides. Leave them empty unless a current value has been verified; the browser relay captures a fresh value automatically when the warmed page supplies it.
 - `apiFetch` falls back from direct to `/api/sofascore/*` on challenge-like failures, CORS/fetch errors, timeout, non-JSON responses, `403`, `429`, and server errors. Terminal `404` handling remains endpoint-specific through `notFoundValue`.
-- Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`, `VITE_SOFASCORE_MIN_INTERVAL_MS`, and `VITE_SOFASCORE_COOLDOWN_MS`.
-- Every client-direct JSON request passes through the shared `requestGate`: one active request at a time, 750 ms start spacing, and a queue-clearing 15-minute circuit after a final `403`/`429`.
+- Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`, `VITE_SOFASCORE_MIN_INTERVAL_MS`, `VITE_SOFASCORE_COOLDOWN_MS`, and `VITE_SOFASCORE_403_COOLDOWN_MS`.
+- Every client-direct JSON request passes through the shared `requestGate`: one active request at a time and 750 ms start spacing. A final `403` clears queued work but permits an immediate manual retry; `429` retains the configurable 15-minute circuit.
 - Server: browser-backed proxy with in-memory TTL cache, a Git-ignored persistent image cache, in-flight dedupe, a persistent Chrome/Chromium relay, and a global upstream gate controlled by `SOFASCORE_GLOBAL_MIN_INTERVAL_MS` / `SOFASCORE_GLOBAL_COOLDOWN_MS`.
 - Shot-model math and descriptive shot averages read `server/.shot-data/shots.sqlite`, not per-match SofaScore statistics. `server/.shot-model-cache/` contains versioned forecasts/details and target snapshots only.
 - The relay is expected to run in one of two modes:
@@ -385,7 +385,7 @@ Other current behavior:
 - `apiFetch` tries direct browser JSON access before proxy fallback by default. This can be disabled with `VITE_SOFASCORE_DIRECT=false` if SofaScore changes CORS behavior or if a deployment must force server relay mode.
 - `apiFetch` no longer retries terminal `4xx` responses except `429`, caches terminal `404` fallback payloads for endpoints that opt in, and also caches terminal `4xx` errors for the standard TTL.
 - A direct SofaScore `403` may use the proxy fallback once; if the proxy also returns `403`, that response is terminal and is not retried through the same exhausted strategy chain.
-- Direct JSON starts are globally paced and queued. A final upstream `403`/`429` opens the client circuit, clears pending direct work, and subsequent calls fail locally until cooldown; server relay traffic has an independent equivalent circuit covering ordinary proxy and model calls.
+- Direct JSON starts are globally paced and queued. A final upstream `403` clears pending work without a timed lock, so the next manual reload can reach upstream immediately; `429` still opens the client cooldown. Server relay and legacy model fallback use the same status-specific policy.
 - `useTournamentViewData` keeps a shared in-memory tournament snapshot cache keyed by `{tournamentId, seasonId}` plus a latest-season alias, so reopening the same tournament view can hydrate synchronously without rebuilding phases or standings.
 - `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKeyOrWildcard, tournamentIdsKey, tournamentYearPairsKey, seasonDateRangeKey, maxEvents, minPlayedEvents}`.
 - When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.

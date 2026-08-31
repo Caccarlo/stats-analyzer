@@ -366,7 +366,7 @@ test('una partita già iniziata viene rifiutata senza raccogliere lo storico', a
   }
 });
 
-test('un 403 interrompe subito la raccolta e apre il circuito', async () => {
+test('un 403 interrompe la raccolta senza creare un cooldown persistente', async () => {
   const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-circuit-test-'));
   const seasons = [
     { id: 95_836, name: '26/27', year: '26/27' },
@@ -415,31 +415,34 @@ test('un 403 interrompe subito la raccolta e apre il circuito', async () => {
       cacheDir,
       upstreamMinIntervalMs: 0,
       upstreamCooldownMs: 60_000,
+      upstreamForbiddenCooldownMs: 0,
     });
     assert.equal((await service.getPrediction(target.id)).status, 'building');
     await service.jobs.get(`999:${MODEL_VERSION}`).promise;
     assert.equal(statisticsCalls, 1);
     await assert.rejects(
       () => service.getPrediction(target.id),
-      (error) => error.code === 'upstream_temporarily_blocked',
+      (error) => error.code === 'upstream_forbidden',
     );
+    assert.equal((await service.getCircuitStatus()).blocked, false);
 
     const restartedService = createShotPredictionService({
       fetchSofaScore,
       cacheDir,
       upstreamMinIntervalMs: 0,
       upstreamCooldownMs: 60_000,
+      upstreamForbiddenCooldownMs: 0,
     });
     const restartedCircuit = await restartedService.getCircuitStatus();
-    assert.equal(restartedCircuit.blocked, true);
-    assert.equal(restartedCircuit.upstreamStatus, 403);
+    assert.equal(restartedCircuit.blocked, false);
+    assert.equal(restartedCircuit.upstreamStatus, null);
     assert.equal((await restartedService.getPrediction(target.id)).status, 'building');
     await restartedService.jobs.get(`999:${MODEL_VERSION}`).promise;
     await assert.rejects(
       () => restartedService.getPrediction(target.id),
-      (error) => error.code === 'upstream_temporarily_blocked',
+      (error) => error.code === 'upstream_forbidden',
     );
-    assert.equal(statisticsCalls, 1, 'il riavvio non deve aggirare il cooldown persistente');
+    assert.equal(statisticsCalls, 2, 'un nuovo tentativo deve poter raggiungere subito SofaScore');
   } finally {
     await fs.promises.rm(cacheDir, { recursive: true, force: true });
   }

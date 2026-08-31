@@ -31,8 +31,10 @@ const IMAGE_CACHE_TTL = 30 * 60 * 1000;
 const BROWSER_FETCH_TIMEOUT_MS = Number(process.env.SOFASCORE_BROWSER_FETCH_TIMEOUT_MS || 20000);
 const GLOBAL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_GLOBAL_MIN_INTERVAL_MS || 750);
 const GLOBAL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_GLOBAL_COOLDOWN_MS || 15 * 60 * 1000);
+const GLOBAL_UPSTREAM_403_COOLDOWN_MS = Number(process.env.SOFASCORE_GLOBAL_403_COOLDOWN_MS || 0);
 const MODEL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_MODEL_MIN_INTERVAL_MS || 5000);
 const MODEL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_COOLDOWN_MS || 24 * 60 * 60 * 1000);
+const MODEL_UPSTREAM_403_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_403_COOLDOWN_MS || 0);
 const BROWSER_PAGE_URL = process.env.SOFASCORE_BROWSER_PAGE_URL || `${SOFASCORE_WEB_ORIGIN}/football`;
 const BROWSER_CDP_URL = process.env.SOFASCORE_BROWSER_CDP_URL || '';
 const BROWSER_EXECUTABLE_PATH = process.env.SOFASCORE_BROWSER_EXECUTABLE_PATH || '';
@@ -51,16 +53,19 @@ const jsonUpstreamGate = createUpstreamGate({
   maximumConcurrent: 1,
   minimumIntervalMs: GLOBAL_UPSTREAM_MIN_INTERVAL_MS,
   cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
+  forbiddenCooldownMs: GLOBAL_UPSTREAM_403_COOLDOWN_MS,
 });
 const essentialImageUpstreamGate = createUpstreamGate({
   maximumConcurrent: 3,
   minimumIntervalMs: 250,
   cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
+  forbiddenCooldownMs: GLOBAL_UPSTREAM_403_COOLDOWN_MS,
 });
 const backgroundImageUpstreamGate = createUpstreamGate({
   maximumConcurrent: 2,
   minimumIntervalMs: 500,
   cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
+  forbiddenCooldownMs: GLOBAL_UPSTREAM_403_COOLDOWN_MS,
 });
 
 function getImageUpstreamGate(imagePath) {
@@ -687,6 +692,7 @@ const fetchPredictionTarget = async (endpoint) => {
 const shotPredictionService = createShotPredictionService({
   upstreamMinIntervalMs: MODEL_UPSTREAM_MIN_INTERVAL_MS,
   upstreamCooldownMs: MODEL_UPSTREAM_COOLDOWN_MS,
+  upstreamForbiddenCooldownMs: MODEL_UPSTREAM_403_COOLDOWN_MS,
   fetchSofaScore: fetchPredictionTarget,
   fetchTargetEvent: fetchPredictionTarget,
   shotDataArchive,

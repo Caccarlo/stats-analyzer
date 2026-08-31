@@ -90,6 +90,7 @@ const sofaScoreRequestGate = createRequestGate({
     ?? (import.meta.env.MODE === 'test' ? 0 : 750),
   ),
   cooldownMs: Number(import.meta.env.VITE_SOFASCORE_COOLDOWN_MS ?? 15 * 60 * 1000),
+  forbiddenCooldownMs: Number(import.meta.env.VITE_SOFASCORE_403_COOLDOWN_MS ?? 0),
 });
 
 function isTerminalHttpStatus(status: number): boolean {
@@ -356,7 +357,6 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
           if (!hasNextStrategy && error.shouldOpenCircuit) {
             const circuitError = sofaScoreRequestGate.openCircuit(error.status === 429 ? 429 : 403);
             const terminalError = new ApiFetchError(circuitError.message, error.status, true);
-            if (useCache) setErrorCache(path, terminalError);
             throw terminalError;
           }
 

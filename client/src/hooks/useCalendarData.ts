@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { getScheduledEvents } from '@/api/sofascore';
 import type { MatchEvent } from '@/types';
 
@@ -26,7 +26,6 @@ export interface CountryGroup {
 // === Costanti top-7 ===
 
 const TOP_CATEGORY_IDS = [31, 1, 32, 30, 7, 1465, 1468]; // IT, EN, ES, DE, FR, EU, WO
-const CALENDAR_REFRESH_INTERVAL_MS = 5 * 60_000;
 
 // Tornei primari per categoria, in ordine di importanza
 const PRIMARY_TOURNAMENT_IDS: Record<number, number[]> = {
@@ -173,20 +172,15 @@ function buildGroups(events: MatchEvent[]): CountryGroup[] {
 
 export function useCalendarData(selectedDate: string) {
   const [eventsMap, setEventsMap] = useState<Map<string, MatchEvent[]>>(new Map());
-  const eventsMapRef = useRef(eventsMap);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    eventsMapRef.current = eventsMap;
-  }, [eventsMap]);
 
   // Carica eventi per la data selezionata
   useEffect(() => {
     let cancelled = false;
 
     // Se già in cache locale, non mostrare loading
-    if (!eventsMapRef.current.has(selectedDate)) {
+    if (!eventsMap.has(selectedDate)) {
       queueMicrotask(() => {
         if (!cancelled) {
           setLoading(true);
@@ -199,28 +193,18 @@ export function useCalendarData(selectedDate: string) {
       }
     });
 
-    const storeEvents = (events: MatchEvent[], isPartial: boolean) => {
+    getScheduledEvents(selectedDate).then((events) => {
       if (!cancelled) {
         setEventsMap((prev) => {
           const next = new Map(prev);
           next.set(selectedDate, events);
           return next;
         });
-        if (!isPartial || events.some((event) => isEventOnSelectedDate(event, selectedDate))) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
-    };
-
-    getScheduledEvents(
-      selectedDate,
-      false,
-      (events) => storeEvents(events, true),
-    ).then((events) => {
-      storeEvents(events, false);
-    }).catch((caught) => {
+    }).catch(() => {
       if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : 'Errore nel caricamento delle partite');
+        setError('Errore nel caricamento delle partite');
         setLoading(false);
       }
     });
@@ -228,11 +212,10 @@ export function useCalendarData(selectedDate: string) {
     return () => { cancelled = true; };
   }, [selectedDate]);
 
-  // Auto-refresh ogni cinque minuti quando si visualizza la data di oggi.
+  // Auto-refresh ogni 60s quando si visualizza la data di oggi
   useEffect(() => {
     const today = todayISO();
-    const hasSuccessfulData = eventsMap.has(today);
-    if (selectedDate !== today || error || !hasSuccessfulData) return;
+    if (selectedDate !== today) return;
 
     const interval = setInterval(() => {
       getScheduledEvents(today, true).then((events) => {
@@ -241,13 +224,11 @@ export function useCalendarData(selectedDate: string) {
           next.set(today, events);
           return next;
         });
-      }).catch((caught) => {
-        setError(caught instanceof Error ? caught.message : 'Errore nel caricamento delle partite');
-      });
-    }, CALENDAR_REFRESH_INTERVAL_MS);
+      }).catch(() => {});
+    }, 60_000);
 
     return () => clearInterval(interval);
-  }, [error, eventsMap, selectedDate]);
+  }, [selectedDate]);
 
   const groups: CountryGroup[] = useMemo(
     () => buildGroups((eventsMap.get(selectedDate) ?? []).filter((event) => isEventOnSelectedDate(event, selectedDate))),

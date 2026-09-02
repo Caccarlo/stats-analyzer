@@ -32,7 +32,6 @@ interface RevealSessionRecord {
 
 interface PriorityImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, 'src' | 'loading'> {
   src: string;
-  deferOffscreen?: boolean;
   expansionPriorityToken?: number;
   hideOnError?: boolean;
   loadScope?: string;
@@ -358,7 +357,6 @@ export default function PriorityImage({
   width,
   height,
   decoding,
-  deferOffscreen = false,
   expansionPriorityToken = 0,
   hideOnError = false,
   loadScope,
@@ -421,9 +419,8 @@ export default function PriorityImage({
   useEffect(() => {
     if (!hasMeasuredVisibility) return;
     if (status === 'loaded' || status === 'error') return;
-    if (deferOffscreen && !isVisible) return;
     requestImageLoad(src, isVisible ? 'visible' : 'warm');
-  }, [deferOffscreen, hasMeasuredVisibility, isVisible, src, status]);
+  }, [hasMeasuredVisibility, isVisible, src, status]);
 
   useEffect(() => {
     if (status === 'loaded' || status === 'error') {

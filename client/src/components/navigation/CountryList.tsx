@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getCategories, getCategoryImageUrl } from '@/api/sofascore';
-import PriorityImage from '@/components/common/PriorityImage';
 import { useNavigation } from '@/context/NavigationContext';
 import type { Category, CountryConfig } from '@/types';
 
@@ -64,14 +63,11 @@ function CountryButton({
         }
       `}
     >
-      <PriorityImage
+      <img
         src={getCategoryImageUrl(categoryId)}
         alt=""
-        width={20}
-        height={20}
-        deferOffscreen
-        hideOnError
         className="w-5 h-5 object-contain"
+        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
       />
       <span className="font-medium">{name}</span>
     </button>

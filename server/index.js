@@ -3,93 +3,30 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
-const {
-  ShotModelError,
-  createShotPredictionService,
-  registerShotPredictionRoutes,
-} = require('./shot-predictions');
-const {
-  createShotDataArchive,
-  registerShotDataArchiveRoutes,
-} = require('./shot-data-archive');
-const { createUpstreamGate } = require('./upstream-gate');
-const {
-  createPersistentAssetCache,
-  getAssetCachePolicy,
-} = require('./persistent-asset-cache');
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '32kb' }));
 
 const SOFASCORE_WEB_ORIGIN = 'https://www.sofascore.com';
-const SOFASCORE_API_ORIGIN = process.env.SOFASCORE_API_ORIGIN || 'https://api.sofascore.com';
-const SOFASCORE_X_REQUESTED_WITH_FALLBACK = process.env.SOFASCORE_X_REQUESTED_WITH || '';
 const SOFASCORE_IMAGE_ORIGIN = 'https://img.sofascore.com';
 const CACHE_TTL = 5 * 60 * 1000;
 const IMAGE_CACHE_TTL = 30 * 60 * 1000;
 const BROWSER_FETCH_TIMEOUT_MS = Number(process.env.SOFASCORE_BROWSER_FETCH_TIMEOUT_MS || 20000);
-const GLOBAL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_GLOBAL_MIN_INTERVAL_MS || 750);
-const GLOBAL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_GLOBAL_COOLDOWN_MS || 15 * 60 * 1000);
-const GLOBAL_UPSTREAM_403_COOLDOWN_MS = Number(process.env.SOFASCORE_GLOBAL_403_COOLDOWN_MS || 0);
-const MODEL_UPSTREAM_MIN_INTERVAL_MS = Number(process.env.SOFASCORE_MODEL_MIN_INTERVAL_MS || 5000);
-const MODEL_UPSTREAM_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_COOLDOWN_MS || 24 * 60 * 60 * 1000);
-const MODEL_UPSTREAM_403_COOLDOWN_MS = Number(process.env.SOFASCORE_MODEL_403_COOLDOWN_MS || 0);
-const BROWSER_PAGE_URL = process.env.SOFASCORE_BROWSER_PAGE_URL || `${SOFASCORE_WEB_ORIGIN}/football`;
+const BROWSER_PAGE_URL = process.env.SOFASCORE_BROWSER_PAGE_URL || `${SOFASCORE_WEB_ORIGIN}/`;
 const BROWSER_CDP_URL = process.env.SOFASCORE_BROWSER_CDP_URL || '';
 const BROWSER_EXECUTABLE_PATH = process.env.SOFASCORE_BROWSER_EXECUTABLE_PATH || '';
 const BROWSER_USER_DATA_DIR = process.env.SOFASCORE_BROWSER_USER_DATA_DIR
   || path.join(__dirname, '.sofascore-browser-profile');
-const BROWSER_HEADLESS = process.env.SOFASCORE_BROWSER_HEADLESS === 'true';
+const BROWSER_HEADLESS = process.env.SOFASCORE_BROWSER_HEADLESS !== 'false';
 const DIRECT_FALLBACK_ENABLED = process.env.SOFASCORE_DIRECT_FALLBACK !== 'false';
-const ASSET_CACHE_DIR = process.env.ASSET_CACHE_DIR || path.join(__dirname, '.asset-cache');
 
 const serverCache = new Map();
 const imageCache = new Map();
 const inFlightJsonRequests = new Map();
 const inFlightImageRequests = new Map();
-const persistentAssetCache = createPersistentAssetCache({ directory: ASSET_CACHE_DIR });
-const jsonUpstreamGate = createUpstreamGate({
-  maximumConcurrent: 1,
-  minimumIntervalMs: GLOBAL_UPSTREAM_MIN_INTERVAL_MS,
-  cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
-  forbiddenCooldownMs: GLOBAL_UPSTREAM_403_COOLDOWN_MS,
-});
-const essentialImageUpstreamGate = createUpstreamGate({
-  maximumConcurrent: 3,
-  minimumIntervalMs: 250,
-  cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
-  forbiddenCooldownMs: GLOBAL_UPSTREAM_403_COOLDOWN_MS,
-});
-const backgroundImageUpstreamGate = createUpstreamGate({
-  maximumConcurrent: 2,
-  minimumIntervalMs: 500,
-  cooldownMs: GLOBAL_UPSTREAM_COOLDOWN_MS,
-  forbiddenCooldownMs: GLOBAL_UPSTREAM_403_COOLDOWN_MS,
-});
-
-function getImageUpstreamGate(imagePath) {
-  return imagePath.startsWith('category/')
-    ? backgroundImageUpstreamGate
-    : essentialImageUpstreamGate;
-}
-
-function setImageResponseHeaders(res, imagePath, statusCode) {
-  const policy = getAssetCachePolicy(imagePath, statusCode);
-  res.set(
-    'Cache-Control',
-    `public, max-age=${policy.browserMaxAgeSeconds}, stale-while-revalidate=86400`,
-  );
-}
 
 let browserRuntime = null;
 let browserRuntimePromise = null;
-let browserJsonPage = null;
-let browserJsonPagePromise = null;
-let sofaScoreRequestedWith = SOFASCORE_X_REQUESTED_WITH_FALLBACK;
-let sofaScoreRequestTokenCaptured = false;
-let browserPageStatus = null;
-const recentBrowserApiResponses = [];
 
 function getBrowserExecutableCandidates() {
   if (BROWSER_EXECUTABLE_PATH) {
@@ -180,35 +117,16 @@ function isBrowserConfigured() {
 }
 
 function getBrowserLaunchArgs() {
-  const args = [
+  return [
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--disable-dev-shm-usage',
     '--disable-background-networking',
-    '--disable-background-timer-throttling',
-    '--disable-backgrounding-occluded-windows',
-    '--disable-renderer-backgrounding',
-    '--disable-session-crashed-bubble',
-    '--hide-crash-restore-bubble',
-    '--no-default-browser-check',
-    '--no-first-run',
     '--window-size=1440,900',
   ];
-
-  if (process.platform === 'win32') {
-    args.push('--start-minimized');
-  }
-
-  return args;
 }
 
 async function disposeBrowserRuntime() {
-  const relayPage = browserJsonPage;
-  browserJsonPage = null;
-  browserJsonPagePromise = null;
-  if (relayPage && !relayPage.isClosed()) {
-    await relayPage.close().catch(() => {});
-  }
   if (!browserRuntime) return;
 
   const runtime = browserRuntime;
@@ -246,8 +164,6 @@ async function initBrowserRuntime() {
     browser = await chromium.connectOverCDP(BROWSER_CDP_URL);
     browser.on('disconnected', () => {
       browserRuntime = null;
-      browserJsonPage = null;
-      browserJsonPagePromise = null;
     });
     context = browser.contexts()[0];
     if (!context) {
@@ -278,8 +194,6 @@ async function initBrowserRuntime() {
 
   context.on('close', () => {
     browserRuntime = null;
-    browserJsonPage = null;
-    browserJsonPagePromise = null;
   });
 
   browserRuntime = { mode, browser, context };
@@ -289,15 +203,11 @@ async function initBrowserRuntime() {
 async function getBrowserRuntime() {
   if (browserRuntime) {
     try {
-      if (browserRuntime.mode === 'cdp' && browserRuntime.browser?.isConnected() === false) {
-        throw new Error('CDP browser disconnected');
-      }
-      // Reading the page list verifies that the context is still usable without
-      // opening a visible Chrome tab for every proxied request.
-      browserRuntime.context.pages();
+      const page = await browserRuntime.context.newPage();
+      await page.close();
       return browserRuntime;
     } catch {
-      await disposeBrowserRuntime();
+      browserRuntime = null;
     }
   }
 
@@ -311,94 +221,36 @@ async function getBrowserRuntime() {
 }
 
 async function createFetchPage(runtime) {
-  let page;
-
-  if (runtime.mode === 'launch') {
-    const restoredPages = runtime.context.pages().filter((candidate) => !candidate.isClosed());
-    page = restoredPages[0] || await runtime.context.newPage();
-    await Promise.all(
-      restoredPages
-        .filter((candidate) => candidate !== page)
-        .map((candidate) => candidate.close().catch(() => {})),
-    );
-  } else {
-    // A CDP connection can point to the user's browser: never reuse or close
-    // their existing tabs, and create one isolated relay page instead.
-    page = await runtime.context.newPage();
-  }
-
-  page.on('request', (request) => {
-    const captured = request.headers()['x-requested-with'];
-    if (captured && captured !== sofaScoreRequestedWith) {
-      sofaScoreRequestedWith = captured;
-      sofaScoreRequestTokenCaptured = true;
-      console.log('SofaScore relay captured a fresh request token');
-    }
-  });
-  page.on('response', (response) => {
-    const responseUrl = response.url();
-    if (!responseUrl.includes('/api/v1/')) return;
-    recentBrowserApiResponses.push({
-      path: responseUrl.split('/api/v1/')[1]?.split('?')[0] || '',
-      status: response.status(),
-    });
-    if (recentBrowserApiResponses.length > 8) recentBrowserApiResponses.shift();
-  });
+  const page = await runtime.context.newPage();
 
   page.on('crash', () => {
     console.error('SofaScore relay page crashed');
   });
 
-  const navigationResponse = await page.goto(BROWSER_PAGE_URL, {
+  await page.goto(BROWSER_PAGE_URL, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   });
-  browserPageStatus = navigationResponse?.status() ?? null;
-
-  await page.waitForTimeout(1000).catch(() => {});
 
   return page;
 }
 
-async function getBrowserJsonPage(runtime) {
-  if (browserJsonPage && !browserJsonPage.isClosed()) return browserJsonPage;
-  if (!browserJsonPagePromise) {
-    browserJsonPagePromise = createFetchPage(runtime)
-      .then((page) => {
-        browserJsonPage = page;
-        page.on('close', () => {
-          if (browserJsonPage === page) browserJsonPage = null;
-        });
-        page.on('crash', () => {
-          if (browserJsonPage === page) browserJsonPage = null;
-        });
-        return page;
-      })
-      .finally(() => {
-        browserJsonPagePromise = null;
-      });
-  }
-  return browserJsonPagePromise;
-}
-
 async function fetchViaBrowserJson(cacheKey) {
   const runtime = await getBrowserRuntime();
+  let page;
 
   try {
-    const page = await getBrowserJsonPage(runtime);
+    page = await createFetchPage(runtime);
 
     const result = await page.evaluate(
-      async ({ apiOrigin, requestPath, timeoutMs, requestedWith }) => {
+      async ({ requestPath, timeoutMs }) => {
         const controller = new AbortController();
         const timeoutId = window.setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
 
         try {
-          const response = await fetch(`${apiOrigin}/api/v1/${requestPath}`, {
-            headers: {
-              Accept: 'application/json',
-              ...(requestedWith ? { 'x-requested-with': requestedWith } : {}),
-            },
-            credentials: 'omit',
+          const response = await fetch(`/api/v1/${requestPath}`, {
+            headers: { Accept: 'application/json' },
+            credentials: 'include',
             signal: controller.signal,
           });
           const text = await response.text();
@@ -418,12 +270,7 @@ async function fetchViaBrowserJson(cacheKey) {
           window.clearTimeout(timeoutId);
         }
       },
-      {
-        apiOrigin: SOFASCORE_API_ORIGIN,
-        requestPath: cacheKey,
-        timeoutMs: BROWSER_FETCH_TIMEOUT_MS,
-        requestedWith: sofaScoreRequestedWith,
-      },
+      { requestPath: cacheKey, timeoutMs: BROWSER_FETCH_TIMEOUT_MS },
     );
 
     if (!result.ok) {
@@ -445,6 +292,10 @@ async function fetchViaBrowserJson(cacheKey) {
       await disposeBrowserRuntime();
     }
     throw error;
+  } finally {
+    if (page && !page.isClosed()) {
+      await page.close().catch(() => {});
+    }
   }
 }
 
@@ -453,7 +304,7 @@ async function fetchViaBrowserImage(imagePath) {
   let page;
 
   try {
-    page = await runtime.context.newPage();
+    page = await createFetchPage(runtime);
     const response = await page.goto(`${SOFASCORE_IMAGE_ORIGIN}/api/v1/${imagePath}`, {
       waitUntil: 'load',
       timeout: BROWSER_FETCH_TIMEOUT_MS,
@@ -467,9 +318,7 @@ async function fetchViaBrowserImage(imagePath) {
     const contentType = response.headers()['content-type'] || 'image/png';
 
     if (statusCode !== 200) {
-      const error = new Error(`Browser image fetch failed for ${imagePath}: ${statusCode}`);
-      error.upstreamStatus = statusCode;
-      throw error;
+      throw new Error(`Browser image fetch failed for ${imagePath}: ${statusCode}`);
     }
 
     return {
@@ -491,13 +340,8 @@ async function fetchViaBrowserImage(imagePath) {
 }
 
 async function fetchDirectJson(cacheKey) {
-  const url = `${SOFASCORE_API_ORIGIN}/api/v1/${cacheKey}`;
-  const response = await fetch(url, {
-    headers: {
-      ...SOFASCORE_HEADERS,
-      ...(sofaScoreRequestedWith ? { 'x-requested-with': sofaScoreRequestedWith } : {}),
-    },
-  });
+  const url = `${SOFASCORE_WEB_ORIGIN}/api/v1/${cacheKey}`;
+  const response = await fetch(url, { headers: SOFASCORE_HEADERS });
   const contentType = response.headers.get('content-type') || '';
 
   if (!contentType.includes('application/json')) {
@@ -525,7 +369,7 @@ async function fetchDirectImage(imagePath) {
   };
 }
 
-async function fetchJsonWithoutGate(cacheKey) {
+async function fetchJsonFromSofaScore(cacheKey) {
   if (isBrowserConfigured()) {
     return fetchViaBrowserJson(cacheKey);
   }
@@ -535,21 +379,6 @@ async function fetchJsonWithoutGate(cacheKey) {
   }
 
   throw new Error('No SofaScore JSON fetch strategy configured');
-}
-
-async function fetchJsonFromSofaScore(cacheKey) {
-  return jsonUpstreamGate.schedule(() => fetchJsonWithoutGate(cacheKey));
-}
-
-async function probeSofaScoreOnce() {
-  return jsonUpstreamGate.schedule(async () => {
-    const result = await fetchJsonWithoutGate('sport/football/categories');
-    return {
-      statusCode: result.statusCode,
-      contentType: result.contentType,
-      source: `${result.source}-probe`,
-    };
-  });
 }
 
 async function fetchImageFromSofaScore(imagePath) {
@@ -569,7 +398,6 @@ async function fetchImageFromSofaScore(imagePath) {
       );
     } else {
       directError = new Error(`Direct image fetch returned ${directResult.statusCode} for ${imagePath}`);
-      if (directResult.statusCode === 404) return directResult;
     }
   } catch (error) {
     directError = error;
@@ -583,7 +411,7 @@ async function fetchImageFromSofaScore(imagePath) {
         return directResult;
       }
 
-      throw browserError.upstreamStatus ? browserError : (directError || browserError);
+      throw directError || browserError;
     }
   }
 
@@ -602,104 +430,32 @@ async function fetchImageFromSofaScore(imagePath) {
   throw new Error('No SofaScore image fetch strategy configured');
 }
 
-app.get('/api/sofascore-browser/status', async (req, res) => {
-  let connected = false;
-  let mode = null;
-  let connectionError = null;
-  let launchContextPageCount = null;
+app.get('/api/sofascore-browser/status', async (_req, res) => {
+  if (!isBrowserConfigured()) {
+    return res.json({
+      configured: false,
+      connected: false,
+      mode: null,
+      pageUrl: null,
+    });
+  }
+
   try {
-    if (isBrowserConfigured()) {
-      const runtime = await getBrowserRuntime();
-      connected = true;
-      mode = runtime.mode;
-      launchContextPageCount = runtime.mode === 'launch' ? runtime.context.pages().length : null;
-    }
+    const runtime = await getBrowserRuntime();
+    return res.json({
+      configured: true,
+      connected: true,
+      mode: runtime.mode,
+      pageUrl: BROWSER_PAGE_URL,
+    });
   } catch (error) {
-    connectionError = error.message;
+    return res.status(503).json({
+      configured: true,
+      connected: false,
+      error: error.message,
+    });
   }
-
-  let probe = null;
-  if (req.query.probe === '1') {
-    try {
-      const result = await withInFlight(
-        inFlightJsonRequests,
-        'health-probe:categories',
-        probeSofaScoreOnce,
-      );
-      probe = {
-        reachable: result.statusCode === 200 && result.contentType.includes('application/json'),
-        statusCode: result.statusCode,
-        source: result.source,
-      };
-    } catch (error) {
-      probe = {
-        reachable: false,
-        statusCode: error.upstreamStatus || error.statusCode || null,
-        code: error.code || 'probe_failed',
-        message: error.message,
-      };
-    }
-  }
-
-  return res.json({
-    configured: isBrowserConfigured(),
-    connected,
-    mode,
-    pageUrl: isBrowserConfigured() ? BROWSER_PAGE_URL : null,
-    pageStatus: browserPageStatus,
-    requestTokenCaptured: sofaScoreRequestTokenCaptured,
-    recentApiResponses: recentBrowserApiResponses,
-    relayPage: {
-      open: Boolean(browserJsonPage && !browserJsonPage.isClosed()),
-      url: browserJsonPage && !browserJsonPage.isClosed() ? browserJsonPage.url() : null,
-    },
-    launchContextPageCount,
-    error: connectionError,
-    upstreamCircuit: jsonUpstreamGate.status(),
-    imageCircuit: essentialImageUpstreamGate.status(),
-    imageCircuits: {
-      essential: essentialImageUpstreamGate.status(),
-      background: backgroundImageUpstreamGate.status(),
-    },
-    modelCircuit: await shotPredictionService.getCircuitStatus(),
-    probe,
-  });
 });
-
-const shotDataArchive = createShotDataArchive({
-  databasePath: process.env.SHOT_DATA_DB_PATH || path.join(__dirname, '.shot-data', 'shots.sqlite'),
-  downloadIntervalMs: Number(process.env.SHOT_DATA_DOWNLOAD_INTERVAL_MS || 5000),
-  updateIntervalMs: Number(process.env.SHOT_DATA_UPDATE_INTERVAL_MS || 24 * 60 * 60 * 1000),
-});
-shotDataArchive.start().catch((error) => {
-  console.error(`Archivio tiri non aggiornato: ${error.message}`);
-});
-
-const fetchPredictionTarget = async (endpoint) => {
-  const result = await withInFlight(
-    inFlightJsonRequests,
-    `shot-target:${endpoint}`,
-    () => fetchJsonFromSofaScore(endpoint),
-  );
-  if (result.statusCode !== 200) {
-    const error = new ShotModelError(`SofaScore ha risposto ${result.statusCode} per ${endpoint}.`);
-    error.upstreamStatus = result.statusCode;
-    throw error;
-  }
-  return result.data;
-};
-
-const shotPredictionService = createShotPredictionService({
-  upstreamMinIntervalMs: MODEL_UPSTREAM_MIN_INTERVAL_MS,
-  upstreamCooldownMs: MODEL_UPSTREAM_COOLDOWN_MS,
-  upstreamForbiddenCooldownMs: MODEL_UPSTREAM_403_COOLDOWN_MS,
-  fetchSofaScore: fetchPredictionTarget,
-  fetchTargetEvent: fetchPredictionTarget,
-  shotDataArchive,
-});
-
-registerShotPredictionRoutes(app, shotPredictionService);
-registerShotDataArchiveRoutes(app, shotDataArchive);
 
 app.get('/api/sofascore/*', async (req, res) => {
   const path = req.params[0];
@@ -725,14 +481,7 @@ app.get('/api/sofascore/*', async (req, res) => {
     res.status(result.statusCode).json(result.data);
   } catch (error) {
     console.error(`SofaScore JSON proxy error for ${cacheKey}:`, error.message);
-    const statusCode = error.statusCode === 503 ? 503 : 502;
-    res.status(statusCode).json({
-      error: 'Errore nel recupero dati da SofaScore',
-      code: error.code || 'upstream_error',
-      message: error.message,
-      upstreamStatus: error.upstreamStatus || null,
-      blockedUntil: error.blockedUntil || null,
-    });
+    res.status(502).json({ error: 'Errore nel recupero dati da SofaScore' });
   }
 });
 
@@ -742,45 +491,30 @@ app.get('/api/img/*', async (req, res) => {
   const cached = getCached(imageCache, imagePath, IMAGE_CACHE_TTL);
   if (cached) {
     res.set('Content-Type', cached.contentType);
-    setImageResponseHeaders(res, imagePath, cached.statusCode);
-    return res.status(cached.statusCode).send(cached.buffer);
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(cached.buffer);
   }
 
   try {
-    const persisted = await persistentAssetCache.get(imagePath);
-    if (persisted) {
-      setCached(imageCache, imagePath, persisted, 200);
-      res.set('Content-Type', persisted.contentType);
-      setImageResponseHeaders(res, imagePath, persisted.statusCode);
-      return res.status(persisted.statusCode).send(persisted.buffer);
-    }
+    const result = await withInFlight(inFlightImageRequests, imagePath, () => fetchImageFromSofaScore(imagePath));
 
-    const result = await withInFlight(
-      inFlightImageRequests,
-      imagePath,
-      () => getImageUpstreamGate(imagePath).schedule(() => fetchImageFromSofaScore(imagePath)),
-    );
-
-    if (result.statusCode !== 200 && result.statusCode !== 404) {
+    if (result.statusCode !== 200) {
       console.error(`SofaScore image proxy returned ${result.statusCode} for ${imagePath}`);
       return res.status(result.statusCode).send('Image proxy error');
     }
 
-    const cacheValue = {
+    setCached(imageCache, imagePath, {
       buffer: result.buffer,
-      contentType: result.contentType || 'application/octet-stream',
+      contentType: result.contentType,
       statusCode: result.statusCode,
-    };
-    const policy = getAssetCachePolicy(imagePath, result.statusCode);
-    setCached(imageCache, imagePath, cacheValue, 200);
-    await persistentAssetCache.set(imagePath, cacheValue, policy.ttlMs);
+    }, 200);
 
-    res.set('Content-Type', cacheValue.contentType);
-    setImageResponseHeaders(res, imagePath, result.statusCode);
-    res.status(result.statusCode).send(result.buffer);
+    res.set('Content-Type', result.contentType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(result.buffer);
   } catch (error) {
     console.error(`SofaScore image proxy error for ${imagePath}:`, error.message);
-    res.status(error.statusCode === 503 ? 503 : 502).send('Image proxy error');
+    res.status(502).send('Image proxy error');
   }
 });
 

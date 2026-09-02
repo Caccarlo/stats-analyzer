@@ -15,8 +15,8 @@ Stats Analyzer is a football/soccer foul-analysis web app with an Italian UI.
   - browse Countries -> Leagues -> Teams -> Players
   - search directly for players, teams, or competitions
   - compare contexts with desktop split view
-- Data source: public SofaScore API, accessed client-direct first for JSON with the local Express proxy as fallback
-- No database
+- Data sources: public SofaScore API for navigation/match context and Football-Data CSV files for shot predictions
+- Local SQLite database for Football-Data shot observations only
 - No auth
 - No API keys
 
@@ -46,6 +46,14 @@ Client-only commands:
 cd client
 npm run build
 npm run lint
+npm test
+```
+
+Server model tests:
+
+```bash
+cd server
+npm test
 ```
 
 ## Structure That Matters
@@ -62,20 +70,26 @@ stats-analyzer/
 |       `-- stats-analyzer-app.service.example
 |-- package.json
 |-- server/
-|   `-- index.js
+|   |-- index.js
+|   |-- shot-data-archive.js
+|   |-- shot-model-worker.js
+|   `-- shot-predictions.js
 `-- client/
     |-- .env.example
     |-- vite.config.ts
     `-- src/
         |-- App.tsx
         |-- index.css
-        |-- api/sofascore.ts
+        |-- api/
+        |   |-- sofascore.ts
+        |   `-- predictions.ts
         |-- context/NavigationContext.tsx
         |-- hooks/
         |   |-- usePlayerData.ts
         |   |-- useMatchTimeline.ts
         |   |-- useMatchDetails.ts
-        |   `-- useTournamentViewData.ts
+        |   |-- useTournamentViewData.ts
+        |   `-- useShotPrediction.ts
         |-- pages/
         |   |-- HomePage.tsx
         |   `-- PlayerPage.tsx
@@ -87,8 +101,12 @@ Key responsibilities:
 - `client/src/App.tsx`: root composition, top bar, sidebar, split view, lifted home calendar state, measured team panel width
 - `client/src/context/NavigationContext.tsx`: reducer-driven navigation state, split open/close/swap logic, per-panel filter persistence, real-match-only `MatchupView` opening
 - `client/src/api/sofascore.ts`: all client API calls, client-direct SofaScore JSON fetch with proxy fallback, client TTL cache, in-flight dedupe, terminal 4xx handling, tournament paging helpers, shared matchup target resolvers
+- `client/src/api/predictions.ts`: local-only prediction and shot-average APIs; this module must never call a SofaScore origin or proxy route
 - `client/src/components/navigation/TeamView.tsx`: team page, next-match context persistence, split-view opponent orchestration, real-match matchup resolution
 - `client/src/components/navigation/MatchupView.tsx`: full-screen single-match comparison view with canonical event-driven lineups and season-aware team stats loading for the opened match
+- `client/src/components/navigation/MatchupPage.tsx`: swaps the matchup body between `Formazioni` and `Previsioni`; only the latter enables the model job
+- `client/src/components/navigation/ShotPredictionsView.tsx`: Football-Data forecast, seven Under/Over lines, history drill-down, and independent team-average panels; team badges are local initials, not remote images
+- `client/src/hooks/useShotPrediction.ts`: primes the server with the already-loaded match snapshot, then polls the local job
 - `client/src/hooks/usePlayerData.ts`: player seasons, period/filter state, tournament enablement, aggregated season stats
 - `client/src/hooks/useMatchTimeline.ts`: event paging, context snapshots, progressive official stats / duration / substitution / lineup loading
 - `client/src/hooks/useMatchDetails.ts`: shared match-detail cache and rich-data helpers
@@ -96,6 +114,9 @@ Key responsibilities:
 - `client/src/pages/PlayerPage.tsx`: coordinates filters, timeline, selection, derived stats, empty/loading states, card layout
 - `client/src/components/common/PriorityImage.tsx`: client-side image queue for home logos/flags with visible-first loading, separate above-the-fold reveal-session tracking, expansion-triggered priority boosts, invisible placeholders, and timeout-based failure fallback
 - `server/index.js`: Express proxy for JSON and images with server-side TTL cache, in-flight dedupe, direct-first image fetches, and persistent Chrome relay fallback for SofaScore
+- `server/shot-data-archive.js`: atomic Football-Data importer, two-season SQLite archive, daily current-season refresh, reconciliation, datasets, and descriptive averages
+- `server/shot-predictions.js`: archive-only total-shot model, local API routes, persistent forecast cache, and job deduplication
+- `server/shot-model-worker.js`: isolates the chronological model-selection backtest from the proxy's main thread
 
 ## Architecture And Conventions
 
@@ -105,6 +126,12 @@ Key responsibilities:
 - `MatchupView` is a match-specific screen. It must open only from a resolved real event (`eventId`); generic team-vs-team compare mode is intentionally unsupported.
 - Team panels persist a compact `nextMatchSummary` in `PanelState` after loading `nextEvent`, so split views can prove both sides reference the same real match before auto-opening or merging into `MatchupView`.
 - Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
+- `Formazioni` is the default matchup section and must not create or poll a prediction job. Selecting `Previsioni` is the only action that starts one.
+- The prediction POST requires the complete match snapshot already held in `PanelState` (`eventId`, kickoff, competition, season, home team, away team). Missing data returns `422 invalid_target_snapshot`; GET routes cannot initialize an unknown target.
+- Predictions and shot averages use only the local Football-Data archive. They must never call the SofaScore origin, `/api/sofascore/*`, per-match SofaScore statistics, or SofaScore image routes. The existing snapshot supplies display metadata and local initials supply team badges.
+- Football-Data `HS`/`AS` are the model's home/away total shots; `HST`/`AST` are retained in the archive but are not displayed by this model. Every predictive observation must be earlier than kickoff, limited to the target and preceding season, and exclude the target pairing within six hours.
+- An empty archive downloads at most the ten top-five files for current and previous seasons, sequentially after server startup. Daily refresh downloads at most the five current-season files. The CPU-heavy chronological backtest runs in a worker thread.
+- Prediction APIs are local Express routes under `/api/predictions/*`, `/api/teams/*/shot-averages*`, and `/api/shot-data/status`; `client/src/api/predictions.ts` keeps them separate from SofaScore access.
 - `MatchupView` player stats tables should load finished matches across the opened match's full season context, not just the first page of team history, so the default competition filter remains populated reliably.
 - Home is a real data view, not a static landing page. It shows the daily football schedule and keeps calendar state in `App.tsx`.
 - Search is global and can open players, teams, or tournaments directly.

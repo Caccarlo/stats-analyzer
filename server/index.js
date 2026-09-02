@@ -3,9 +3,12 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
+const { createShotDataArchive, registerShotDataArchiveRoutes } = require('./shot-data-archive');
+const { createShotPredictionService, registerShotPredictionRoutes } = require('./shot-predictions');
 
 const app = express();
 app.use(cors());
+app.use(express.json({ limit: '64kb' }));
 
 const SOFASCORE_WEB_ORIGIN = 'https://www.sofascore.com';
 const SOFASCORE_IMAGE_ORIGIN = 'https://img.sofascore.com';
@@ -457,6 +460,15 @@ app.get('/api/sofascore-browser/status', async (_req, res) => {
   }
 });
 
+const shotDataArchive = createShotDataArchive({
+  databasePath: process.env.SHOT_DATA_DB_PATH || path.join(__dirname, '.shot-data', 'shots.sqlite'),
+  downloadIntervalMs: Number(process.env.SHOT_DATA_DOWNLOAD_INTERVAL_MS || 5000),
+  updateIntervalMs: Number(process.env.SHOT_DATA_UPDATE_INTERVAL_MS || 24 * 60 * 60 * 1000),
+});
+const shotPredictionService = createShotPredictionService({ shotDataArchive });
+registerShotPredictionRoutes(app, shotPredictionService);
+registerShotDataArchiveRoutes(app, shotDataArchive);
+
 app.get('/api/sofascore/*', async (req, res) => {
   const path = req.params[0];
   const queryString = new URLSearchParams(req.query).toString();
@@ -520,6 +532,9 @@ app.get('/api/img/*', async (req, res) => {
 
 const PORT = 3001;
 app.listen(PORT, () => {
+  shotDataArchive.start().catch((error) => {
+    console.error(`Archivio Football-Data non aggiornato: ${error.message}`);
+  });
   const browserMode = BROWSER_CDP_URL
     ? 'cdp'
     : PRIMARY_BROWSER_EXECUTABLE_PATH

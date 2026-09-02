@@ -71,8 +71,10 @@ stats-analyzer/
 |-- package.json
 |-- server/
 |   |-- index.js
+|   |-- shot-competitions.js
 |   |-- shot-data-archive.js
 |   |-- shot-model-worker.js
+|   |-- shot-transition-calibration.js
 |   `-- shot-predictions.js
 `-- client/
     |-- .env.example
@@ -105,7 +107,7 @@ Key responsibilities:
 - `client/src/components/navigation/TeamView.tsx`: team page, next-match context persistence, split-view opponent orchestration, real-match matchup resolution
 - `client/src/components/navigation/MatchupView.tsx`: full-screen single-match comparison view with canonical event-driven lineups and season-aware team stats loading for the opened match
 - `client/src/components/navigation/MatchupPage.tsx`: swaps the matchup body between `Formazioni` and `Previsioni`; only the latter enables the model job
-- `client/src/components/navigation/ShotPredictionsView.tsx`: Football-Data forecast, seven Under/Over lines, history drill-down, and independent team-average panels; team badges are local initials, not remote images
+- `client/src/components/navigation/ShotPredictionsView.tsx`: Football-Data forecast, calibrated competition-transition diagnostics, seven Under/Over lines, history drill-down, and independent team-average panels; team badges are local initials, not remote images
 - `client/src/hooks/useShotPrediction.ts`: primes the server with the already-loaded match snapshot, then polls the local job
 - `client/src/hooks/usePlayerData.ts`: player seasons, period/filter state, tournament enablement, aggregated season stats
 - `client/src/hooks/useMatchTimeline.ts`: event paging, context snapshots, progressive official stats / duration / substitution / lineup loading
@@ -114,7 +116,9 @@ Key responsibilities:
 - `client/src/pages/PlayerPage.tsx`: coordinates filters, timeline, selection, derived stats, empty/loading states, card layout
 - `client/src/components/common/PriorityImage.tsx`: client-side image queue for home logos/flags with visible-first loading, separate above-the-fold reveal-session tracking, expansion-triggered priority boosts, invisible placeholders, and timeout-based failure fallback
 - `server/index.js`: Express proxy for JSON and images with server-side TTL cache, in-flight dedupe, direct-first image fetches, and persistent Chrome relay fallback for SofaScore
-- `server/shot-data-archive.js`: atomic Football-Data importer, two-season SQLite archive, daily current-season refresh, reconciliation, datasets, and descriptive averages
+- `server/shot-competitions.js`: canonical ten-competition registry pairing the first and second divisions in England, Germany, Italy, Spain, and France
+- `server/shot-data-archive.js`: atomic seven-season Football-Data SQLite archive, daily current-season refresh, canonical team reconciliation, transition datasets, and descriptive averages
+- `server/shot-transition-calibration.js`: four-component promotion/relegation calibration, cohort sufficiency checks, and chronological equivalent-match validation
 - `server/shot-predictions.js`: archive-only total-shot model, local API routes, persistent forecast cache, and job deduplication
 - `server/shot-model-worker.js`: isolates the chronological model-selection backtest from the proxy's main thread
 
@@ -130,7 +134,12 @@ Key responsibilities:
 - The prediction POST requires the complete match snapshot already held in `PanelState` (`eventId`, kickoff, competition, season, home team, away team). Missing data returns `422 invalid_target_snapshot`; GET routes cannot initialize an unknown target.
 - Predictions and shot averages use only the local Football-Data archive. They must never call the SofaScore origin, `/api/sofascore/*`, per-match SofaScore statistics, or SofaScore image routes. The existing snapshot supplies display metadata and local initials supply team badges.
 - Football-Data `HS`/`AS` are the model's home/away total shots; `HST`/`AST` are retained in the archive but are not displayed by this model. Every predictive observation must be earlier than kickoff, limited to the target and preceding season, and exclude the target pairing within six hours.
-- An empty archive downloads at most the ten top-five files for current and previous seasons, sequentially after server startup. Daily refresh downloads at most the five current-season files. The CPU-heavy chronological backtest runs in a worker thread.
+- An impossible accessory `HST`/`AST` value must be nulled and counted without discarding otherwise valid `HS`/`AS`; total-shot source quality is the prediction boundary.
+- Shot predictions cover Premier League, Championship, Bundesliga, 2. Bundesliga, Serie A, Serie B, LaLiga, LaLiga 2, Ligue 1, and Ligue 2. The shared competition registry is the only source of Football-Data division codes and first/second-tier pairings.
+- A full archive bootstrap downloads the current season plus six predecessors for all ten competitions (at most 70 CSVs), sequentially after server startup. Daily refresh downloads at most the ten current-season files. The model still limits destination-league forecast observations to the target and preceding season; the older rows exist to calibrate completed transitions.
+- Promotion and relegation are calibrated separately for each country from the last five completed club-season transitions. A transition profile has four factors (`homeAttack`, `homeVulnerability`, `awayAttack`, `awayVulnerability`), requires at least eight club-seasons across at least three transition seasons, and only admits clubs with at least eight matches at each venue in both source and destination seasons.
+- Chronological validation compares calibrated and unchanged source-division transfer at 5, 10, and 20 equivalent matches. A level factor is retained only when out-of-sample NLL improves without materially worsening MAE; otherwise the transferred source rating uses a neutral factor of `1`.
+- A covered source-division rating can bridge a promoted or relegated club until destination history reaches eight relevant venue matches. A club arriving from an uncovered third tier receives no fabricated prior and remains unavailable until that threshold. The CPU-heavy league-model backtest runs in a worker thread.
 - Prediction APIs are local Express routes under `/api/predictions/*`, `/api/teams/*/shot-averages*`, and `/api/shot-data/status`; `client/src/api/predictions.ts` keeps them separate from SofaScore access.
 - `MatchupView` player stats tables should load finished matches across the opened match's full season context, not just the first page of team history, so the default competition filter remains populated reliably.
 - Home is a real data view, not a static landing page. It shows the daily football schedule and keeps calendar state in `App.tsx`.

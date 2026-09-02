@@ -10,6 +10,7 @@ import type {
   ShotAverageCatalog,
   ShotAverageSelection,
   ShotAverageVenue,
+  ShotCompetitionTransitionTeam,
   ShotPredictionDetails,
   TeamShotAverages,
 } from '@/types';
@@ -59,7 +60,7 @@ const VALUE_LABELS: Record<string, string> = {
   effectiveSampleAway: 'Campione effettivo ospite',
   strengthDifference: 'Differenza continua di forza (D)',
   strengthTerm: 'Termine di forza selezionato',
-  promotionCorrection: 'Correzione neopromossa',
+  competitionTransitionCorrection: 'Correzione cambio di categoria',
   distribution: 'Distribuzione del totale',
   selectedLine: 'Linea selezionata',
   selectedProbability: 'Probabilità completa',
@@ -313,20 +314,26 @@ function LoadingPrediction({ state }: { state: ShotPredictionState }) {
 }
 
 function ErrorPrediction({ state }: { state: ShotPredictionState }) {
-  const insufficient = state.error?.code === 'unsupported_or_insufficient_data' || state.error?.status === 422;
+  const code = state.error?.code;
   const blocked = state.error?.code === 'upstream_temporarily_blocked';
   const futureOnly = state.error?.code === 'future_matches_only';
+  const titleByCode: Record<string, string> = {
+    unsupported_competition: 'Competizione non coperta',
+    team_not_recognized: 'Squadra non riconosciuta',
+    insufficient_team_history: 'Storico reale della squadra insufficiente',
+    insufficient_competition_history: 'Storico del campionato insufficiente',
+    transition_calibration_unavailable: 'Calibrazione del cambio di categoria non disponibile',
+    invalid_target_snapshot: 'Dati della partita incompleti',
+  };
+  const title = futureOnly
+    ? 'Disponibile soltanto prima della partita'
+    : titleByCode[code || ''] || 'Previsione non disponibile';
+  const retryable = !blocked && !futureOnly && (state.error?.status || 500) >= 500;
   return (
     <section className="rounded-xl border border-negative/30 bg-negative/5 p-5">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-negative">
-        {futureOnly
-          ? 'Disponibile soltanto prima della partita'
-          : insufficient
-            ? 'Storico insufficiente o competizione non supportata'
-            : 'Previsione non disponibile'}
-      </p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-negative">{title}</p>
       <p className="mt-2 max-w-2xl text-sm leading-6 text-text-secondary">{state.error?.message}</p>
-      {!blocked && !futureOnly && (
+      {retryable && (
         <button
           type="button"
           onClick={state.retry}
@@ -340,6 +347,33 @@ function ErrorPrediction({ state }: { state: ShotPredictionState }) {
           La raccolta resta sospesa: non riavviare il server per forzare un nuovo tentativo.
         </p>
       )}
+    </section>
+  );
+}
+
+function TransitionNotice({ teams }: { teams: ShotCompetitionTransitionTeam[] }) {
+  if (teams.length === 0) return null;
+  return (
+    <section className="mt-4 rounded-xl border border-neon/25 bg-neon/[0.035] px-4 py-3" aria-label="Correzioni per cambio di categoria">
+      <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-neon">
+        <span className="h-1.5 w-1.5 rounded-full bg-neon" aria-hidden="true" />
+        Cambio di categoria calibrato
+      </div>
+      <div className="mt-2 grid gap-2 lg:grid-cols-2">
+        {teams.map((team) => (
+          <div key={`${team.teamId}:${team.sourceCompetition.id}`} className="rounded-lg border border-border bg-bg/55 px-3 py-2.5">
+            <p className="text-sm font-medium text-text-primary">{team.teamName}</p>
+            <p className="mt-1 text-xs leading-5 text-text-secondary">
+              {team.sourceCompetition.name} → {team.targetCompetition.name}: rating trasferito da {team.sourceSeason.name}
+              {' '}con {team.equivalentMatches} partite equivalenti.
+            </p>
+            <p className="mt-1 text-[10px] text-text-muted">
+              Coorte: {team.cohortSize} passaggi reali in {team.cohortSeasons} stagioni
+              {team.effectRetained ? ' · effetto di livello confermato dal backtest' : ' · effetto medio neutro nel backtest'}
+            </p>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -625,6 +659,8 @@ export default function ShotPredictionsView(props: ShotPredictionsViewProps) {
                 </div>
               </button>
             </section>
+
+            <TransitionNotice teams={prediction.diagnostics.competitionTransition.teams} />
 
             <section className="mt-4 overflow-hidden rounded-xl border border-border bg-surface" aria-labelledby="total-market-title">
               <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border px-4 py-3">

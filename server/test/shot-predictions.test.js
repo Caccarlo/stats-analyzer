@@ -192,3 +192,129 @@ test('previsione, dettagli e medie usano solo Football-Data e lo snapshot primat
     await fs.promises.rm(cacheDir, { recursive: true, force: true });
   }
 });
+
+test('una neopromossa usa lo storico reale della seconda divisione prima di otto gare nella nuova lega', async () => {
+  const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-transition-test-'));
+  const targetTimestamp = 1_800_000_000;
+  const target = {
+    id: 10_001,
+    startTimestamp: targetTimestamp,
+    tournament: { uniqueTournament: { id: 17, name: 'Premier League' } },
+    season: { id: 2026, name: '2026/27', year: '2026/27' },
+    homeTeam: { id: 32, name: 'Ipswich Town' },
+    awayTeam: { id: 44, name: 'Liverpool FC' },
+  };
+  const observations = makeArchiveDataset(targetTimestamp).map((observation) => ({
+    ...observation,
+    competitionId: 17,
+    competitionName: 'Premier League',
+  }));
+  const archive = {
+    getPredictionDataset: async () => ({
+      observations,
+      excludedMissing: 0,
+      seasons: [{ id: 2025, name: '2025/26' }, { id: 2026, name: '2026/27' }],
+      homeMatches: 1,
+      awayMatches: 100,
+      homeModelTeamId: 'ipswich',
+      awayModelTeamId: 'inter',
+      transitions: {
+        home: {
+          applied: true,
+          teamId: 'ipswich',
+          teamName: 'Ipswich Town',
+          direction: 'promotion',
+          sourceCompetition: { id: 18, name: 'Championship', tier: 2 },
+          targetCompetition: { id: 17, name: 'Premier League', tier: 1 },
+          sourceSeason: { id: 2025, name: '2025/26', year: '2025/26' },
+          sourceMatches: { home: 23, away: 23 },
+          sourceSufficient: true,
+          sourceRatings: { homeAttack: 1.2, homeVulnerability: 0.95, awayAttack: 1.1, awayVulnerability: 1 },
+          transitionFactors: { homeAttack: 0.85, homeVulnerability: 1.1, awayAttack: 0.8, awayVulnerability: 1.15 },
+          transferredRatings: { homeAttack: 1.02, homeVulnerability: 1.045, awayAttack: 0.88, awayVulnerability: 1.15 },
+          equivalentMatches: 10,
+          cohortSize: 13,
+          cohortSeasons: 5,
+          calibrationSeasons: [2021, 2022, 2023, 2024, 2025],
+          effectRetained: true,
+          validation: null,
+          relativeStandardError: 0.04,
+        },
+        away: null,
+      },
+      dataSource: 'football-data.co.uk',
+    }),
+    getAverageCatalog: async () => ({ teamId: 1, competitions: [], dataSource: 'football-data.co.uk' }),
+    getShotAverages: async () => ({ status: 'ready', matches: 0, dataSource: 'football-data.co.uk' }),
+  };
+
+  try {
+    const service = createShotPredictionService({
+      shotDataArchive: archive,
+      cacheDir,
+      selectParameters: async () => ({
+        halfLifeDays: 180,
+        shrinkageMatches: 10,
+        effect: 'none',
+        distributionType: 'poisson',
+        backtest: { sampleSize: 20, nll: 2, mae: 4, calibrationError: 0.03 },
+        alternatives: [],
+      }),
+    });
+    await service.primeTarget(target.id, target);
+    await service.getPrediction(target.id);
+    await service.jobs.get(`${target.id}:${MODEL_VERSION}`).promise;
+    const ready = await service.getPrediction(target.id);
+    assert.equal(ready.status, 'ready');
+    assert.equal(ready.prediction.diagnostics.competitionTransition.applied, true);
+    assert.equal(ready.prediction.diagnostics.competitionTransition.teams[0].cohortSize, 13);
+    assert.ok(ready.prediction.diagnostics.ratings.homeAttack.transitionPrior);
+  } finally {
+    await fs.promises.rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test('una squadra senza otto gare e senza storico nella divisione collegata non riceve una stima inventata', async () => {
+  const cacheDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-model-cold-start-test-'));
+  const targetTimestamp = 1_800_000_000;
+  const target = {
+    id: 10_002,
+    startTimestamp: targetTimestamp,
+    tournament: { uniqueTournament: { id: 53, name: 'Serie B' } },
+    season: { id: 2026, name: '2026/27', year: '2026/27' },
+    homeTeam: { id: 50, name: 'Squadra promossa dalla Serie C' },
+    awayTeam: { id: 51, name: 'Bari' },
+  };
+  const archive = {
+    getPredictionDataset: async () => ({
+      observations: makeArchiveDataset(targetTimestamp).map((observation) => ({
+        ...observation,
+        competitionId: 53,
+        competitionName: 'Serie B',
+      })),
+      excludedMissing: 0,
+      seasons: [{ id: 2025, name: '2025/26' }, { id: 2026, name: '2026/27' }],
+      homeMatches: 2,
+      awayMatches: 40,
+      homeModelTeamId: 'serie-c-promoted',
+      awayModelTeamId: 'inter',
+      transitions: { home: null, away: null },
+      dataSource: 'football-data.co.uk',
+    }),
+    getAverageCatalog: async () => ({ teamId: 1, competitions: [], dataSource: 'football-data.co.uk' }),
+    getShotAverages: async () => ({ status: 'ready', matches: 0, dataSource: 'football-data.co.uk' }),
+  };
+
+  try {
+    const service = createShotPredictionService({ shotDataArchive: archive, cacheDir });
+    await service.primeTarget(target.id, target);
+    await service.getPrediction(target.id);
+    await service.jobs.get(`${target.id}:${MODEL_VERSION}`).promise;
+    await assert.rejects(
+      service.getPrediction(target.id),
+      (error) => error.code === 'insufficient_team_history' && error.statusCode === 422,
+    );
+  } finally {
+    await fs.promises.rm(cacheDir, { recursive: true, force: true });
+  }
+});

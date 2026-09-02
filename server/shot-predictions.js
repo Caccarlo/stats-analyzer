@@ -2,20 +2,17 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { Worker } = require('worker_threads');
+const { SHOT_COMPETITIONS } = require('./shot-competitions');
+const { EQUIVALENT_MATCH_CANDIDATES, MIN_TEAM_VENUE_MATCHES } = require('./shot-transition-calibration');
 
-const MODEL_VERSION = 'shots-v1.3.0-football-data';
-const SUPPORTED_COMPETITIONS = new Map([
-  [23, { name: 'Serie A' }],
-  [17, { name: 'Premier League' }],
-  [8, { name: 'LaLiga' }],
-  [35, { name: 'Bundesliga' }],
-  [34, { name: 'Ligue 1' }],
-]);
+const MODEL_VERSION = 'shots-v1.4.0-football-data-transitions';
+const SUPPORTED_COMPETITIONS = new Map(
+  SHOT_COMPETITIONS.map((competition) => [competition.competitionId, competition]),
+);
 const HALF_LIFE_CANDIDATES = [60, 90, 120, 180, 270, 365];
 const SHRINKAGE_CANDIDATES = [5, 10, 20];
-const PROMOTION_EQUIVALENT_MATCHES = [5, 10, 20];
+const TRANSITION_EQUIVALENT_MATCHES = EQUIVALENT_MATCH_CANDIDATES;
 const SIX_HOURS = 6 * 60 * 60 * 1000;
-const MIN_TEAM_VENUE_MATCHES = 8;
 
 class ShotModelError extends Error {
   constructor(message, statusCode = 500, code = 'model_error') {
@@ -317,13 +314,24 @@ function annotatePointInTimeRatings(observations) {
   });
 }
 
-function fitLeagueModel(observations, cutoffTimestamp, halfLifeDays, shrinkageMatches, effect = 'none') {
+function fitLeagueModel(
+  observations,
+  cutoffTimestamp,
+  halfLifeDays,
+  shrinkageMatches,
+  effect = 'none',
+  teamPriors = {},
+) {
   const usable = observations.filter((observation) => observation.startTimestamp < cutoffTimestamp);
   const cutoffDays = cutoffTimestamp / 86400;
   const weights = usable.map((observation) => temporalWeight(cutoffDays - observation.startTimestamp / 86400, halfLifeDays));
   const baselineHome = weightedMean(usable.map((observation) => observation.homeShots), weights, 13);
   const baselineAway = weightedMean(usable.map((observation) => observation.awayShots), weights, 11);
   const ratings = new Map();
+  const getTeamPrior = (teamId, component) => {
+    const teamPrior = teamPriors instanceof Map ? teamPriors.get(teamId) : teamPriors[teamId];
+    return teamPrior?.[component] || null;
+  };
 
   const collect = (teamId, venue, kind) => {
     const values = [];
@@ -344,7 +352,24 @@ function fitLeagueModel(observations, cutoffTimestamp, halfLifeDays, shrinkageMa
       }
     });
     const raw = weightedMean(values, selectedWeights, 1);
-    return shrinkRating(raw, selectedWeights, shrinkageMatches);
+    const nEff = effectiveSampleSize(selectedWeights);
+    const component = `${venue}${kind === 'attack' ? 'Attack' : 'Vulnerability'}`;
+    const transitionPrior = getTeamPrior(teamId, component);
+    const transitionWeight = Math.max(0, Number(transitionPrior?.weight || 0));
+    const transitionValue = Number.isFinite(Number(transitionPrior?.value))
+      ? Number(transitionPrior.value)
+      : 1;
+    const denominator = nEff + shrinkageMatches + transitionWeight;
+    return {
+      raw,
+      value: denominator > 0
+        ? (nEff * raw + shrinkageMatches + transitionWeight * transitionValue) / denominator
+        : 1,
+      nEff,
+      transitionPrior: transitionWeight > 0
+        ? { value: transitionValue, weight: transitionWeight }
+        : null,
+    };
   };
 
   const teamIds = new Set();
@@ -352,6 +377,11 @@ function fitLeagueModel(observations, cutoffTimestamp, halfLifeDays, shrinkageMa
     teamIds.add(observation.homeTeamId);
     teamIds.add(observation.awayTeamId);
   });
+  if (teamPriors instanceof Map) {
+    teamPriors.forEach((_value, teamId) => teamIds.add(teamId));
+  } else {
+    Object.keys(teamPriors).forEach((teamId) => teamIds.add(teamId));
+  }
   teamIds.forEach((teamId) => {
     ratings.set(teamId, {
       homeAttack: collect(teamId, 'home', 'attack'),
@@ -590,13 +620,13 @@ function serializePrediction({
   excludedMissing,
   seasons,
   warnings,
-  promotion,
+  competitionTransition,
   dataSource,
 }) {
   const homeRating = model.getRating(modelTeamIds.home);
   const awayRating = model.getRating(modelTeamIds.away);
   const cutoffTimestamp = event.startTimestamp;
-  const uncertaintyExpansion = Math.ceil(promotion.uncertaintyShots || 0);
+  const uncertaintyExpansion = Math.ceil(competitionTransition.uncertaintyShots || 0);
   const interval = [
     Math.max(0, distributionQuantile(0.1, forecast.home + forecast.away, distribution) - uncertaintyExpansion),
     distributionQuantile(0.9, forecast.home + forecast.away, distribution) + uncertaintyExpansion,
@@ -635,7 +665,7 @@ function serializePrediction({
         betaDefense: 1,
         halfLifeDays: parameters.halfLifeDays,
         shrinkageMatches: parameters.shrinkageMatches,
-        promotionEquivalentMatchesCandidates: PROMOTION_EQUIVALENT_MATCHES,
+        transitionEquivalentMatchesCandidates: TRANSITION_EQUIVALENT_MATCHES,
         effectiveSample: {
           home: Math.min(homeRating.homeAttack.nEff, homeRating.homeVulnerability.nEff),
           away: Math.min(awayRating.awayAttack.nEff, awayRating.awayVulnerability.nEff),
@@ -654,7 +684,7 @@ function serializePrediction({
         missingStatisticsExcluded: excludedMissing,
         seasonsUsed: seasons.map((season) => ({ id: season.id, name: season.name, year: season.year })),
         dataSource,
-        promotion,
+        competitionTransition,
         warnings,
       },
     },
@@ -746,7 +776,7 @@ function buildCalculationDetails(prediction, selection) {
       effectiveSampleAway: diagnostics.effectiveSample.away,
       strengthDifference: diagnostics.strength.difference,
       strengthTerm: diagnostics.strength.selectedTerm,
-      promotionCorrection: diagnostics.promotion,
+      competitionTransitionCorrection: diagnostics.competitionTransition,
       distribution: prediction.distribution,
       selectedLine: selectedMarket?.line ?? null,
       selectedProbability,
@@ -845,7 +875,7 @@ function createShotPredictionService({
     const tournamentId = event.tournament?.uniqueTournament?.id;
     const competition = SUPPORTED_COMPETITIONS.get(tournamentId);
     if (!competition) {
-      throw new ShotModelError('La competizione non è supportata dalla V1.', 422, 'unsupported_or_insufficient_data');
+      throw new ShotModelError('La competizione non è supportata dal modello tiri.', 422, 'unsupported_competition');
     }
     progress.completed = 1;
 
@@ -858,26 +888,54 @@ function createShotPredictionService({
       awayMatches,
       homeModelTeamId = event.homeTeam.id,
       awayModelTeamId = event.awayTeam.id,
+      transitions = { home: null, away: null },
       dataSource = 'football-data.co.uk',
     } = rawDataset;
     const pointInTimeObservations = annotatePointInTimeRatings(observations);
-    if (
-      pointInTimeObservations.length < 70
-      || homeMatches < MIN_TEAM_VENUE_MATCHES
-      || awayMatches < MIN_TEAM_VENUE_MATCHES
-    ) {
+    if (pointInTimeObservations.length < 70) {
       throw new ShotModelError(
-        `Storico insufficiente: ${homeMatches} gare interne della squadra di casa e ${awayMatches} gare esterne dell'ospite.`,
+        `Storico del campionato insufficiente: ${pointInTimeObservations.length} partite disponibili.`,
         422,
-        'unsupported_or_insufficient_data',
+        'insufficient_competition_history',
       );
     }
+    const homeTransitionReady = Boolean(transitions.home?.applied);
+    const awayTransitionReady = Boolean(transitions.away?.applied);
+    const missingTeamHistory = [];
+    if (homeMatches < MIN_TEAM_VENUE_MATCHES && !homeTransitionReady) {
+      missingTeamHistory.push(`${event.homeTeam.name}: ${homeMatches} gare interne nel campionato di destinazione`);
+    }
+    if (awayMatches < MIN_TEAM_VENUE_MATCHES && !awayTransitionReady) {
+      missingTeamHistory.push(`${event.awayTeam.name}: ${awayMatches} gare esterne nel campionato di destinazione`);
+    }
+    if (missingTeamHistory.length > 0) {
+      const unavailableCalibration = (
+        (homeMatches < MIN_TEAM_VENUE_MATCHES && transitions.home && !transitions.home.applied)
+        || (awayMatches < MIN_TEAM_VENUE_MATCHES && transitions.away && !transitions.away.applied)
+      );
+      throw new ShotModelError(
+        `Storico reale insufficiente. ${missingTeamHistory.join('; ')}.`,
+        422,
+        unavailableCalibration ? 'transition_calibration_unavailable' : 'insufficient_team_history',
+      );
+    }
+    const appliedTransitions = [transitions.home, transitions.away].filter((transition) => transition?.applied);
+    const teamPriors = {};
+    appliedTransitions.forEach((transition) => {
+      teamPriors[transition.teamId] = Object.fromEntries(
+        Object.entries(transition.transferredRatings).map(([component, value]) => [component, {
+          value,
+          weight: transition.equivalentMatches,
+        }]),
+      );
+    });
     await cache.set('point-in-time', `${event.id}:${event.startTimestamp}`, {
       eventId: event.id,
       cutoffTimestamp: event.startTimestamp,
       excludedMissing,
       seasons: seasons.map((season) => ({ id: season.id, name: season.name, year: season.year })),
       observations: pointInTimeObservations,
+      transitions,
     });
 
     progress.stage = 'parameters';
@@ -896,32 +954,48 @@ function createShotPredictionService({
       parameters.halfLifeDays,
       parameters.shrinkageMatches,
       parameters.effect,
+      teamPriors,
     );
-    const promotion = {
-      applied: false,
-      uncertaintyShots: 0,
-      teams: [],
-      note: 'L’archivio top-flight non contiene ancora le seconde divisioni: nessun moltiplicatore manuale applicato.',
-    };
     const modelTeamIds = { home: homeModelTeamId, away: awayModelTeamId };
     const forecast = model.predict(modelTeamIds.home, modelTeamIds.away);
+    const relativeTransitionError = appliedTransitions.length > 0
+      ? appliedTransitions.reduce((total, transition) => total + transition.relativeStandardError, 0)
+        / appliedTransitions.length
+      : 0;
+    const competitionTransition = {
+      applied: appliedTransitions.length > 0,
+      direction: appliedTransitions[0]?.direction || 'none',
+      uncertaintyShots: appliedTransitions.length > 0
+        ? (forecast.home + forecast.away) * relativeTransitionError
+        : 0,
+      teams: appliedTransitions,
+      note: appliedTransitions.length > 0
+        ? `Rating trasferito da ${appliedTransitions.map((transition) => transition.sourceCompetition.name).join(', ')} con fattori Football-Data calibrati.`
+        : 'Nessun passaggio tra le due divisioni rilevato per le squadre della partita.',
+    };
     const minimumEffectiveSample = Math.min(
       model.getRating(modelTeamIds.home).homeAttack.nEff,
       model.getRating(modelTeamIds.away).awayAttack.nEff,
     );
     const warnings = [
       'Dati tiri da archivio locale Football-Data: nessuna statistica partita-per-partita viene richiesta a SofaScore.',
-      'La correzione neopromosse resta neutra finché non vengono importate anche le seconde divisioni.',
     ];
+    appliedTransitions.forEach((transition) => {
+      const directionLabel = transition.direction === 'promotion' ? 'promozione' : 'retrocessione';
+      warnings.push(
+        `${transition.teamName}: ${directionLabel} ${transition.sourceCompetition.name} → ${transition.targetCompetition.name}, `
+        + `calibrazione su ${transition.cohortSize} passaggi in ${transition.cohortSeasons} stagioni.`,
+      );
+    });
     if (tournamentId === 23) {
       warnings.push('Football-Data segnala per la Serie A una possibile discontinuità storica nella definizione dei tiri; la V1 limita il campione alle ultime due stagioni.');
     }
     if (minimumEffectiveSample < 3) {
-      if (!promotion.applied) {
-        promotion.uncertaintyShots = Math.sqrt(
+      if (!competitionTransition.applied) {
+        competitionTransition.uncertaintyShots = Math.sqrt(
           (forecast.home + forecast.away) / Math.max(1, minimumEffectiveSample + 1),
         );
-        promotion.note = `${promotion.note} L’intervallo incorpora l’incertezza del campione ridotto.`;
+        competitionTransition.note = `${competitionTransition.note} L’intervallo incorpora l’incertezza del campione ridotto.`;
       }
       warnings.push('Una squadra ha uno storico recente molto ridotto; la stima è fortemente ridotta verso la media e l’incertezza va interpretata con cautela.');
     }
@@ -944,7 +1018,7 @@ function createShotPredictionService({
       excludedMissing,
       seasons,
       warnings,
-      promotion,
+      competitionTransition,
       dataSource,
     });
     const cacheKey = `${eventId}:${MODEL_VERSION}`;

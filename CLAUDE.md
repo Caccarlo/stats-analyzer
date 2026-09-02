@@ -37,8 +37,10 @@ stats-analyzer/
 |   `-- deploy/                     # VPS deploy examples for SofaScore CDP browser relay
 |-- server/
 |   |-- index.js                     # Express proxy plus local prediction/archive routes
-|   |-- shot-data-archive.js         # Atomic Football-Data import and two-season SQLite archive
+|   |-- shot-competitions.js         # Ten first/second-tier competition registry
+|   |-- shot-data-archive.js         # Atomic seven-season Football-Data SQLite archive
 |   |-- shot-model-worker.js         # Worker for the chronological parameter backtest
+|   |-- shot-transition-calibration.js # Promotion/relegation calibration and validation
 |   `-- shot-predictions.js          # Archive-only prediction jobs, cache, details, and averages
 `-- client/
     |-- .env.example                 # Vite flags for direct SofaScore JSON and proxy fallback
@@ -146,7 +148,11 @@ Browser (5173) -> predictions.ts -> local Express prediction routes
 - `Formazioni` is the default matchup section and never starts or polls a prediction job. Only selecting `Previsioni` enables `useShotPrediction`.
 - Prediction initialization requires the complete existing match snapshot. A missing snapshot returns `422 invalid_target_snapshot`, and GET cannot initialize an unknown target.
 - Prediction and shot-average code is strictly Football-Data/local: no SofaScore origin, `/api/sofascore/*`, per-match statistics, or remote team-logo requests. `HS`/`AS` supply total shots; all displayed probabilities, intervals, odds, history rows, and averages are derived locally.
-- The archive retains only the target season and its predecessor. Bootstrap fetches at most ten CSVs sequentially after startup; daily refresh fetches at most five current-season CSVs. Predictive rows must precede kickoff and exclude the target pairing within six hours.
+- If Football-Data contains an accessory `HST`/`AST` value above its corresponding total, preserve the valid `HS`/`AS`, store only the impossible accessory value as `null`, and expose the discard count in archive status.
+- Shot predictions cover Premier League/Championship, Bundesliga/2. Bundesliga, Serie A/Serie B, LaLiga/LaLiga 2, and Ligue 1/Ligue 2 through the shared `shot-competitions.js` registry.
+- The archive retains the current season plus six predecessors. Full bootstrap fetches at most 70 CSVs sequentially after startup; daily refresh fetches at most ten current-season CSVs. Forecast fitting still uses only the target and preceding destination-league seasons, with rows strictly before kickoff and the target pairing excluded within six hours.
+- Older archive seasons calibrate promotion and relegation separately in every country. Four venue/role factors transfer source-division ratings, using at least eight club-season transitions across three seasons and at least eight home plus eight away observations per club in both divisions.
+- Chronological validation selects 5, 10, or 20 equivalent matches and retains a non-neutral level factor only when it improves out-of-sample NLL without materially worsening MAE. Clubs from an uncovered third tier receive no synthetic prior and need eight relevant venue matches in the destination competition before a forecast is allowed.
 - In `MatchupView`, team player-stat tables are season-aware: they continue paging backward through team history until the opened match's season is covered, instead of relying only on the first `team/{id}/events/last/0` page.
 - `SearchResult` is a discriminated union: `PlayerSearchResult | TeamSearchResult | TournamentSearchResult`. Clicking any result calls `navigateTo` directly with all hierarchy fields not relevant to the target view set to `undefined` (leagueId, countryId, countryCategoryId, seasonId, etc.), so stale context from a previous navigation path is never inherited. Non-football results are filtered out in `searchAll` by checking `sport.slug` on the player entity or its team.
 - Match details are loaded progressively by `useMatchTimeline`, with cache reuse in `useMatchDetails`.

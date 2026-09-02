@@ -9,7 +9,7 @@ Football/soccer foul analysis web app. Users navigate Countries > Leagues > Team
 | Client | React 19, TypeScript 5.9, Vite 8, Tailwind CSS 4 | 5173 |
 | Server | Express 4 browser-backed proxy to SofaScore with `playwright-core` | 3001 |
 
-No database, no auth, no API keys. JSON data comes from the public SofaScore API with client-direct browser fetch first and the Express proxy as fallback.
+No auth or API keys. Navigation and match context come from the public SofaScore API with client-direct browser fetch first and the Express proxy as fallback. Shot predictions use Football-Data CSVs imported into a local SQLite database.
 
 ```bash
 npm run install:all
@@ -36,7 +36,10 @@ stats-analyzer/
 |-- docs/
 |   `-- deploy/                     # VPS deploy examples for SofaScore CDP browser relay
 |-- server/
-|   `-- index.js                     # Express browser relay proxy (/api/sofascore/*, /api/img/*, /api/sofascore-browser/status) with direct-first image fetches
+|   |-- index.js                     # Express proxy plus local prediction/archive routes
+|   |-- shot-data-archive.js         # Atomic Football-Data import and two-season SQLite archive
+|   |-- shot-model-worker.js         # Worker for the chronological parameter backtest
+|   `-- shot-predictions.js          # Archive-only prediction jobs, cache, details, and averages
 `-- client/
     |-- .env.example                 # Vite flags for direct SofaScore JSON and proxy fallback
     |-- vite.config.ts               # Proxy /api -> :3001, alias @ -> src/
@@ -45,7 +48,8 @@ stats-analyzer/
         |-- App.tsx                  # Root: wraps NavigationProvider, renders Sidebar + ContentPanel
         |-- index.css                # Tailwind imports + theme variables
         |-- types/index.ts           # Shared TypeScript interfaces
-        |-- api/sofascore.ts         # All API functions, client-direct JSON fetch, proxy fallback, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
+        |-- api/sofascore.ts         # SofaScore client-direct JSON fetch and proxy fallback
+        |-- api/predictions.ts       # Local-only prediction and shot-average APIs
         |-- context/
         |   `-- NavigationContext.tsx
         |-- hooks/
@@ -54,6 +58,7 @@ stats-analyzer/
         |   |-- useMatchDetails.ts   # Shared match-details cache and helpers for officialStats, lineups, rich comments
         |   |-- useMatchTimeline.ts  # events/last loader + progressive officialStats/lineups/rich data queues
         |   |-- useTournamentViewData.ts # Shared tournament teams/phases loader with snapshot cache for TeamGrid + SidebarTeamList
+        |   |-- useShotPrediction.ts # Primes and polls a prediction only when Previsioni is active
         |   |-- useViewport.ts       # Shared window width/height hook used by responsive layout and density decisions
         |   `-- useSplitCardSync.ts  # Cross-panel card height sync
         |-- utils/
@@ -81,7 +86,9 @@ stats-analyzer/
             |   |-- LeagueList.tsx      # Dynamic tournament list for the selected SofaScore category
             |   |-- TeamGrid.tsx         # League standings or cup-phase team grid depending on tournament structure
             |   |-- TeamView.tsx         # Team roster + next match; persists next-match summary so split views can resolve a real shared matchup
-            |   `-- SidebarTeamList.tsx  # Mirrors the selected league/cup phase team list in the sidebar
+            |   |-- SidebarTeamList.tsx  # Mirrors the selected league/cup phase team list in the sidebar
+            |   |-- MatchupPage.tsx      # Formazioni/Previsioni shell
+            |   `-- ShotPredictionsView.tsx # Forecast, markets, details, and averages without remote logos
             |-- player/
             |   |-- PlayerHeader.tsx
             |   |-- PlayerFilters.tsx
@@ -108,6 +115,11 @@ Browser (5173) -> React App -> sofascore.ts
     -> /api/img/* -> Express (3001)
         -> direct img.sofascore.com/api/v1/* first       # images
         -> browser relay fallback if direct image fetch fails
+
+Browser (5173) -> predictions.ts -> local Express prediction routes
+    -> match snapshot already held in PanelState
+    -> SQLite archive populated only from Football-Data CSVs
+    -> chronological backtest in a worker thread
 ```
 
 - Client JSON access is direct-first because real user browsers/IPs are less likely to hit SofaScore's datacenter/VPS anti-bot path than a centralized server relay.
@@ -131,6 +143,10 @@ Browser (5173) -> React App -> sofascore.ts
 - `MatchupView` is match-specific only: full-screen matchup navigation requires a canonical real-event target (`eventId` plus home/away/team context), not just two team ids.
 - `TeamView` persists a compact `nextMatchSummary` inside `PanelState` after loading `nextEvent`; split panels use that summary to prove they point to the same real match before auto-opening or merging into `MatchupView`.
 - Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
+- `Formazioni` is the default matchup section and never starts or polls a prediction job. Only selecting `Previsioni` enables `useShotPrediction`.
+- Prediction initialization requires the complete existing match snapshot. A missing snapshot returns `422 invalid_target_snapshot`, and GET cannot initialize an unknown target.
+- Prediction and shot-average code is strictly Football-Data/local: no SofaScore origin, `/api/sofascore/*`, per-match statistics, or remote team-logo requests. `HS`/`AS` supply total shots; all displayed probabilities, intervals, odds, history rows, and averages are derived locally.
+- The archive retains only the target season and its predecessor. Bootstrap fetches at most ten CSVs sequentially after startup; daily refresh fetches at most five current-season CSVs. Predictive rows must precede kickoff and exclude the target pairing within six hours.
 - In `MatchupView`, team player-stat tables are season-aware: they continue paging backward through team history until the opened match's season is covered, instead of relying only on the first `team/{id}/events/last/0` page.
 - `SearchResult` is a discriminated union: `PlayerSearchResult | TeamSearchResult | TournamentSearchResult`. Clicking any result calls `navigateTo` directly with all hierarchy fields not relevant to the target view set to `undefined` (leagueId, countryId, countryCategoryId, seasonId, etc.), so stale context from a previous navigation path is never inherited. Non-football results are filtered out in `searchAll` by checking `sport.slug` on the player entity or its team.
 - Match details are loaded progressively by `useMatchTimeline`, with cache reuse in `useMatchDetails`.

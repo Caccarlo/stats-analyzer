@@ -616,6 +616,7 @@ export function resolveMatchupFromSummaries(
 
   return {
     eventId: primary.eventId,
+    startTimestamp: primary.startTimestamp,
     homeTeamId: primary.homeTeamId,
     homeTeamName: primary.homeTeamName,
     awayTeamId: primary.awayTeamId,

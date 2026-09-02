@@ -10,7 +10,7 @@ import CountryList from '@/components/navigation/CountryList';
 import LeagueList from '@/components/navigation/LeagueList';
 import TeamGrid from '@/components/navigation/TeamGrid';
 import TeamView from '@/components/navigation/TeamView';
-import MatchupView from '@/components/navigation/MatchupView';
+import MatchupPage from '@/components/navigation/MatchupPage';
 import SidebarTeamList from '@/components/navigation/SidebarTeamList';
 import CalendarStrip from '@/components/home/CalendarStrip';
 import { todayISO } from '@/hooks/useCalendarData';
@@ -67,7 +67,7 @@ function MeasuredTeamView({ teamId, panelIndex, showPlusButton, onOpenSplitHome 
 
 function AppContent() {
   const { width, height } = useViewport();
-  const { state, openSplitHome } = useNavigation();
+  const { state, openSplitHome, setMatchupSection } = useNavigation();
   const panel0 = state.panels[0];
   const panel1 = state.panels[1];
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -117,9 +117,10 @@ function AppContent() {
 
       case 'matchup':
         return panel.matchupEventId && panel.homeTeamId && panel.awayTeamId ? (
-          <MatchupView
+          <MatchupPage
             key={`matchup-${panel.matchupEventId}`}
             eventId={panel.matchupEventId}
+            startTimestamp={panel.matchupStartTimestamp}
             homeTeamId={panel.homeTeamId}
             homeTeamName={panel.homeTeamName ?? ''}
             awayTeamId={panel.awayTeamId}
@@ -128,6 +129,7 @@ function AppContent() {
             leagueName={panel.leagueName}
             seasonId={panel.seasonId}
             seasonYear={panel.seasonYear}
+            section={panel.matchupSection ?? 'formations'}
           />
         ) : null;
 
@@ -219,13 +221,47 @@ function AppContent() {
       case 'matchup': {
         const home = panel0.homeTeamName ?? '';
         const away = panel0.awayTeamName ?? '';
+        const section = panel0.matchupSection ?? 'formations';
+        const chooseSection = (nextSection: 'formations' | 'predictions') => {
+          setMatchupSection(nextSection);
+          setMobileOpen(false);
+        };
         return (
           <>
-            <p className="px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide">Confronto</p>
+            <p className="truncate px-4 pt-3 pb-1 text-xs text-text-muted uppercase tracking-wide" title={`${home} vs ${away}`}>
+              {home} vs {away}
+            </p>
             <div className="py-1">
-              <div className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-neon border-l-2 border-neon bg-neon/5">
-                <span className="font-medium truncate">{home} vs {away}</span>
-              </div>
+              <button
+                type="button"
+                onClick={() => chooseSection('formations')}
+                aria-current={section === 'formations' ? 'page' : undefined}
+                className={`w-full flex items-center gap-3 border-l-2 px-4 py-2.5 text-left text-sm transition ${
+                  section === 'formations'
+                    ? 'border-neon bg-neon/5 text-neon'
+                    : 'border-transparent text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+              >
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="1" /><path d="M12 4v16M3 9h3v6H3m18-6h-3v6h3" />
+                </svg>
+                <span className="font-medium">Formazioni</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => chooseSection('predictions')}
+                aria-current={section === 'predictions' ? 'page' : undefined}
+                className={`w-full flex items-center gap-3 border-l-2 px-4 py-2.5 text-left text-sm transition ${
+                  section === 'predictions'
+                    ? 'border-neon bg-neon/5 text-neon'
+                    : 'border-transparent text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                }`}
+              >
+                <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+                  <path d="M4 18V9m5 9V5m5 13v-6m5 6V3" /><path d="m3 7 5-4 5 6 7-7" />
+                </svg>
+                <span className="font-medium">Previsioni</span>
+              </button>
             </div>
           </>
         );

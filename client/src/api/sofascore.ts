@@ -21,15 +21,7 @@ import type {
   TeamSearchResult,
   MatchupNavigationTarget,
   TeamNextMatchSummary,
-  ShotAverageCatalog,
-  ShotAverageVenue,
-  ShotPredictionDetails,
-  ShotPredictionResponse,
-  ShotPredictionTargetSnapshot,
-  TeamShotAverages,
 } from '@/types';
-import { createRequestGate, RequestCircuitOpenError } from './requestGate';
-import { sofaScorePersistentCache } from './persistentCache';
 
 // === Cache ===
 
@@ -41,7 +33,6 @@ type CacheEntry =
 interface ApiFetchOptions<T> {
   useCache?: boolean;
   notFoundValue?: T;
-  fallbackOnDirectNotFound?: boolean;
 }
 
 type SofaScoreFetchStrategy = 'direct' | 'proxy';
@@ -51,7 +42,6 @@ class ApiFetchError extends Error {
   isTerminal: boolean;
   canFallback: boolean;
   strategy?: SofaScoreFetchStrategy;
-  shouldOpenCircuit: boolean;
 
   constructor(
     message: string,
@@ -59,7 +49,6 @@ class ApiFetchError extends Error {
     isTerminal = false,
     canFallback = false,
     strategy?: SofaScoreFetchStrategy,
-    shouldOpenCircuit = false,
   ) {
     super(message);
     this.name = 'ApiFetchError';
@@ -67,31 +56,19 @@ class ApiFetchError extends Error {
     this.isTerminal = isTerminal;
     this.canFallback = canFallback;
     this.strategy = strategy;
-    this.shouldOpenCircuit = shouldOpenCircuit;
   }
 }
 
 const cache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<unknown>>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minuti
-const DAY_MS = 24 * 60 * 60 * 1000;
 const SOFASCORE_DIRECT_ORIGIN = (
   import.meta.env.VITE_SOFASCORE_DIRECT_ORIGIN
-  ?? 'https://api.sofascore.com/api/v1'
+  ?? 'https://www.sofascore.com/api/v1'
 ).replace(/\/$/, '');
-const SOFASCORE_X_REQUESTED_WITH = import.meta.env.VITE_SOFASCORE_X_REQUESTED_WITH ?? '';
 const SOFASCORE_DIRECT_ENABLED = import.meta.env.VITE_SOFASCORE_DIRECT !== 'false';
 const SOFASCORE_PROXY_FALLBACK_ENABLED = import.meta.env.VITE_SOFASCORE_PROXY_FALLBACK !== 'false';
 const SOFASCORE_DIRECT_TIMEOUT_MS = Number(import.meta.env.VITE_SOFASCORE_DIRECT_TIMEOUT_MS ?? 12000);
-const sofaScoreRequestGate = createRequestGate({
-  maximumConcurrent: 1,
-  minimumIntervalMs: Number(
-    import.meta.env.VITE_SOFASCORE_MIN_INTERVAL_MS
-    ?? (import.meta.env.MODE === 'test' ? 0 : 750),
-  ),
-  cooldownMs: Number(import.meta.env.VITE_SOFASCORE_COOLDOWN_MS ?? 15 * 60 * 1000),
-  forbiddenCooldownMs: Number(import.meta.env.VITE_SOFASCORE_403_COOLDOWN_MS ?? 0),
-});
 
 function isTerminalHttpStatus(status: number): boolean {
   return status >= 400 && status < 500 && status !== 429;
@@ -131,46 +108,30 @@ function canFallbackFromDirect(status?: number, body = ''): boolean {
 }
 
 async function fetchWithOptionalTimeout(url: string, strategy: SofaScoreFetchStrategy): Promise<Response> {
-  if (strategy !== 'direct') {
+  if (strategy !== 'direct' || SOFASCORE_DIRECT_TIMEOUT_MS <= 0) {
     return fetch(url, {
       headers: { Accept: 'application/json' },
-      credentials: 'same-origin',
+      credentials: strategy === 'direct' ? 'omit' : 'same-origin',
     });
   }
 
-  if (SOFASCORE_DIRECT_TIMEOUT_MS <= 0) {
-    return sofaScoreRequestGate.schedule(() => fetch(url, {
-      headers: {
-        Accept: 'application/json',
-        ...(SOFASCORE_X_REQUESTED_WITH ? { 'x-requested-with': SOFASCORE_X_REQUESTED_WITH } : {}),
-      },
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), SOFASCORE_DIRECT_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      headers: { Accept: 'application/json' },
       credentials: 'omit',
-    }));
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-
-  return sofaScoreRequestGate.schedule(async () => {
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), SOFASCORE_DIRECT_TIMEOUT_MS);
-
-    try {
-      return await fetch(url, {
-        headers: {
-          Accept: 'application/json',
-          ...(SOFASCORE_X_REQUESTED_WITH ? { 'x-requested-with': SOFASCORE_X_REQUESTED_WITH } : {}),
-        },
-        credentials: 'omit',
-        signal: controller.signal,
-      });
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  });
 }
 
 async function fetchJsonWithStrategy<T>(
   path: string,
   strategy: SofaScoreFetchStrategy,
-  fallbackOnDirectNotFound = false,
 ): Promise<T> {
   const url = getStrategyUrl(strategy, path);
 
@@ -178,9 +139,6 @@ async function fetchJsonWithStrategy<T>(
   try {
     res = await fetchWithOptionalTimeout(url, strategy);
   } catch (error) {
-    if (error instanceof RequestCircuitOpenError) {
-      throw new ApiFetchError(error.message, error.status, true, false, strategy);
-    }
     throw new ApiFetchError(
       `${strategy} fetch failed for ${path}: ${error instanceof Error ? error.message : String(error)}`,
       undefined,
@@ -217,20 +175,12 @@ async function fetchJsonWithStrategy<T>(
   }
 
   if (!res.ok) {
-    const canFallback = strategy === 'direct' && (
-      canFallbackFromDirect(res.status, text)
-      || (res.status === 404 && fallbackOnDirectNotFound)
-    );
-    const shouldOpenCircuit = res.status === 403
-      || res.status === 429
-      || /sofascore_circuit_open|upstream_temporarily_blocked/i.test(text);
     throw new ApiFetchError(
       `${strategy} API error ${res.status}: ${path}`,
       res.status,
-      isTerminalHttpStatus(res.status) && !canFallback,
-      canFallback,
+      isTerminalHttpStatus(res.status) && !canFallbackFromDirect(res.status, text),
+      strategy === 'direct' && canFallbackFromDirect(res.status, text),
       strategy,
-      shouldOpenCircuit,
     );
   }
 
@@ -246,21 +196,8 @@ function getCached(key: string): CacheEntry | null {
   return null;
 }
 
-function getPersistentTtl(path: string): number | null {
-  if (path === 'sport/football/categories') return 30 * DAY_MS;
-  if (/^category\/\d+\/unique-tournaments$/.test(path)) return 7 * DAY_MS;
-  if (/^unique-tournament\/\d+\/seasons$/.test(path)) return DAY_MS;
-  if (/^player\/\d+$/.test(path)) return DAY_MS;
-  if (/^player\/\d+\/statistics\/seasons$/.test(path)) return DAY_MS;
-  return null;
-}
-
 function setDataCache(key: string, data: unknown) {
   cache.set(key, { kind: 'data', data, timestamp: Date.now() });
-  const persistentTtl = getPersistentTtl(key);
-  if (persistentTtl) {
-    sofaScorePersistentCache.set(`metadata:${key}`, data, persistentTtl);
-  }
 }
 
 function setAbsenceCache(key: string, data: unknown) {
@@ -273,13 +210,6 @@ function setErrorCache(key: string, error: ApiFetchError) {
     error: { message: error.message, status: error.status },
     timestamp: Date.now(),
   });
-}
-
-function getClientCircuitError(): ApiFetchError | null {
-  const circuitError = sofaScoreRequestGate.getCircuitError();
-  return circuitError
-    ? new ApiFetchError(circuitError.message, circuitError.status, true)
-    : null;
 }
 
 // === Helper con retry e cache ===
@@ -298,19 +228,7 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
       }
       return cached.data as T;
     }
-
-    const persistentTtl = getPersistentTtl(path);
-    if (persistentTtl) {
-      const persisted = sofaScorePersistentCache.get<T>(`metadata:${path}`);
-      if (persisted !== null) {
-        cache.set(path, { kind: 'data', data: persisted, timestamp: Date.now() });
-        return persisted;
-      }
-    }
   }
-
-  const existingCircuit = getClientCircuitError();
-  if (existingCircuit) throw existingCircuit;
 
   const inFlight = inFlightRequests.get(path);
   if (inFlight) {
@@ -322,21 +240,17 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
     const delays = [0, 1000, 2000]; // retry con backoff
 
     for (let attempt = 0; attempt < delays.length; attempt++) {
-      const attemptCircuit = getClientCircuitError();
-      if (attemptCircuit) throw attemptCircuit;
       if (delays[attempt] > 0) {
         await new Promise((r) => setTimeout(r, delays[attempt]));
       }
 
       const strategies = getFetchStrategies();
       for (let strategyIndex = 0; strategyIndex < strategies.length; strategyIndex++) {
-        const strategyCircuit = getClientCircuitError();
-        if (strategyCircuit) throw strategyCircuit;
         const strategy = strategies[strategyIndex];
         const hasNextStrategy = strategyIndex < strategies.length - 1;
 
         try {
-          const data = await fetchJsonWithStrategy<T>(path, strategy, options.fallbackOnDirectNotFound);
+          const data = await fetchJsonWithStrategy<T>(path, strategy);
           if (useCache) setDataCache(path, data);
           return data;
         } catch (e: unknown) {
@@ -352,12 +266,6 @@ async function apiFetch<T>(path: string, useCacheOrOptions: boolean | ApiFetchOp
           if (hasNextStrategy && error.canFallback) {
             lastError = error;
             continue;
-          }
-
-          if (!hasNextStrategy && error.shouldOpenCircuit) {
-            const circuitError = sofaScoreRequestGate.openCircuit(error.status === 429 ? 429 : 403);
-            const terminalError = new ApiFetchError(circuitError.message, error.status, true);
-            throw terminalError;
           }
 
           if (error.isTerminal) {
@@ -670,7 +578,6 @@ export function createMatchupNavigationTarget(event: MatchEvent): MatchupNavigat
 
   return {
     eventId: event.id,
-    startTimestamp: event.startTimestamp,
     homeTeamId: event.homeTeam.id,
     homeTeamName: event.homeTeam.name,
     awayTeamId: event.awayTeam.id,
@@ -709,7 +616,6 @@ export function resolveMatchupFromSummaries(
 
   return {
     eventId: primary.eventId,
-    startTimestamp: primary.startTimestamp,
     homeTeamId: primary.homeTeamId,
     homeTeamName: primary.homeTeamName,
     awayTeamId: primary.awayTeamId,
@@ -849,213 +755,12 @@ export function getCategoryImageUrl(categoryId: number): string {
   return `/api/img/category/${categoryId}/image`;
 }
 
-// === Previsioni e medie tiri (API locale) ===
-
-export class StatsAnalyzerApiError extends Error {
-  status: number;
-  code?: string;
-
-  constructor(message: string, status: number, code?: string) {
-    super(message);
-    this.name = 'StatsAnalyzerApiError';
-    this.status = status;
-    this.code = code;
-  }
-}
-
-async function localApiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { Accept: 'application/json', ...init?.headers },
-    credentials: 'same-origin',
-  });
-  const data = await response.json().catch(() => null) as (T & { message?: string; code?: string }) | null;
-  if (!response.ok || !data) {
-    throw new StatsAnalyzerApiError(
-      data?.message || `Richiesta non riuscita (${response.status}).`,
-      response.status,
-      data?.code,
-    );
-  }
-  return data;
-}
-
-export function getShotPrediction(
-  eventId: number,
-  retry = false,
-  target?: ShotPredictionTargetSnapshot,
-): Promise<ShotPredictionResponse> {
-  return localApiFetch<ShotPredictionResponse>(
-    `/api/predictions/shots/${eventId}${retry ? '?retry=1' : ''}`,
-    target ? {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target }),
-    } : undefined,
-  );
-}
-
-export function getShotPredictionDetails(
-  eventId: number,
-  selection: string,
-  source: 'home' | 'away',
-  page: number,
-): Promise<ShotPredictionDetails> {
-  const query = new URLSearchParams({
-    selection,
-    source,
-    page: String(page),
-    pageSize: '25',
-  });
-  return localApiFetch<ShotPredictionDetails>(`/api/predictions/shots/${eventId}/details?${query}`);
-}
-
-export function getTeamShotAverageCatalog(teamId: number, teamName: string): Promise<ShotAverageCatalog> {
-  const query = new URLSearchParams({ teamName });
-  return localApiFetch<ShotAverageCatalog>(`/api/teams/${teamId}/shot-averages/catalog?${query}`);
-}
-
-export function getTeamShotAverages(
-  teamId: number,
-  competitionId: number,
-  seasonId: number,
-  venue: ShotAverageVenue,
-  teamName: string,
-): Promise<TeamShotAverages> {
-  const query = new URLSearchParams({
-    competitionId: String(competitionId),
-    seasonId: String(seasonId),
-    venue,
-    teamName,
-  });
-  return localApiFetch<TeamShotAverages>(`/api/teams/${teamId}/shot-averages?${query}`);
-}
-
-export async function getMatchEvent(eventId: number): Promise<MatchEvent | null> {
-  try {
-    const data = await apiFetch<{ event?: MatchEvent }>(`event/${eventId}`);
-    return data.event ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export async function getMatchTotalShots(eventId: number): Promise<{ home: number; away: number } | null> {
-  try {
-    const data = await apiFetch<{
-      statistics?: Array<{
-        period?: string;
-        groups?: Array<{
-          statisticsItems?: Array<{ key?: string; homeValue?: number; awayValue?: number }>;
-        }>;
-      }>;
-    }>(`event/${eventId}/statistics`);
-    const allPeriod = data.statistics?.find((period) => period.period === 'ALL') ?? data.statistics?.[0];
-    const item = allPeriod?.groups
-      ?.flatMap((group) => group.statisticsItems ?? [])
-      .find((statistic) => statistic.key === 'totalShotsOnGoal');
-    return typeof item?.homeValue === 'number' && typeof item.awayValue === 'number'
-      ? { home: item.homeValue, away: item.awayValue }
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 // === Calendario giornaliero ===
 
-const CALENDAR_TOURNAMENT_IDS = [23, 17, 8, 35, 34] as const;
-const CALENDAR_SNAPSHOT_TTL = 5 * 60 * 1000;
-const calendarSnapshotCache = new Map<string, { timestamp: number; events: MatchEvent[] }>();
-const calendarSnapshotInFlight = new Map<string, Promise<MatchEvent[]>>();
-
-function getFootballSeasonYears(date: string): { startYear: number; endYear: number } | null {
-  const [yearText, monthText] = date.split('-');
-  const year = Number(yearText);
-  const month = Number(monthText);
-  if (!Number.isInteger(year) || !Number.isInteger(month)) return null;
-  const startYear = month >= 7 ? year : year - 1;
-  return { startYear, endYear: startYear + 1 };
-}
-
-function findSeasonForCalendar(seasons: Season[], date: string): Season | undefined {
-  const years = getFootballSeasonYears(date);
-  if (!years) return seasons[0];
-  const { startYear, endYear } = years;
-  const patterns = [
-    `${startYear}/${endYear}`,
-    `${startYear}/${String(endYear).slice(-2)}`,
-    `${String(startYear).slice(-2)}/${String(endYear).slice(-2)}`,
-    `${startYear}-${endYear}`,
-  ];
-  return seasons.find((season) => {
-    const label = `${season.name} ${season.year}`;
-    return patterns.some((pattern) => label.includes(pattern));
-  }) ?? seasons.find((season) => season.year.includes(String(startYear))) ?? seasons[0];
-}
-
-async function getCalendarTournamentSnapshot(
-  tournamentId: number,
-  date: string,
-  skipCache: boolean,
-): Promise<MatchEvent[]> {
-  const seasons = await getTournamentSeasons(tournamentId);
-  const season = findSeasonForCalendar(seasons, date);
-  if (!season) return [];
-  const snapshotKey = `${tournamentId}:${season.id}`;
-  if (!skipCache) {
-    const cached = calendarSnapshotCache.get(snapshotKey);
-    if (cached && Date.now() - cached.timestamp < CALENDAR_SNAPSHOT_TTL) return cached.events;
-    const persisted = sofaScorePersistentCache.get<MatchEvent[]>(`calendar:${snapshotKey}`);
-    if (persisted !== null) {
-      calendarSnapshotCache.set(snapshotKey, { timestamp: Date.now(), events: persisted });
-      return persisted;
-    }
-  }
-  const existing = calendarSnapshotInFlight.get(snapshotKey);
-  if (existing) return existing;
-
-  const request = (async () => {
-    const events: MatchEvent[] = [];
-    for (const direction of ['last', 'next'] as const) {
-      const data = await apiFetch<{ events?: MatchEvent[] }>(
-        `unique-tournament/${tournamentId}/season/${season.id}/events/${direction}/0`,
-        { useCache: false, notFoundValue: { events: [] } },
-      );
-      events.push(...(data.events ?? []));
-    }
-    const deduped = new Map(events.map((event) => [event.id, event]));
-    const value = [...deduped.values()];
-    calendarSnapshotCache.set(snapshotKey, { timestamp: Date.now(), events: value });
-    sofaScorePersistentCache.set(`calendar:${snapshotKey}`, value, CALENDAR_SNAPSHOT_TTL);
-    return value;
-  })().finally(() => calendarSnapshotInFlight.delete(snapshotKey));
-
-  calendarSnapshotInFlight.set(snapshotKey, request);
-  return request;
-}
-
-export async function getScheduledEvents(
-  date: string,
-  skipCache = false,
-  onProgress?: (events: MatchEvent[]) => void,
-): Promise<MatchEvent[]> {
-  const events: MatchEvent[] = [];
-  let firstError: unknown = null;
-  let completed = 0;
-
-  // Sequential loading works with the global single-flight gate and never creates a burst.
-  for (const tournamentId of CALENDAR_TOURNAMENT_IDS) {
-    try {
-      events.push(...await getCalendarTournamentSnapshot(tournamentId, date, skipCache));
-      completed += 1;
-      onProgress?.([...new Map(events.map((event) => [event.id, event])).values()]);
-    } catch (error) {
-      firstError ??= error;
-      if (getClientCircuitError()) break;
-    }
-  }
-
-  if (completed === 0 && firstError) throw firstError;
-  return [...new Map(events.map((event) => [event.id, event])).values()];
+export async function getScheduledEvents(date: string, skipCache = false): Promise<MatchEvent[]> {
+  const data = await apiFetch<{ events?: MatchEvent[] }>(
+    `sport/football/scheduled-events/${date}`,
+    { useCache: !skipCache }
+  );
+  return data.events ?? [];
 }

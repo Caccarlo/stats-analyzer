@@ -7,9 +7,9 @@ Football/soccer foul analysis web app. Users navigate Countries > Leagues > Team
 | Layer | Tech | Port |
 |-------|------|------|
 | Client | React 19, TypeScript 5.9, Vite 8, Tailwind CSS 4 | 5173 |
-| Server | Express 4 browser-backed proxy, `playwright-core`, Node built-in SQLite | 3001 |
+| Server | Express 4 browser-backed proxy to SofaScore with `playwright-core` | 3001 |
 
-No auth or API keys. Navigation JSON comes from the public SofaScore API with client-direct browser fetch first and the Express proxy as fallback. Top-five-league shot observations come from Football-Data CSVs and are stored in a local SQLite database.
+No database, no auth, no API keys. JSON data comes from the public SofaScore API with client-direct browser fetch first and the Express proxy as fallback.
 
 ```bash
 npm run install:all
@@ -36,11 +36,7 @@ stats-analyzer/
 |-- docs/
 |   `-- deploy/                     # VPS deploy examples for SofaScore CDP browser relay
 |-- server/
-|   |-- index.js                     # Express browser relay proxy plus shot-model route registration
-|   |-- shot-data-archive.js         # Atomic two-season Football-Data importer and SQLite query layer
-|   |-- shot-predictions.js          # Point-in-time total-shots model, jobs, disk cache, prediction/detail/average APIs
-|   |-- upstream-gate.js             # Global SofaScore pacing; queue clearing for 403/429 and timed cooldown only for 429 by default
-|   `-- test/                        # node:test math, parser, cutoff, and service-boundary tests
+|   `-- index.js                     # Express browser relay proxy (/api/sofascore/*, /api/img/*, /api/sofascore-browser/status) with direct-first image fetches
 `-- client/
     |-- .env.example                 # Vite flags for direct SofaScore JSON and proxy fallback
     |-- vite.config.ts               # Proxy /api -> :3001, alias @ -> src/
@@ -50,7 +46,6 @@ stats-analyzer/
         |-- index.css                # Tailwind imports + theme variables
         |-- types/index.ts           # Shared TypeScript interfaces
         |-- api/sofascore.ts         # All API functions, client-direct JSON fetch, proxy fallback, client cache, terminal 4xx handling, in-flight dedupe, retry with backoff
-        |-- api/requestGate.ts       # Client-direct pacing; immediate retry after 403 and timed cooldown for 429
         |-- context/
         |   `-- NavigationContext.tsx
         |-- hooks/
@@ -60,8 +55,7 @@ stats-analyzer/
         |   |-- useMatchTimeline.ts  # events/last loader + progressive officialStats/lineups/rich data queues
         |   |-- useTournamentViewData.ts # Shared tournament teams/phases loader with snapshot cache for TeamGrid + SidebarTeamList
         |   |-- useViewport.ts       # Shared window width/height hook used by responsive layout and density decisions
-        |   |-- useSplitCardSync.ts  # Cross-panel card height sync
-        |   `-- useShotPrediction.ts # Starts/polls an on-demand server prediction job
+        |   `-- useSplitCardSync.ts  # Cross-panel card height sync
         |-- utils/
         |   |-- foulPairing.ts
         |   |-- playerMatchVenue.ts
@@ -101,9 +95,7 @@ stats-analyzer/
                 |-- PriorityImage.tsx      # Visible-first image queue used by the home schedule; separates above-the-fold reveal gating from background warm loads and hides placeholders until real image load settles
                 `-- PlayerDot.tsx
             `-- navigation/ (continued)
-                |-- MatchupView.tsx        # Formazioni and descriptive match history for one real event
-                |-- MatchupPage.tsx        # Matchup shell switching Formazioni/Previsioni and lazily enabling the job
-                `-- ShotPredictionsView.tsx # Forecast, markets, drill-down, independent average panels
+                `-- MatchupView.tsx   # Vista confronto full-screen di una singola partita reale, con campo landscape, colonne partite ai lati e stats/rosa 50/50 caricate sulla stagione della partita
 ```
 
 ## Architecture
@@ -116,43 +108,29 @@ Browser (5173) -> React App -> sofascore.ts
     -> /api/img/* -> Express (3001)
         -> direct img.sofascore.com/api/v1/* first       # images
         -> browser relay fallback if direct image fetch fails
-    -> /api/predictions/* and /api/teams/* -> SQLite shot archive
-
-Server startup -> Football-Data CSV (10 files maximum on bootstrap)
-    -> validate all available files -> one atomic SQLite commit
-    -> daily current-season refresh
 ```
 
 - Client JSON access is direct-first because real user browsers/IPs are less likely to hit SofaScore's datacenter/VPS anti-bot path than a centralized server relay.
 - Direct client JSON fetches use `credentials: 'omit'`; `credentials: 'include'` should not be used cross-origin against SofaScore from the app.
-- `VITE_SOFASCORE_X_REQUESTED_WITH` and `SOFASCORE_X_REQUESTED_WITH` are optional rotating-token overrides. Leave them empty unless a current value has been verified; the browser relay captures a fresh value automatically when the warmed page supplies it.
 - `apiFetch` falls back from direct to `/api/sofascore/*` on challenge-like failures, CORS/fetch errors, timeout, non-JSON responses, `403`, `429`, and server errors. Terminal `404` handling remains endpoint-specific through `notFoundValue`.
-- Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`, `VITE_SOFASCORE_MIN_INTERVAL_MS`, `VITE_SOFASCORE_COOLDOWN_MS`, and `VITE_SOFASCORE_403_COOLDOWN_MS`.
-- Every client-direct JSON request passes through the shared `requestGate`: one active request at a time and 750 ms start spacing. A final `403` clears queued work but permits an immediate manual retry; `429` retains the configurable 15-minute circuit.
-- Server: browser-backed proxy with in-memory TTL cache, a Git-ignored persistent image cache, in-flight dedupe, a persistent Chrome/Chromium relay, and a global upstream gate controlled by `SOFASCORE_GLOBAL_MIN_INTERVAL_MS` / `SOFASCORE_GLOBAL_COOLDOWN_MS`.
-- Shot-model math and descriptive shot averages read `server/.shot-data/shots.sqlite`, not per-match SofaScore statistics. `server/.shot-model-cache/` contains versioned forecasts/details and target snapshots only.
+- Client data-access flags: `VITE_SOFASCORE_DIRECT=false`, `VITE_SOFASCORE_PROXY_FALLBACK=false`, `VITE_SOFASCORE_DIRECT_ORIGIN`, and `VITE_SOFASCORE_DIRECT_TIMEOUT_MS`.
+- Server: browser-backed proxy with in-memory TTL cache, in-flight dedupe, and a persistent Chrome/Chromium relay.
 - The relay is expected to run in one of two modes:
   - `SOFASCORE_BROWSER_CDP_URL`: connect to an already running real Chrome/Chromium session on the VPS via CDP.
   - `SOFASCORE_BROWSER_EXECUTABLE_PATH`: launch a local Chrome/Chromium binary with a persistent user-data directory (`SOFASCORE_BROWSER_USER_DATA_DIR`).
-- In local development, if `SOFASCORE_BROWSER_EXECUTABLE_PATH` is unset, the server auto-detects common Chrome/Chromium/Edge executable paths before falling back to direct Node fetches. Auto-launched Windows Chrome starts minimized, reuses one dedicated relay page, and checks context health without opening temporary tabs. Restored tabs are cleaned only in the dedicated launch profile; CDP mode never touches the user's existing tabs.
-- The server keeps a warmed page on `https://www.sofascore.com/football` and runs in-page `fetch()` calls so SofaScore sees a real browser session instead of raw Node requests. It records the page response status and captures a rotating `x-requested-with` header when the site emits one; a configured fixed token is only a fallback.
-- Image proxying is optimized separately: `/api/img/*` checks memory and `server/.asset-cache/` first, then tries a plain direct fetch to `img.sofascore.com`, and only falls back to an isolated browser page when that direct path fails or returns non-image content. Background category flags have a separate gate from essential team/tournament/player images.
-- `/api/sofascore-browser/status` reports relay plus global/image/model circuit state, the dedicated relay-page state, launch-mode context page count, and the model's persisted block deadline. `?probe=1` performs one isolated categories request through the ordinary warmed-page/in-page-fetch relay path. It must not navigate directly to the API URL, which can return a false `403`. The probe is the safe preflight check before loading the app on a new network.
+- In local development, if `SOFASCORE_BROWSER_EXECUTABLE_PATH` is unset, the server auto-detects common Chrome/Chromium/Edge executable paths before falling back to direct Node fetches.
+- The server keeps a warmed page on `https://www.sofascore.com/` and runs in-page `fetch()` calls so SofaScore sees a real browser session instead of raw Node requests.
+- Image proxying is optimized separately: `/api/img/*` now tries a plain direct fetch to `img.sofascore.com` first and only falls back to the browser relay when that direct path fails or returns non-image content.
+- `/api/sofascore-browser/status` reports whether the browser relay is configured and connected.
 - `SOFASCORE_DIRECT_FALLBACK` can keep the legacy direct Node-fetch path available as a non-browser fallback, but the intended production path is the browser relay.
-- The removed global `sport/football/scheduled-events/:date` endpoint is not used. The home calendar loads the five supported leagues sequentially from the selected season's `events/last/0` and `events/next/0`, publishes partial results, deduplicates events, and persists each tournament snapshot for five minutes across page reloads.
 - The VPS CDP deploy path is now a fallback relay path, not the primary JSON strategy; use it only after verifying that the target IP/environment can fetch SofaScore JSON. Example env and service units live in `docs/deploy/`.
 - Client: no React Router; navigation is reducer-driven through `NavigationContext`.
 - Country/category navigation keeps both a UI `countryId` and the SofaScore source-of-truth `countryCategoryId`, so downstream views can keep dynamic country context without relying on hardcoded league mappings.
 - Teams navigation can also persist a selected `tournamentPhaseKey` / `tournamentPhaseName` for cup-style competitions, so the main panel and sidebar stay aligned on the chosen phase.
 - `Tournament` objects in event data include an optional `category` field (id, name, alpha2) exposing country context. `TeamView` uses this in a fallback effect to populate missing `leagueId` and `countryId`/`countryCategoryId` on the panel, so `GO_BACK` can traverse the full hierarchy (player → team → teams → leagues) even when navigation started from search rather than the country list.
 - `MatchupView` is match-specific only: full-screen matchup navigation requires a canonical real-event target (`eventId` plus home/away/team context), not just two team ids.
-- `MatchupPage` owns the match-level section switch. `PanelState.matchupSection` is `formations | predictions`; the initial section is `formations`, while both teams' average filter selections persist independently in the same panel state.
-- Selecting `Previsioni` first sends `POST /api/predictions/shots/:eventId` with the canonical match snapshot already held by the page, then polls `GET /api/predictions/shots/:eventId`. Merely opening the matchup or remaining in `Formazioni` does not start a job. The snapshot prevents a new SofaScore metadata call; a `202 building` response is polled by `useShotPrediction`, while the deduplicated server job survives component unmount.
-- The prediction view replaces the formation field and players completely. It exposes expected home/away/total shots, an 80% interval, seven consecutive `.5` total-shot lines, Under/Over probabilities and fair no-margin odds, and one drill-down at a time. The two independent descriptive-average panels start only after the user explicitly clicks `Carica medie` and the prediction is ready.
-- Model version `shots-v1.3.0-football-data` supports future and historical reconstruction inside the two-season local archive. Predictive rows exclude the target event and every later event; descriptive averages and `MatchupView` histories remain independent and may use all currently finished data.
-- `MatchupView` explicitly fetches the opened event and merges it into both teams' history, deduplicated by event id. It is pinned to the visible page, highlighted as `Aperta`, and shows final total shots when the event is finished.
 - `TeamView` persists a compact `nextMatchSummary` inside `PanelState` after loading `nextEvent`; split panels use that summary to prove they point to the same real match before auto-opening or merging into `MatchupView`.
-- Matchup navigation payloads preserve `startTimestamp` and `seasonYear` alongside `seasonId`, so prediction jobs can be primed without a new SofaScore call and `MatchupView` can reconstruct season context when SofaScore IDs differ across endpoints.
+- Matchup navigation payloads should preserve `seasonYear` alongside `seasonId`, so `MatchupView` can reconstruct the opened match's season context even when SofaScore season IDs differ across endpoints.
 - In `MatchupView`, team player-stat tables are season-aware: they continue paging backward through team history until the opened match's season is covered, instead of relying only on the first `team/{id}/events/last/0` page.
 - `SearchResult` is a discriminated union: `PlayerSearchResult | TeamSearchResult | TournamentSearchResult`. Clicking any result calls `navigateTo` directly with all hierarchy fields not relevant to the target view set to `undefined` (leagueId, countryId, countryCategoryId, seasonId, etc.), so stale context from a previous navigation path is never inherited. Non-football results are filtered out in `searchAll` by checking `sport.slug` on the player entity or its team.
 - Match details are loaded progressively by `useMatchTimeline`, with cache reuse in `useMatchDetails`.
@@ -190,38 +168,6 @@ matchup (full-screen, replaces split view when two opposing teams open)
 - Top: header with home team name, "vs", away team name, league name, back button.
 - Middle row (flex): left matches column (home team) | unified landscape field | right matches column (away team).
 - Bottom (flex 50/50): left half = home team stats table + full roster; right half = away team stats table + full roster. Each half scrolls independently vertically.
-
-### Shot predictions V1
-
-Supported predictive leagues and archive-backed average catalogs are Serie A (`23`), Premier League (`17`), LaLiga (`8`), Bundesliga (`35`), and Ligue 1 (`34`). The archive imports Football-Data `HS`/`AS` as home/away total shots and stores `HST`/`AST` for future extensions. Before every calculation it applies:
-
-```text
-observation.startTimestamp < target.startTimestamp
-observation.eventId != target.eventId
-```
-
-The same cutoff governs every baseline, opponent-strength value, temporal rating, parameter selection, dispersion estimate, and chronological backtest. Source IDs differ from SofaScore IDs, so the importer also excludes a row matching both target teams within six hours of kickoff. The model never uses final target-season standings, bookmaker prices, lineups, or absences.
-
-Model version `shots-v1.3.0-football-data` reads the full supported league sample from the target season up to kickoff plus its immediately preceding season. It supports historical targets only while both required season start years remain in the two-season archive. Abbreviated labels such as `26/27` map to start year 2026, while `70/71` maps to 1970. Local catalog season IDs are start years rather than SofaScore season IDs.
-
-The chronological backtest selects half-life from `[60,90,120,180,270,365]`, shrinkage from `[5,10,20]`, and Poisson versus negative-binomial total distribution. A linear or quadratic continuous-strength term is retained only with at least 1% out-of-sample NLL improvement, non-worse MAE, and acceptable calibration. The total distribution is calibrated directly rather than formed by adding independent team counts. A line `x.5` uses `P(Under)=P(T<=x)`, `P(Over)=1-P(Under)`, and fair odds `1/p`.
-
-Promotion transfer remains neutral until second-division CSVs are part of the same bounded archive; the model discloses this and never applies an invented multiplier. Football-Data itself warns of possible post-2018/19 Serie A shot-definition inconsistency, so Serie A forecasts disclose the source caveat and retain the strict two-season boundary.
-
-`shot-data-archive.js` downloads at most ten top-flight CSVs during an empty bootstrap (five leagues times current/previous season), with five-second spacing by default. Files are parsed and validated before one SQLite transaction. A missing not-yet-published current-season file (`300` or `404`) is recorded in `/api/shot-data/status` and skipped without discarding the previous valid database. Once populated, startup only schedules a daily current-season refresh. Old season rows are pruned so no more than two season start years remain.
-
-Local APIs:
-
-- `POST /api/predictions/shots/:eventId` with `{ target }` to prime/start without SofaScore traffic;
-- `GET /api/predictions/shots/:eventId` (`200`, `202`, `422`, `502`) for polling/backward compatibility;
-- `GET /api/predictions/shots/:eventId/details?selection=...&source=...&page=...&pageSize=25`;
-- `GET /api/teams/:teamId/shot-averages/catalog?teamName=...`;
-- `GET /api/teams/:teamId/shot-averages?teamName=...&competitionId=...&seasonId=...&venue=all|home|away`;
-- `GET /api/shot-data/status`.
-
-Historical forecasts are immutable for one model version; future forecasts remain cached for six hours. Raw shot rows live in Git-ignored `server/.shot-data/shots.sqlite`, while prediction JSON and details stay under `server/.shot-model-cache/`.
-
-`SHOT_DATA_DB_PATH`, `SHOT_DATA_DOWNLOAD_INTERVAL_MS`, and `SHOT_DATA_UPDATE_INTERVAL_MS` configure the archive. Legacy SofaScore model pacing/circuit settings remain only for the no-archive fallback and a last-resort target fetch; ordinary archive-backed calculations do not request per-match SofaScore statistics.
 
 **Field:**
 - Single SVG landscape field (`viewBox="0 0 1050 680"`, `aspect-ratio: 105/68`).
@@ -264,7 +210,7 @@ JSON calls are client-direct first and fall back to `/api/sofascore/*`. Images g
 | Endpoint | Purpose | Used in |
 |----------|---------|---------|
 | `sport/football/categories` | Football categories list | CountryList |
-| `unique-tournament/{id}/season/{seasonId}/events/{last,next}/0` | Bounded top-five snapshot for the home calendar | sofascore.ts, useCalendarData |
+| `sport/football/scheduled-events/{date}` | Daily football schedule for the home calendar | useCalendarData, HomeCalendar |
 | `category/{categoryId}/unique-tournaments` | All tournaments for a football category | LeagueList |
 | `search/all?q={query}` | Global search returning players, teams, and tournaments | SearchBar |
 | `unique-tournament/{id}/seasons` | Tournament seasons | TeamGrid |
@@ -291,14 +237,14 @@ JSON calls are client-direct first and fall back to `/api/sofascore/*`. Images g
 ### Home Daily Schedule
 
 - The default home screen on panel 0 is no longer a static intro: it shows the selected day's football schedule grouped as `country -> tournament -> matches`.
-- `getScheduledEvents` resolves the season containing the selected date for tournaments `[23,17,8,35,34]`, loads only page zero of each league's recent and upcoming events in series, publishes a progressive aggregate, and caches per-season snapshots in memory plus versioned `localStorage` for five minutes. Stable categories, tournament catalogs, season catalogs, and player metadata also survive a page reload with longer endpoint-specific TTLs. `useCalendarData` keeps its own `Map<date, events[]>` cache and applies a final local-time filter so only matches on the selected date remain.
+- `useCalendarData` fetches `sport/football/scheduled-events/{date}`, keeps a local `Map<date, events[]>` cache, suppresses the spinner when revisiting a date already loaded in the current session, and applies a final client-side filter so the home calendar shows only matches whose local `startTimestamp` falls on the selected date.
 - `todayISO()` is derived from the browser's local calendar date (not UTC), so the selected "today" stays aligned with the user's timezone.
-- When the selected date is today, `useCalendarData` auto-refreshes the schedule every five minutes with `skipCache=true` only after the initial request succeeded. A refresh error is surfaced and removes the interval, preventing an unattended retry loop.
+- When the selected date is today, `useCalendarData` auto-refreshes the schedule every 60 seconds with `skipCache=true` so live scores can advance without manual reload.
 - Home grouping is built from `event.tournament.uniqueTournament` and its `category`; matches inside a tournament are ordered by `startTimestamp`.
 - Country ordering is priority-based: the top categories are Italy, England, Spain, Germany, France, Europe, and World. If one of those has a configured primary competition on that day, it is promoted ahead of all other categories.
 - Inside each prioritized country, configured primary competitions (for example Serie A, Premier League, LaLiga, Bundesliga, Ligue 1, UEFA club cups, World Cup / Club World Cup) are shown first; the remaining competitions follow in alphabetical order.
 - Country sections default to expanded. Within each country, only the first available primary tournament is auto-expanded; if none is present, the first tournament is expanded.
-- Home country, tournament, and team logos should render through `PriorityImage`, which keeps load priority separate from reveal gating: it preloads what is visible first, starts offscreen warm loads only after the visible queue empties, and immediately boosts images from user-expanded sections. The long country-navigation list opts into `deferOffscreen`, so only visible/near-visible flags enter the queue.
+- Home country, tournament, and team logos should render through `PriorityImage`, which keeps load priority separate from reveal gating: it preloads what is visible first, starts offscreen warm loads only after the visible queue empties, and immediately boosts images from user-expanded sections.
 - `HomeCalendar` opens a fresh reveal session on every selected-date change and keeps the existing green loader under the calendar strip active only until the images that were truly inside the initial viewport have settled. Images below the fold must continue loading in the background without blocking that reveal.
 - `DaySchedule` keeps the selected-date schedule mounted but visually hidden during the reveal session so `IntersectionObserver` and image requests can start immediately, without a separate centered overlay spinner or hidden content intercepting interaction.
 - `LeagueSection` allows direct navigation to the tournament teams view via `selectLeague`, preserving `seasonId` from the scheduled event payload.
@@ -384,8 +330,6 @@ Other current behavior:
 - `apiFetch` deduplicates in-flight requests per path, so parallel consumers such as `TeamGrid` and `SidebarTeamList` share the same pending SofaScore call instead of duplicating retries.
 - `apiFetch` tries direct browser JSON access before proxy fallback by default. This can be disabled with `VITE_SOFASCORE_DIRECT=false` if SofaScore changes CORS behavior or if a deployment must force server relay mode.
 - `apiFetch` no longer retries terminal `4xx` responses except `429`, caches terminal `404` fallback payloads for endpoints that opt in, and also caches terminal `4xx` errors for the standard TTL.
-- A direct SofaScore `403` may use the proxy fallback once; if the proxy also returns `403`, that response is terminal and is not retried through the same exhausted strategy chain.
-- Direct JSON starts are globally paced and queued. A final upstream `403` clears pending work without a timed lock, so the next manual reload can reach upstream immediately; `429` still opens the client cooldown. Server relay and legacy model fallback use the same status-specific policy.
 - `useTournamentViewData` keeps a shared in-memory tournament snapshot cache keyed by `{tournamentId, seasonId}` plus a latest-season alias, so reopening the same tournament view can hydrate synchronously without rebuilding phases or standings.
 - `useMatchTimeline` keeps an in-memory cache both for `player/{id}/events/last/{page}` responses and for fully-built timeline snapshots keyed by `{playerId, seasonIdsKeyOrWildcard, tournamentIdsKey, tournamentYearPairsKey, seasonDateRangeKey, maxEvents, minPlayedEvents}`.
 - When switching period/season, `useMatchTimeline` first tries to hydrate from the timeline snapshot cache; if that context was never opened, it can still rebuild synchronously from cached `events/last` pages plus `matchDetailsCache` and skip the section loader when those pages already cover the target context.

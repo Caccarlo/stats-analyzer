@@ -11,7 +11,6 @@ The primary JSON path is client-direct browser fetch from `client/src/api/sofasc
 - The Express proxy connects to that browser with `SOFASCORE_BROWSER_CDP_URL`.
 - The app keeps `SOFASCORE_DIRECT_FALLBACK=false` so a broken browser relay fails loudly instead of silently falling back to blocked direct fetches.
 - The frontend tries direct SofaScore JSON first unless `VITE_SOFASCORE_DIRECT=false` is set at build time.
-- Client-direct and server-relay requests are paced separately. A `403` clears already queued work but does not create a timed lock; a `429` keeps the queue-clearing cooldown.
 
 ## Why this setup
 
@@ -46,9 +45,6 @@ SOFASCORE_BROWSER_CDP_URL=http://127.0.0.1:9222
 SOFASCORE_BROWSER_HEADLESS=true
 SOFASCORE_DIRECT_FALLBACK=false
 SOFASCORE_BROWSER_FETCH_TIMEOUT_MS=20000
-SOFASCORE_GLOBAL_MIN_INTERVAL_MS=750
-SOFASCORE_GLOBAL_COOLDOWN_MS=900000
-SOFASCORE_GLOBAL_403_COOLDOWN_MS=0
 ```
 
 Do not set `SOFASCORE_BROWSER_EXECUTABLE_PATH` in the final VPS CDP setup.
@@ -68,34 +64,6 @@ sudo chown -R stats:stats /opt/stats-analyzer/chrome-profile
 
 1. Copy `stats-analyzer-app.service.example` to `/etc/systemd/system/stats-analyzer-app.service`
 2. Adjust `User`, `Group`, `WorkingDirectory`, and `npm` path if needed.
-3. Ensure the app service user can create and write the persistent model, image, and SQLite caches:
-
-```bash
-sudo mkdir -p /opt/stats-analyzer/server/.shot-model-cache
-sudo mkdir -p /opt/stats-analyzer/server/.shot-data
-sudo mkdir -p /opt/stats-analyzer/server/.asset-cache
-sudo chown -R stats:stats /opt/stats-analyzer/server/.shot-model-cache /opt/stats-analyzer/server/.shot-data /opt/stats-analyzer/server/.asset-cache
-```
-
-`.shot-model-cache` contains versioned forecasts, details, and match snapshots. `.shot-data/shots.sqlite` contains the two-season Football-Data archive. `.asset-cache` contains flags and SofaScore logos with asset-specific expiry times. Keep all three across ordinary app restarts and deployments; model-version changes invalidate forecasts without requiring raw SQLite or image data to be deleted.
-
-All server-side SofaScore JSON traffic passes through the global gate. The defaults start calls at least 750 ms apart. A `403` clears the current queue without blocking a later manual retry; a `429` suspends queued work for 15 minutes:
-
-```bash
-SOFASCORE_GLOBAL_MIN_INTERVAL_MS=750
-SOFASCORE_GLOBAL_COOLDOWN_MS=900000
-SOFASCORE_GLOBAL_403_COOLDOWN_MS=0
-```
-
-Legacy no-archive model collection is paced once more before it reaches that global gate. Ordinary archive-backed forecasts do not fetch SofaScore match statistics. Override either layer only after the upstream environment has been verified:
-
-```bash
-SOFASCORE_MODEL_MIN_INTERVAL_MS=5000
-SOFASCORE_MODEL_COOLDOWN_MS=86400000
-SOFASCORE_MODEL_403_COOLDOWN_MS=0
-```
-
-The fallback collector is single-flight. Its longer interval and 24-hour terminal cooldown apply to `429`; `403` remains immediately retryable by default. Ordinary archive-backed predictions do not use this collector.
 
 ## Enable and start
 
@@ -119,10 +87,9 @@ Check the app relay:
 
 ```bash
 curl http://127.0.0.1:3001/api/sofascore-browser/status
-curl "http://127.0.0.1:3001/api/sofascore-browser/status?probe=1"
+curl http://127.0.0.1:3001/api/sofascore/sport/football/categories
+curl http://127.0.0.1:3001/api/sofascore/sport/football/scheduled-events/2026-05-08
 ```
-
-The first command is local-only and does not contact SofaScore. The second command performs one isolated upstream categories navigation and warms the football page. A categories `200` alone is not sufficient: SofaScore can allow that lightweight endpoint while rejecting the page and tournament/event routes. Before opening the frontend, require both `probe.reachable: true` and `pageStatus: 200`. If `pageStatus` is `403`, switch network/session instead of probing more endpoints.
 
 Expected relay status shape:
 
@@ -131,23 +98,9 @@ Expected relay status shape:
   "configured": true,
   "connected": true,
   "mode": "cdp",
-  "pageUrl": "https://www.sofascore.com/football",
-  "pageStatus": 200,
-  "requestTokenCaptured": false,
-  "upstreamCircuit": {
-    "open": false,
-    "upstreamStatus": null,
-    "blockedUntil": null,
-    "active": 0,
-    "pending": 0,
-    "maximumConcurrent": 1,
-    "minimumIntervalMs": 750
-  },
-  "probe": null
+  "pageUrl": "https://www.sofascore.com/"
 }
 ```
-
-With `?probe=1`, `probe.reachable=true` and `probe.statusCode=200` mean the tested network path is usable. A `403` rejects already queued server work but leaves `blockedUntil` empty, allowing an immediate later retry. A `429` exposes its active `blockedUntil` cooldown.
 
 ## Logs
 

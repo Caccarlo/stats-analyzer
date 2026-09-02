@@ -1,21 +1,20 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
+const { SHOT_COMPETITIONS, SHOT_COMPETITION_BY_ID } = require('./shot-competitions');
+const {
+  MIN_TEAM_VENUE_MATCHES,
+  computeSeasonRatings,
+  buildTransitionCalibration,
+} = require('./shot-transition-calibration');
 
 const FOOTBALL_DATA_ORIGIN = 'https://www.football-data.co.uk/mmz4281';
 const DEFAULT_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DOWNLOAD_INTERVAL_MS = 5_000;
 const ARCHIVE_SOURCE = 'football-data.co.uk';
-
-const BULK_COMPETITIONS = [
-  { competitionId: 17, name: 'Premier League', code: 'E0', timeZone: 'Europe/London' },
-  { competitionId: 23, name: 'Serie A', code: 'I1', timeZone: 'Europe/Rome' },
-  { competitionId: 8, name: 'LaLiga', code: 'SP1', timeZone: 'Europe/Madrid' },
-  { competitionId: 35, name: 'Bundesliga', code: 'D1', timeZone: 'Europe/Berlin' },
-  { competitionId: 34, name: 'Ligue 1', code: 'F1', timeZone: 'Europe/Paris' },
-];
-
-const COMPETITION_BY_ID = new Map(BULK_COMPETITIONS.map((competition) => [competition.competitionId, competition]));
+const ARCHIVE_VERSION = 'shots-two-tier-transitions-v1';
+const BULK_COMPETITIONS = SHOT_COMPETITIONS;
+const COMPETITION_BY_ID = SHOT_COMPETITION_BY_ID;
 
 const TEAM_ALIASES = new Map(Object.entries({
   'manchester united': 'Man United',
@@ -26,6 +25,17 @@ const TEAM_ALIASES = new Map(Object.entries({
   'newcastle united': 'Newcastle',
   'west ham united': 'West Ham',
   'brighton and hove albion': 'Brighton',
+  'ipswich town': 'Ipswich',
+  'hull city': 'Hull',
+  'coventry city': 'Coventry',
+  'leicester city': 'Leicester',
+  'norwich city': 'Norwich',
+  'stoke city': 'Stoke',
+  'swansea city': 'Swansea',
+  'bristol city': 'Bristol City',
+  'sheffield united': 'Sheffield United',
+  'sheffield wednesday': 'Sheffield Weds',
+  'queens park rangers': 'QPR',
   'leeds united': 'Leeds',
   'internazionale': 'Inter',
   'inter milan': 'Inter',
@@ -59,6 +69,10 @@ const TEAM_ALIASES = new Map(Object.entries({
   'bayer leverkusen': 'Leverkusen',
   'rb leipzig': 'RB Leipzig',
   'fc koln': 'FC Koln',
+  '1 fc koln': 'FC Koln',
+  '1 fc nurnberg': 'Nurnberg',
+  'hamburger sv': 'Hamburg',
+  'hertha bsc': 'Hertha',
   'paris saint germain': 'Paris SG',
   'olympique marseille': 'Marseille',
   'olympique lyonnais': 'Lyon',
@@ -68,7 +82,13 @@ const TEAM_ALIASES = new Map(Object.entries({
   'stade rennais': 'Rennes',
   'rc lens': 'Lens',
   'rc strasbourg': 'Strasbourg',
+  'as saint etienne': 'St Etienne',
+  'saint etienne': 'St Etienne',
 }));
+
+const CANONICAL_TEAM_KEYS = new Map(
+  [...TEAM_ALIASES.entries()].map(([source, target]) => [source, normalizeTeamName(target)]),
+);
 
 class ShotDataArchiveError extends Error {
   constructor(message, statusCode = 503, code = 'shot_archive_unavailable') {
@@ -93,6 +113,11 @@ function normalizeTeamName(value) {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
+}
+
+function canonicalTeamKey(value) {
+  const normalized = normalizeTeamName(value);
+  return CANONICAL_TEAM_KEYS.get(normalized) || normalized;
 }
 
 function seasonCode(startYear) {
@@ -228,14 +253,15 @@ function parseFootballDataCsv(text, competition, startYear) {
   const teams = new Map();
   let incompleteMatches = 0;
   let malformedMatches = 0;
+  let supplementalStatisticsDiscarded = 0;
   const sourceKeys = new Set();
 
   csvRows.slice(1).forEach((cells) => {
     const homeTeam = String(cells[indexes.HomeTeam] || '').trim();
     const awayTeam = String(cells[indexes.AwayTeam] || '').trim();
     if (!homeTeam || !awayTeam) return;
-    const homeTeamKey = normalizeTeamName(homeTeam);
-    const awayTeamKey = normalizeTeamName(awayTeam);
+    const homeTeamKey = canonicalTeamKey(homeTeam);
+    const awayTeamKey = canonicalTeamKey(awayTeam);
     teams.set(homeTeamKey, homeTeam);
     teams.set(awayTeamKey, awayTeam);
 
@@ -250,14 +276,15 @@ function parseFootballDataCsv(text, competition, startYear) {
       malformedMatches += 1;
       return;
     }
-    const homeShotsOnTarget = indexes.HST === undefined ? null : parseCount(cells[indexes.HST]);
-    const awayShotsOnTarget = indexes.AST === undefined ? null : parseCount(cells[indexes.AST]);
-    if (
-      (homeShotsOnTarget !== null && homeShotsOnTarget > homeShots)
-      || (awayShotsOnTarget !== null && awayShotsOnTarget > awayShots)
-    ) {
-      malformedMatches += 1;
-      return;
+    let homeShotsOnTarget = indexes.HST === undefined ? null : parseCount(cells[indexes.HST]);
+    let awayShotsOnTarget = indexes.AST === undefined ? null : parseCount(cells[indexes.AST]);
+    if (homeShotsOnTarget !== null && homeShotsOnTarget > homeShots) {
+      homeShotsOnTarget = null;
+      supplementalStatisticsDiscarded += 1;
+    }
+    if (awayShotsOnTarget !== null && awayShotsOnTarget > awayShots) {
+      awayShotsOnTarget = null;
+      supplementalStatisticsDiscarded += 1;
     }
     const date = new Date(startTimestamp * 1000).toISOString();
     const sourceKey = `${ARCHIVE_SOURCE}:${competition.code}:${startYear}:${date}:${homeTeamKey}:${awayTeamKey}`;
@@ -294,7 +321,12 @@ function parseFootballDataCsv(text, competition, startYear) {
       'invalid_bulk_data',
     );
   }
-  return { rows, teams: [...teams.entries()], incompleteMatches };
+  return {
+    rows,
+    teams: [...teams.entries()],
+    incompleteMatches,
+    supplementalStatisticsDiscarded,
+  };
 }
 
 async function defaultFetchText(url) {
@@ -342,6 +374,7 @@ class ShotDataArchive {
     this.db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     this.syncPromise = null;
     this.timer = null;
+    this.calibrationCache = new Map();
     this.state = { phase: 'idle', completed: 0, total: 0, current: null, error: null, skipped: [] };
     this.createSchema();
   }
@@ -406,6 +439,19 @@ class ShotDataArchive {
     return Number(this.db.prepare('SELECT COUNT(*) AS count FROM shot_matches').get().count) > 0;
   }
 
+  needsFullSync() {
+    if (!this.hasData()) return true;
+    if (this.readMeta('archive_version') !== ARCHIVE_VERSION) return true;
+    const currentStartYear = currentSeasonStartYear(this.now());
+    const totals = this.db.prepare(`
+      SELECT COUNT(DISTINCT competition_id) AS competitions,
+             MIN(season_start_year) AS oldest_season
+      FROM season_teams
+    `).get();
+    return Number(totals.competitions) < BULK_COMPETITIONS.length
+      || Number(totals.oldest_season) > currentStartYear - 6;
+  }
+
   readMeta(key) {
     return this.db.prepare('SELECT value FROM archive_meta WHERE key = ?').get(key)?.value || null;
   }
@@ -421,7 +467,7 @@ class ShotDataArchive {
     return `${FOOTBALL_DATA_ORIGIN}/${seasonCode(startYear)}/${competition.code}.csv`;
   }
 
-  async sync({ full = !this.hasData() } = {}) {
+  async sync({ full = this.needsFullSync() } = {}) {
     if (this.syncPromise) return this.syncPromise;
     this.syncPromise = this.performSync({ full }).finally(() => {
       this.syncPromise = null;
@@ -431,7 +477,9 @@ class ShotDataArchive {
 
   async performSync({ full }) {
     const currentStartYear = currentSeasonStartYear(this.now());
-    const seasonYears = full ? [currentStartYear - 1, currentStartYear] : [currentStartYear];
+    const seasonYears = full
+      ? Array.from({ length: 7 }, (_, index) => currentStartYear - 6 + index)
+      : [currentStartYear];
     const targets = seasonYears.flatMap((startYear) => BULK_COMPETITIONS.map((competition) => ({ competition, startYear })));
     const startedAt = this.now();
     const run = this.db.prepare(`
@@ -486,8 +534,8 @@ class ShotDataArchive {
       `);
       this.db.exec('BEGIN IMMEDIATE');
       try {
-        this.db.prepare('DELETE FROM shot_matches WHERE season_start_year < ?').run(currentStartYear - 1);
-        this.db.prepare('DELETE FROM season_teams WHERE season_start_year < ?').run(currentStartYear - 1);
+        this.db.prepare('DELETE FROM shot_matches WHERE season_start_year < ?').run(currentStartYear - 6);
+        this.db.prepare('DELETE FROM season_teams WHERE season_start_year < ?').run(currentStartYear - 6);
         parsedFiles.forEach((file) => {
           this.db.prepare('DELETE FROM shot_matches WHERE competition_id = ? AND season_start_year = ?')
             .run(file.competition.competitionId, file.startYear);
@@ -531,6 +579,11 @@ class ShotDataArchive {
         this.writeMeta('source', ARCHIVE_SOURCE);
         this.writeMeta('current_season_start_year', currentStartYear);
         this.writeMeta('last_skipped_files', JSON.stringify(this.state.skipped));
+        this.writeMeta(
+          'last_supplemental_statistics_discarded',
+          parsedFiles.reduce((total, file) => total + file.supplementalStatisticsDiscarded, 0),
+        );
+        if (full) this.writeMeta('archive_version', ARCHIVE_VERSION);
         this.db.exec('COMMIT');
       } catch (error) {
         this.db.exec('ROLLBACK');
@@ -552,6 +605,7 @@ class ShotDataArchive {
         error: null,
         skipped: [...this.state.skipped],
       };
+      this.calibrationCache.clear();
       return this.getStatus();
     } catch (error) {
       this.db.prepare(`
@@ -572,7 +626,8 @@ class ShotDataArchive {
   async start() {
     const lastSuccessfulSync = Number(this.readMeta('last_successful_sync') || 0);
     const stale = !lastSuccessfulSync || this.now() - lastSuccessfulSync >= this.updateIntervalMs;
-    if (stale) this.sync({ full: !this.hasData() }).catch(() => {});
+    const full = this.needsFullSync();
+    if (stale || full) this.sync({ full }).catch(() => {});
     if (!this.timer) {
       this.timer = setInterval(() => {
         this.sync({ full: false }).catch(() => {});
@@ -589,7 +644,7 @@ class ShotDataArchive {
   }
 
   async ensureReady() {
-    if (this.hasData()) return;
+    if (this.hasData() && !this.needsFullSync()) return;
     try {
       await this.sync({ full: true });
     } catch (error) {
@@ -597,7 +652,9 @@ class ShotDataArchive {
         ? error
         : new ShotDataArchiveError(error.message || 'Archivio tiri non disponibile.');
     }
-    if (!this.hasData()) throw new ShotDataArchiveError('Archivio tiri ancora vuoto.');
+    if (!this.hasData() || this.needsFullSync()) {
+      throw new ShotDataArchiveError('Archivio tiri non ancora aggiornato alla copertura a due livelli.');
+    }
   }
 
   getStatus() {
@@ -611,11 +668,29 @@ class ShotDataArchive {
       SELECT started_at, completed_at, mode, files, matches, incomplete_matches, status, error
       FROM sync_runs ORDER BY id DESC LIMIT 1
     `).get() || null;
+    const ready = Number(totals.matches) > 0 && !this.needsFullSync();
+    const calibrationSeason = currentSeasonStartYear(this.now());
+    const calibrations = ready
+      ? BULK_COMPETITIONS.map((competition) => {
+        const profile = this.getTransitionCalibration(competition.competitionId, calibrationSeason);
+        return {
+          competitionId: competition.competitionId,
+          competitionName: competition.name,
+          direction: profile?.direction || null,
+          available: profile?.available || false,
+          cohortSize: profile?.cohortSize || 0,
+          equivalentMatches: profile?.equivalentMatches || null,
+          effectRetained: profile?.effectRetained || false,
+        };
+      })
+      : [];
     return {
       configured: true,
       source: ARCHIVE_SOURCE,
+      archiveVersion: this.readMeta('archive_version'),
+      expectedArchiveVersion: ARCHIVE_VERSION,
       databasePath: this.databasePath,
-      ready: Number(totals.matches) > 0,
+      ready,
       phase: this.state.phase,
       progress: {
         completed: this.state.completed,
@@ -626,13 +701,56 @@ class ShotDataArchive {
       skipped: this.state.skipped.length > 0
         ? [...this.state.skipped]
         : JSON.parse(this.readMeta('last_skipped_files') || '[]'),
+      supplementalStatisticsDiscarded: Number(
+        this.readMeta('last_supplemental_statistics_discarded') || 0,
+      ),
       matches: Number(totals.matches || 0),
       competitions: Number(totals.competitions || 0),
       oldestSeason: totals.oldest_season ? seasonName(Number(totals.oldest_season)) : null,
       latestSeason: totals.latest_season ? seasonName(Number(totals.latest_season)) : null,
       lastSuccessfulSync: totals.imported_at ? new Date(Number(totals.imported_at)).toISOString() : null,
+      calibrations,
       latestRun,
     };
+  }
+
+  getCompetitionSeasonRows(competitionId, seasonStartYear, cutoffTimestamp = Number.POSITIVE_INFINITY) {
+    if (Number.isFinite(cutoffTimestamp)) {
+      return this.db.prepare(`
+        SELECT * FROM shot_matches
+        WHERE competition_id = ? AND season_start_year = ? AND start_timestamp < ?
+        ORDER BY start_timestamp, source_key
+      `).all(Number(competitionId), Number(seasonStartYear), Number(cutoffTimestamp));
+    }
+    return this.db.prepare(`
+      SELECT * FROM shot_matches
+      WHERE competition_id = ? AND season_start_year = ?
+      ORDER BY start_timestamp, source_key
+    `).all(Number(competitionId), Number(seasonStartYear));
+  }
+
+  getTransitionCalibration(competitionId, targetSeasonStartYear) {
+    const targetCompetition = COMPETITION_BY_ID.get(Number(competitionId));
+    if (!targetCompetition) return null;
+    const sourceCompetition = COMPETITION_BY_ID.get(targetCompetition.pairedCompetitionId);
+    if (!sourceCompetition) return null;
+    const cacheKey = `${targetCompetition.competitionId}:${targetSeasonStartYear}`;
+    if (!this.calibrationCache.has(cacheKey)) {
+      this.calibrationCache.set(cacheKey, buildTransitionCalibration({
+        targetCompetition,
+        sourceCompetition,
+        targetSeasonStartYear: Number(targetSeasonStartYear),
+        getRows: (candidateCompetitionId, seasonStartYear) => (
+          this.getCompetitionSeasonRows(candidateCompetitionId, seasonStartYear)
+        ),
+      }));
+    }
+    return this.calibrationCache.get(cacheKey);
+  }
+
+  getTeamSeasonRating(competitionId, seasonStartYear, teamKey) {
+    const season = computeSeasonRatings(this.getCompetitionSeasonRows(competitionId, seasonStartYear));
+    return season.teams.get(teamKey) || null;
   }
 
   resolveTeam(competitionId, seasonYears, displayTeamName) {
@@ -644,7 +762,7 @@ class ShotDataArchive {
     if (candidates.length === 0) return null;
     const normalizedInput = normalizeTeamName(displayTeamName);
     const alias = TEAM_ALIASES.get(normalizedInput);
-    const wanted = normalizeTeamName(alias || normalizedInput);
+    const wanted = canonicalTeamKey(alias || normalizedInput);
     const exact = candidates.find((candidate) => candidate.team_key === wanted);
     if (exact) return { key: exact.team_key, name: exact.team_name, method: alias ? 'alias' : 'exact' };
 
@@ -662,7 +780,7 @@ class ShotDataArchive {
     const competitionId = Number(event?.tournament?.uniqueTournament?.id);
     const competition = COMPETITION_BY_ID.get(competitionId);
     if (!competition) {
-      throw new ShotDataArchiveError('Competizione non supportata dall’archivio locale.', 422, 'unsupported_or_insufficient_data');
+      throw new ShotDataArchiveError('Competizione non supportata dall’archivio locale.', 422, 'unsupported_competition');
     }
     const targetSeasonStartYear = seasonStartYearFromEvent(event);
     const seasonYears = [targetSeasonStartYear - 1, targetSeasonStartYear];
@@ -673,7 +791,7 @@ class ShotDataArchive {
       throw new ShotDataArchiveError(
         `Squadra non riconosciuta nell’archivio locale: ${missing.join(', ')}.`,
         422,
-        'unsupported_or_insufficient_data',
+        'team_not_recognized',
       );
     }
     const rows = this.db.prepare(`
@@ -704,6 +822,80 @@ class ShotDataArchive {
       }));
     const homeMatches = observations.filter((observation) => observation.homeTeamId === homeTeam.key).length;
     const awayMatches = observations.filter((observation) => observation.awayTeamId === awayTeam.key).length;
+    const sourceCompetition = COMPETITION_BY_ID.get(competition.pairedCompetitionId);
+    const calibration = this.getTransitionCalibration(competitionId, targetSeasonStartYear);
+    const buildTransition = (team, displayTeamName) => {
+      if (!sourceCompetition) return null;
+      const sourceTeam = this.resolveTeam(
+        sourceCompetition.competitionId,
+        [targetSeasonStartYear - 1],
+        displayTeamName,
+      );
+      if (!sourceTeam) return null;
+      const sourceRating = this.getTeamSeasonRating(
+        sourceCompetition.competitionId,
+        targetSeasonStartYear - 1,
+        sourceTeam.key,
+      );
+      if (!sourceRating) return null;
+      const sourceSufficient = sourceRating.matches.home >= MIN_TEAM_VENUE_MATCHES
+        && sourceRating.matches.away >= MIN_TEAM_VENUE_MATCHES;
+      const factors = calibration?.factors || {
+        homeAttack: 1,
+        homeVulnerability: 1,
+        awayAttack: 1,
+        awayVulnerability: 1,
+      };
+      const transferredRatings = Object.fromEntries(
+        Object.entries(sourceRating.ratings).map(([component, value]) => [component, value * factors[component]]),
+      );
+      const observedStandardErrors = Object.values(calibration?.observedFactors || {})
+        .map((factor) => Number(factor.standardError))
+        .filter(Number.isFinite);
+      return {
+        applied: Boolean(calibration?.available && sourceSufficient),
+        teamId: team.key,
+        teamName: displayTeamName,
+        direction: calibration?.direction || (competition.tier < sourceCompetition.tier ? 'promotion' : 'relegation'),
+        sourceCompetition: {
+          id: sourceCompetition.competitionId,
+          name: sourceCompetition.name,
+          tier: sourceCompetition.tier,
+        },
+        targetCompetition: {
+          id: competition.competitionId,
+          name: competition.name,
+          tier: competition.tier,
+        },
+        sourceSeason: {
+          id: targetSeasonStartYear - 1,
+          name: seasonName(targetSeasonStartYear - 1),
+          year: seasonName(targetSeasonStartYear - 1),
+        },
+        sourceMatches: sourceRating.matches,
+        sourceSufficient,
+        sourceRatings: sourceRating.ratings,
+        transitionFactors: factors,
+        observedFactors: calibration?.observedFactors || null,
+        transferredRatings,
+        equivalentMatches: calibration?.equivalentMatches || 0,
+        cohortSize: calibration?.cohortSize || 0,
+        cohortSeasons: calibration?.cohortSeasons || 0,
+        calibrationSeasons: calibration?.calibrationSeasons || [],
+        effectRetained: calibration?.effectRetained || false,
+        validation: calibration?.validation || null,
+        relativeStandardError: observedStandardErrors.length
+          ? Math.sqrt(
+            observedStandardErrors.reduce((total, value) => total + value ** 2, 0)
+              / observedStandardErrors.length,
+          )
+          : 0,
+      };
+    };
+    const transitions = {
+      home: buildTransition(homeTeam, event.homeTeam.name),
+      away: buildTransition(awayTeam, event.awayTeam.name),
+    };
     return {
       observations,
       excludedMissing: 0,
@@ -717,6 +909,7 @@ class ShotDataArchive {
       homeModelTeamId: homeTeam.key,
       awayModelTeamId: awayTeam.key,
       teamResolution: { home: homeTeam, away: awayTeam },
+      transitions,
       dataSource: ARCHIVE_SOURCE,
     };
   }
@@ -742,7 +935,7 @@ class ShotDataArchive {
         competitions.push({
           id: competition.competitionId,
           name: competition.name,
-          categoryName: 'Top 5',
+          categoryName: competition.countryName,
           seasons,
         });
       }
@@ -835,9 +1028,11 @@ if (require.main === module) {
 
 module.exports = {
   ARCHIVE_SOURCE,
+  ARCHIVE_VERSION,
   BULK_COMPETITIONS,
   ShotDataArchiveError,
   normalizeTeamName,
+  canonicalTeamKey,
   seasonCode,
   seasonName,
   currentSeasonStartYear,

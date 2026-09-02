@@ -2,15 +2,15 @@
 
 ## Scope
 
-Model version `shots-v1.3.0-football-data` estimates total shots for future and historical matches in Serie A, Premier League, LaLiga, Bundesliga, and Ligue 1 when the target season is covered by the local two-season archive.
+Model version `shots-v1.4.0-football-data-transitions` estimates total shots for future and historical matches in Premier League, Championship, Bundesliga, 2. Bundesliga, Serie A, Serie B, LaLiga, LaLiga 2, Ligue 1, and Ligue 2.
 
 The response contains expected home, away, and total shots, an 80% interval, and seven consecutive half-shot Under/Over lines with fair no-margin odds. Team-total probabilities remain out of scope.
 
 ## Local data boundary
 
-`server/shot-data-archive.js` imports Football-Data `HS`/`AS` shot columns into `server/.shot-data/shots.sqlite`. Bootstrap downloads at most five top-flight files for each of the current and previous seasons. Current-season refresh then runs once per day.
+`server/shot-data-archive.js` imports Football-Data `HS`/`AS` shot columns into `server/.shot-data/shots.sqlite`. Bootstrap downloads the current season plus six predecessors for all ten competitions, at most 70 files. Current-season refresh then downloads at most ten files once per day.
 
-All files are parsed and validated before one atomic SQLite transaction. An invalid or interrupted update cannot replace a valid database. A current-season `300`/`404` means the source has not published that league yet; it is reported as skipped and retried later. Successful imports prune rows older than the previous season.
+All files are parsed and validated before one atomic SQLite transaction. An invalid or interrupted update cannot replace a valid database. A current-season `300`/`404` means the source has not published that league yet; it is reported as skipped and retried later. Successful imports retain seven seasons; an archive-version mismatch forces a complete rebuild.
 
 For target event `E` with kickoff `T`, every usable row satisfies:
 
@@ -38,7 +38,18 @@ mu_total = mu_home + mu_away
 - Poisson and negative-binomial total distributions are compared by out-of-sample NLL; the total is calibrated directly rather than built from independent team counts.
 - A line `x.5` uses `P(Under)=P(T<=x)`, `P(Over)=1-P(Under)`, and fair odds `1/p`.
 
-Promotion transfer remains neutral until the bounded archive includes second divisions. No manual multiplier is allowed. Football-Data's Serie A shot-definition caveat is exposed in forecast warnings.
+For a club changing division, each source-season rating is transferred as:
+
+```text
+transition_prior_component = source_rating_component x calibrated_level_factor_component
+destination_rating_component =
+  (n_eff x observed_destination_rating + shrinkage x 1 + equivalent_matches x transition_prior_component)
+  / (n_eff + shrinkage + equivalent_matches)
+```
+
+Promotion and relegation are calibrated separately for each country and for home attack, home vulnerability, away attack, and away vulnerability. The cohort uses the last five completed transition seasons, requires at least eight club-season moves over three seasons, and admits each club only with eight home and eight away matches in both source and destination seasons. A chronological comparison against unchanged source-rating transfer selects 5, 10, or 20 equivalent matches. A level factor is retained only with at least 0.5% NLL improvement and MAE no more than 2% worse; otherwise that factor is neutral (`1`).
+
+A club arriving from an uncovered third tier has no source prior and cannot be predicted before eight relevant venue matches in its destination league. No manual multiplier or invented observation is allowed. Football-Data's Serie A shot-definition caveat remains exposed in forecast warnings.
 
 ## Runtime flow
 
@@ -48,6 +59,8 @@ Promotion transfer remains neutral until the bounded archive includes second div
 4. The server persists the snapshot and starts one deduplicated job. The chronological parameter backtest runs in a worker thread so the proxy stays responsive.
 5. `useShotPrediction` polls the GET route while that local job runs.
 6. Details and the two independent average panels query SQLite lazily.
+
+Deterministic `422` failures have distinct codes: `unsupported_competition`, `team_not_recognized`, `insufficient_team_history`, `insufficient_competition_history`, `transition_calibration_unavailable`, and `invalid_target_snapshot`. The UI explains these states without offering a retry that cannot change the result. Successful transition forecasts expose the source/destination competitions, source season, cohort size, selected equivalent-match weight, and whether validation retained the level effect.
 
 Every numerical value shown by the page comes from Football-Data or a local calculation: `HS`/`AS` provide match shots; expected values, intervals, probabilities, fair odds, historical rows, and averages are derived from those observations. The event id, kickoff, competition, season, and team labels are display/target metadata reused from the match already opened in the app. Team badges use local initials, so opening `Previsioni` adds no SofaScore JSON or image request.
 
@@ -76,4 +89,4 @@ npm run lint
 npm run build
 ```
 
-Tests cover CSV parsing, atomic rollback, two-season pruning, team reconciliation, descriptive averages, point-in-time cutoff, model math, worker-based chronological selection, snapshot priming, GET initialization guards, and a source-level invariant that forbids HTTP transport inside the prediction model.
+Tests cover CSV parsing, atomic rollback, seven-season/ten-competition retention, canonical team reconciliation, descriptive averages, point-in-time cutoff, four-component promotion and relegation calibration, transition-prior blending, cold-start blocking, model math, worker-based chronological selection, snapshot priming, GET initialization guards, transition diagnostics in React, and a source-level invariant that forbids HTTP transport inside the prediction model.

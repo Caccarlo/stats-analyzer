@@ -365,6 +365,28 @@ export interface ShotRatingDiagnostic {
   raw: number;
   value: number;
   nEff: number;
+  transitionPrior?: { value: number; weight: number } | null;
+}
+
+export interface ShotCompetitionTransitionTeam {
+  teamId: number | string;
+  teamName: string;
+  applied: boolean;
+  direction: 'promotion' | 'relegation';
+  sourceCompetition: { id: number; name: string; tier: number };
+  targetCompetition: { id: number; name: string; tier: number };
+  sourceSeason: { id: number; name: string; year?: string };
+  sourceMatches: { home: number; away: number };
+  sourceSufficient: boolean;
+  sourceRatings: Record<string, number>;
+  transitionFactors: Record<string, number>;
+  transferredRatings: Record<string, number>;
+  equivalentMatches: number;
+  cohortSize: number;
+  cohortSeasons: number;
+  calibrationSeasons: number[];
+  effectRetained: boolean;
+  relativeStandardError: number;
 }
 
 export interface ShotPrediction {
@@ -422,23 +444,12 @@ export interface ShotPrediction {
     missingStatisticsExcluded: number;
     dataSource?: string;
     seasonsUsed: Array<{ id: number; name: string; year?: string }>;
-    promotion: {
+    competitionTransition: {
       applied: boolean;
+      direction: 'promotion' | 'relegation' | 'none';
       uncertaintyShots: number;
       note: string;
-      teams: Array<{
-        teamId: number;
-        teamName: string;
-        applied: boolean;
-        sourceCompetitionId: number;
-        sourceSeason: { id: number; name: string; year?: string };
-        cohortSize: number;
-        cohortSufficient: boolean;
-        equivalentMatches: number;
-        lowerRatings: Record<string, number>;
-        transitionFactors: Record<string, number>;
-        transferredRatings: Record<string, number>;
-      }>;
+      teams: ShotCompetitionTransitionTeam[];
     };
     warnings: string[];
   };

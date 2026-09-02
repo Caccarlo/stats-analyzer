@@ -32,7 +32,7 @@ vi.mock('@/api/predictions', () => ({
 
 const prediction: ShotPrediction = {
   eventId: 999,
-  modelVersion: 'shots-v1.3.0-football-data',
+  modelVersion: 'shots-v1.4.0-football-data-transitions',
   generatedAt: '2026-08-30T10:00:00.000Z',
   cutoffTimestamp: 1_800_000_000,
   cutoffIso: '2027-01-15T08:00:00.000Z',
@@ -74,7 +74,13 @@ const prediction: ShotPrediction = {
     latestObservationTimestamp: 1_790_000_000,
     missingStatisticsExcluded: 2,
     seasonsUsed: [{ id: 101, name: '2025/26' }],
-    promotion: { applied: false, uncertaintyShots: 0, note: 'Nessuna correzione.', teams: [] },
+    competitionTransition: {
+      applied: false,
+      direction: 'none',
+      uncertaintyShots: 0,
+      note: 'Nessuna correzione.',
+      teams: [],
+    },
     warnings: [],
   },
 };
@@ -118,4 +124,62 @@ test('le medie partono solo su richiesta e i selettori restano indipendenti', as
 
   expect(onHomeChange).toHaveBeenCalledWith({ competitionId: 7, seasonId: 201, venue: 'home' });
   expect(onAwayChange).not.toHaveBeenCalled();
+});
+
+test('mostra in modo esplicito la coorte reale usata per un cambio di categoria', () => {
+  const transitionedPrediction: ShotPrediction = {
+    ...prediction,
+    diagnostics: {
+      ...prediction.diagnostics,
+      competitionTransition: {
+        applied: true,
+        direction: 'promotion',
+        uncertaintyShots: 1.1,
+        note: 'Rating trasferito dalla Championship.',
+        teams: [{
+          teamId: 'ipswich',
+          teamName: 'Ipswich Town',
+          applied: true,
+          direction: 'promotion',
+          sourceCompetition: { id: 18, name: 'Championship', tier: 2 },
+          targetCompetition: { id: 17, name: 'Premier League', tier: 1 },
+          sourceSeason: { id: 2025, name: '2025/26', year: '2025/26' },
+          sourceMatches: { home: 23, away: 23 },
+          sourceSufficient: true,
+          sourceRatings: { homeAttack: 1.1 },
+          transitionFactors: { homeAttack: 0.9 },
+          transferredRatings: { homeAttack: 0.99 },
+          equivalentMatches: 10,
+          cohortSize: 13,
+          cohortSeasons: 5,
+          calibrationSeasons: [2021, 2022, 2023, 2024, 2025],
+          effectRetained: true,
+          relativeStandardError: 0.04,
+        }],
+      },
+    },
+  };
+  render(
+    <NavigationProvider>
+      <ShotPredictionsView
+        eventId={999}
+        homeTeamId={1}
+        homeTeamName="Ipswich Town"
+        awayTeamId={2}
+        awayTeamName="Liverpool FC"
+        leagueId={17}
+        leagueName="Premier League"
+        seasonId={101}
+        seasonYear="2025/26"
+        predictionState={{ ...predictionState, prediction: transitionedPrediction }}
+        homeAverageSelection={{ competitionId: 17, seasonId: 101, venue: 'home' }}
+        awayAverageSelection={{ competitionId: 17, seasonId: 101, venue: 'away' }}
+        onHomeAverageSelectionChange={vi.fn()}
+        onAwayAverageSelectionChange={vi.fn()}
+      />
+    </NavigationProvider>,
+  );
+
+  expect(screen.getByLabelText('Correzioni per cambio di categoria')).toHaveTextContent('13 passaggi reali in 5 stagioni');
+  expect(screen.getByText(/Championship → Premier League/)).toBeInTheDocument();
 });

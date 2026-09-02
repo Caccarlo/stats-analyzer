@@ -7,6 +7,7 @@ const path = require('node:path');
 const {
   BULK_COMPETITIONS,
   normalizeTeamName,
+  canonicalTeamKey,
   parseCsv,
   parseFootballDataCsv,
   createShotDataArchive,
@@ -28,6 +29,7 @@ function fixtureCsv(startYear, division = 'I1') {
 test('parser CSV gestisce virgolette e normalizza i nomi', () => {
   assert.deepEqual(parseCsv('A,B\r\n"x,y","z""q"\r\n'), [['A', 'B'], ['x,y', 'z"q']]);
   assert.equal(normalizeTeamName('FC Internazionale Milano'), 'internazionale milano');
+  assert.equal(canonicalTeamKey('Ipswich Town FC'), canonicalTeamKey('Ipswich'));
 });
 
 test('parser Football-Data conserva tiri, squadre e gare future senza statistiche', () => {
@@ -43,7 +45,21 @@ test('parser Football-Data conserva tiri, squadre e gare future senza statistich
   assert.ok(parsed.rows[0].startTimestamp > 0);
 });
 
-test('bootstrap atomico importa due stagioni, cataloghi, medie e cutoff point-in-time', async () => {
+test('un HST o AST impossibile viene annullato senza perdere i tiri totali validi', () => {
+  const competition = BULK_COMPETITIONS.find((item) => item.competitionId === 17);
+  const csv = [
+    'Div,Date,Time,HomeTeam,AwayTeam,FTR,HS,AS,HST,AST',
+    'E0,15/08/2021,14:00,Newcastle,West Ham,H,17,8,3,9',
+  ].join('\r\n');
+  const parsed = parseFootballDataCsv(csv, competition, 2021);
+  assert.equal(parsed.rows.length, 1);
+  assert.equal(parsed.rows[0].homeShots, 17);
+  assert.equal(parsed.rows[0].awayShots, 8);
+  assert.equal(parsed.rows[0].awayShotsOnTarget, null);
+  assert.equal(parsed.supplementalStatisticsDiscarded, 1);
+});
+
+test('bootstrap atomico importa sette stagioni per dieci campionati, cataloghi, medie e cutoff point-in-time', async () => {
   const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shot-archive-test-'));
   const calls = [];
   let failDownloads = false;
@@ -63,16 +79,17 @@ test('bootstrap atomico importa due stagioni, cataloghi, medie e cutoff point-in
 
   try {
     const status = await archive.sync({ full: true });
-    assert.equal(calls.length, 10);
+    assert.equal(calls.length, 70);
     assert.equal(status.ready, true);
-    assert.equal(status.matches, 40);
-    assert.equal(status.competitions, 5);
-    assert.equal(status.oldestSeason, '2025/26');
+    assert.equal(status.matches, 280);
+    assert.equal(status.competitions, 10);
+    assert.equal(status.oldestSeason, '2020/21');
     assert.equal(status.latestSeason, '2026/27');
+    assert.equal(status.calibrations.length, 10);
 
     const catalog = await archive.getAverageCatalog(123, 'Cagliari');
-    assert.equal(catalog.competitions.length, 5);
-    assert.deepEqual(catalog.competitions[0].seasons.map((season) => season.id), [2026, 2025]);
+    assert.equal(catalog.competitions.length, 10);
+    assert.deepEqual(catalog.competitions[0].seasons.map((season) => season.id), [2026, 2025, 2024, 2023, 2022, 2021, 2020]);
 
     const averages = await archive.getShotAverages(123, 'Cagliari', 23, 2025, 'home');
     assert.equal(averages.matches, 2);
@@ -91,15 +108,22 @@ test('bootstrap atomico importa due stagioni, cataloghi, medie e cutoff point-in
     });
     assert.equal(dataset.homeModelTeamId, 'cagliari');
     assert.equal(dataset.awayModelTeamId, 'inter');
+    assert.equal(dataset.transitions.home.sourceCompetition.id, 53);
+    assert.equal(dataset.transitions.home.sourceSufficient, false);
+    assert.equal(dataset.transitions.home.applied, false);
     assert.ok(dataset.observations.every((observation) => observation.startTimestamp < targetTimestamp));
     assert.ok(dataset.observations.every((observation) => !(
       observation.homeTeamId === 'inter' && observation.awayTeamId === 'cagliari'
       && observation.startTimestamp >= targetTimestamp - 6 * 60 * 60
     )));
 
+    calls.length = 0;
+    await archive.sync({ full: false });
+    assert.equal(calls.length, 10, 'il refresh giornaliero scarica solo la stagione corrente');
+
     failDownloads = true;
     await assert.rejects(archive.sync({ full: true }), /download interrotto/);
-    assert.equal(archive.getStatus().matches, 40, 'un download fallito non deve alterare il database valido');
+    assert.equal(archive.getStatus().matches, 280, 'un download fallito non deve alterare il database valido');
   } finally {
     archive.close();
     await fs.promises.rm(directory, { recursive: true, force: true });
